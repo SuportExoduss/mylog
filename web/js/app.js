@@ -1,6 +1,6 @@
 // Shell do painel: sessao, navegacao e montagem das telas.
 import { api, ErroApi } from './api.js'
-import { elemento, limpar, notificar, ROTULO_PAPEL } from './ui.js'
+import { elemento, limpar, notificar, marca, alternarTema, ROTULO_PAPEL } from './ui.js'
 import { telaPainel } from './painel.js'
 import { telaUsuarios } from './usuarios.js'
 import { telaVeiculos } from './veiculos.js'
@@ -122,7 +122,15 @@ document.getElementById('botao-sair').addEventListener('click', async () => {
   notificar('Sessao encerrada.')
 })
 
+document.getElementById('botao-tema').addEventListener('click', () => {
+  notificar(alternarTema() === 'escuro' ? 'Tema escuro.' : 'Tema claro.')
+})
+
 // ------------------------------------------------------------- inicio
+
+// A marca e desenhada, nao escrita no HTML: um lugar so define o simbolo.
+document.getElementById('login-marca').append(marca({ grande: true }))
+document.getElementById('app-marca').append(marca())
 
 async function iniciar() {
   try {

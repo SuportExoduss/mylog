@@ -173,25 +173,25 @@ export async function telaPreventivas(raiz, contexto) {
 
         return elemento('tr', {}, [
           elemento('td', {}, [
-            elemento('div', { classe: 'celula-forte mono', texto: p.placa }),
+            elemento('div', { classe: 'celula-forte dado', texto: p.placa }),
             elemento('div', { classe: 'celula-fraca', texto: p.modelo }),
           ]),
           elemento('td', { classe: 'celula-fraca',
             texto: p.modo === 'km' ? 'Quilometragem' : 'Data' }),
           elemento('td', {}, [
-            elemento('div', { classe: 'mono', texto: alvoDe(p) }),
+            elemento('div', { classe: 'dado', texto: alvoDe(p) }),
             elemento('div', { classe: 'celula-fraca',
               texto: p.modo === 'km' ? `atual: ${numero(p.km_atual)} km` : '' }),
           ]),
           elemento('td', {}, [
             selo(ROTULO_STATUS_PREVENTIVA[p.status], TOM_STATUS_PREVENTIVA[p.status]),
-            elemento('div', { classe: 'celula-fraca', style: 'margin-top:4px', texto: p.folga }),
+            elemento('div', { classe: 'celula-fraca esp-t-1', texto: p.folga }),
           ]),
           elemento('td', { classe: 'celula-fraca' }, [
             elemento('div', { texto: p.ultimo_servico_data ? dataCurta(p.ultimo_servico_data) : '—' }),
             p.concluida_por_nome ? elemento('div', { texto: p.concluida_por_nome }) : null,
           ]),
-          elemento('td', {}, [elemento('div', { classe: 'acoes-linha' }, acoes)]),
+          elemento('td', {}, [elemento('div', { classe: 'linha linha--fim' }, acoes)]),
         ])
       }))
   }
@@ -213,7 +213,7 @@ export async function telaPreventivas(raiz, contexto) {
             aoClick: () => novaPreventiva(recarregar) })]
         : [],
     }),
-    elemento('div', { classe: 'barra-filtros' }, [seletorStatus]),
+    elemento('div', { classe: 'filtros' }, [seletorStatus]),
     areaLista,
   )
 

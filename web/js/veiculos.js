@@ -107,7 +107,7 @@ async function gerenciarCondutores(veiculo, recarregar) {
                   elemento('div', { classe: 'celula-forte', texto: c.nome }),
                   c.principal ? elemento('div', { classe: 'celula-fraca', texto: 'Condutor principal' }) : null,
                 ]),
-                elemento('td', {}, [elemento('div', { classe: 'acoes-linha' }, [
+                elemento('td', {}, [elemento('div', { classe: 'linha linha--fim' }, [
                   elemento('button', {
                     classe: 'botao botao--suave botao--mini', type: 'button', texto: 'Remover',
                     aoClick: async (evento) => {
@@ -137,11 +137,11 @@ async function gerenciarCondutores(veiculo, recarregar) {
     elemento('h3', { texto: `Condutores de ${veiculo.placa}` }),
     elemento('p', { classe: 'modal-sub', texto: `${veiculo.marca || ''} ${veiculo.modelo}`.trim() }),
     lista,
-    elemento('div', { classe: 'campo', style: 'margin-top:16px' }, [
+    elemento('div', { classe: 'campo esp-t-4' }, [
       elemento('label', { texto: 'Autorizar novo condutor' }),
       seletor,
     ]),
-    elemento('label', { style: 'display:flex;gap:8px;align-items:center;font-size:13px' }, [
+    elemento('label', { classe: 'campo-linha' }, [
       marcaPrincipal, 'Definir como condutor principal',
     ]),
     elemento('div', { classe: 'modal-acoes' }, [
@@ -215,22 +215,22 @@ export async function telaVeiculos(raiz, contexto) {
       }
 
       return elemento('tr', {}, [
-        elemento('td', {}, [elemento('span', { classe: 'celula-forte mono', texto: veiculo.placa })]),
+        elemento('td', {}, [elemento('span', { classe: 'celula-forte dado', texto: veiculo.placa })]),
         elemento('td', {}, [
           elemento('div', { texto: veiculo.modelo }),
           elemento('div', { classe: 'celula-fraca',
             texto: [veiculo.marca, veiculo.ano].filter(Boolean).join(' · ') || '—' }),
         ]),
         elemento('td', { classe: 'celula-fraca', texto: veiculo.usuario_principal_nome || 'sem condutor' }),
-        elemento('td', { classe: 'celula-fraca mono', texto: `${numero(veiculo.km_atual)} km` }),
+        elemento('td', { classe: 'celula-fraca dado', texto: `${numero(veiculo.km_atual)} km` }),
         elemento('td', {}, [
           selo(ROTULO_STATUS_VEICULO[veiculo.status], TOM_STATUS_VEICULO[veiculo.status]),
           veiculo.motivo_status
-            ? elemento('div', { classe: 'celula-fraca', style: 'margin-top:4px;max-width:280px',
+            ? elemento('div', { classe: 'celula-fraca esp-t-1 limite-texto-curto',
                 texto: veiculo.motivo_status })
             : null,
         ]),
-        elemento('td', {}, [elemento('div', { classe: 'acoes-linha' }, acoes)]),
+        elemento('td', {}, [elemento('div', { classe: 'linha linha--fim' }, acoes)]),
       ])
     }))
   }
@@ -255,7 +255,7 @@ export async function telaVeiculos(raiz, contexto) {
         ? [elemento('button', { classe: 'botao', texto: '+ Novo veiculo', aoClick: () => novoVeiculo(recarregar) })]
         : [],
     }),
-    elemento('div', { classe: 'barra-filtros' }, [campoBusca, seletorStatus]),
+    elemento('div', { classe: 'filtros' }, [campoBusca, seletorStatus]),
     areaLista,
   )
 

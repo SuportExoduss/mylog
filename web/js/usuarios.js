@@ -131,7 +131,7 @@ export async function telaUsuarios(raiz, contexto) {
         elemento('td', { classe: 'celula-fraca', texto: ROTULO_PAPEL[usuario.papel] || usuario.papel }),
         elemento('td', {}, [selo(ROTULO_STATUS_USUARIO[usuario.status], TOM_STATUS_USUARIO[usuario.status])]),
         elemento('td', { classe: 'celula-fraca', texto: usuario.ativado_em ? dataCurta(usuario.ativado_em) : '—' }),
-        elemento('td', {}, [elemento('div', { classe: 'acoes-linha' }, acoes)]),
+        elemento('td', {}, [elemento('div', { classe: 'linha linha--fim' }, acoes)]),
       ])
     }))
   }
@@ -157,7 +157,7 @@ export async function telaUsuarios(raiz, contexto) {
             aoClick: () => formularioNovoUsuario(recarregar) })]
         : [],
     }),
-    elemento('div', { classe: 'barra-filtros' }, [campoBusca, seletorStatus]),
+    elemento('div', { classe: 'filtros' }, [campoBusca, seletorStatus]),
     areaLista,
   )
 

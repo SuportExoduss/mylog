@@ -14,8 +14,7 @@ const DESTINO_ALERTA = {
 
 function card(titulo, valor, detalhes = [], aoClick) {
   return elemento('div', {
-    classe: 'card',
-    style: aoClick ? 'cursor:pointer' : null,
+    classe: aoClick ? 'card clicavel' : 'card',
     aoClick,
   }, [
     elemento('div', { classe: 'card-titulo', texto: titulo }),
@@ -71,15 +70,14 @@ export async function telaPainel(raiz, contexto) {
   ), () => contexto.irPara('usuarios')))
 
   const alertas = dados.alertas.length
-    ? elemento('div', { classe: 'fila-alertas' }, dados.alertas.map((alerta) =>
+    ? elemento('div', { classe: 'fila' }, dados.alertas.map((alerta) =>
         elemento('div', {
-          classe: `alerta-linha nivel-${alerta.nivel}`,
-          style: 'cursor:pointer',
+          classe: `fila-item fila-item--${alerta.nivel} clicavel`,
           // Clicar no alerta leva a tela que resolve o alerta.
           aoClick: () => contexto.irPara(DESTINO_ALERTA[alerta.tipo] || 'painel'),
         }, [
           selo(alerta.tipo.replace('_', ' '), alerta.nivel === 'critico' ? 's-critico' : 's-atencao'),
-          elemento('div', { classe: 'alerta-texto', texto: alerta.texto }),
+          elemento('div', { classe: 'fila-texto', texto: alerta.texto }),
         ])))
     : vazio('Nenhum alerta em aberto. A frota esta em dia.')
 
@@ -89,7 +87,7 @@ export async function telaPainel(raiz, contexto) {
       descricao: 'Panorama da frota e o que exige acao agora.',
     }),
     elemento('div', { classe: 'grade' }, cards),
-    elemento('section', { classe: 'painel-secao' }, [
+    elemento('section', { classe: 'secao' }, [
       elemento('h2', { texto: 'Fila de acao' }),
       alertas,
     ]),

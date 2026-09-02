@@ -101,14 +101,14 @@ export async function telaTemplates(raiz, contexto) {
         return elemento('tr', {}, [
           elemento('td', {}, [
             elemento('div', { classe: 'celula-forte', texto: t.nome }),
-            elemento('div', { classe: 'celula-fraca mono', texto: t.codigo }),
+            elemento('div', { classe: 'celula-fraca dado', texto: t.codigo }),
           ]),
-          elemento('td', { classe: 'celula-fraca mono', texto: `v${t.versao}` }),
+          elemento('td', { classe: 'celula-fraca dado', texto: `v${t.versao}` }),
           elemento('td', { classe: 'celula-fraca',
             texto: `${t.total_secoes} secoes · ${t.total_itens} itens` }),
           elemento('td', {}, [selo(t.status, TOM_STATUS_TEMPLATE[t.status])]),
           elemento('td', { classe: 'celula-fraca', texto: t.publicado_em ? dataCurta(t.publicado_em) : '—' }),
-          elemento('td', {}, [elemento('div', { classe: 'acoes-linha' }, acoes)]),
+          elemento('td', {}, [elemento('div', { classe: 'linha linha--fim' }, acoes)]),
         ])
       }))
   }
@@ -322,25 +322,23 @@ async function editorTemplate(raiz, contexto, id) {
     return elemento('tr', {}, [
       elemento('td', {}, [
         elemento('div', { classe: 'celula-forte', texto: item.rotulo }),
-        elemento('div', { classe: 'celula-fraca mono', texto: item.id }),
+        elemento('div', { classe: 'celula-fraca dado', texto: item.id }),
       ]),
       elemento('td', { classe: 'celula-fraca',
         texto: TIPOS_ITEM.find((t) => t.valor === item.tipo)?.rotulo || item.tipo }),
       elemento('td', {}, [elemento('div', { classe: 'card-detalhe' }, marcas)]),
-      elemento('td', {}, [elemento('div', { classe: 'acoes-linha' }, acoes)]),
+      elemento('td', {}, [elemento('div', { classe: 'linha linha--fim' }, acoes)]),
     ])
   }
 
   function desenharSecoes() {
     const blocos = estrutura.secoes.map((secao, si) => {
-      const cabecalho = elemento('div', {
-        style: 'display:flex;align-items:center;justify-content:space-between;gap:12px;margin:22px 0 10px',
-      }, [
+      const cabecalho = elemento('div', { classe: 'secao-titulo esp-t-5' }, [
         elemento('div', {}, [
-          elemento('h2', { style: 'margin:0;font-size:15px', texto: secao.titulo }),
-          elemento('div', { classe: 'celula-fraca mono', texto: `${secao.id} · ${secao.itens.length} itens` }),
+          elemento('h2', { texto: secao.titulo }),
+          elemento('div', { classe: 'celula-fraca dado', texto: `${secao.id} · ${secao.itens.length} itens` }),
         ]),
-        editavel ? elemento('div', { classe: 'acoes-linha' }, [
+        editavel ? elemento('div', { classe: 'linha linha--fim' }, [
           elemento('button', { classe: 'botao botao--mini', texto: '+ Item',
             aoClick: () => formularioItem(si, null) }),
           elemento('button', { classe: 'botao botao--suave botao--mini', texto: 'Renomear',

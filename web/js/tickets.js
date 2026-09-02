@@ -153,13 +153,13 @@ export async function telaTickets(raiz, contexto) {
         }
 
         return elemento('tr', {}, [
-          elemento('td', {}, [elemento('span', { classe: 'celula-forte mono', texto: `#${t.numero}` })]),
+          elemento('td', {}, [elemento('span', { classe: 'celula-forte dado', texto: `#${t.numero}` })]),
           elemento('td', {}, [
             elemento('div', { classe: 'celula-forte', texto: rotuloCategoria(t.categoria) }),
-            elemento('div', { classe: 'celula-fraca', style: 'max-width:340px',
+            elemento('div', { classe: 'celula-fraca limite-texto',
               texto: t.descricao.length > 90 ? `${t.descricao.slice(0, 90)}...` : t.descricao }),
           ]),
-          elemento('td', { classe: 'celula-fraca mono', texto: t.placa || '—' }),
+          elemento('td', { classe: 'celula-fraca dado', texto: t.placa || '—' }),
           elemento('td', { classe: 'celula-fraca', texto: t.solicitante_nome }),
           elemento('td', { classe: 'celula-fraca', texto: t.responsavel_nome || 'sem responsavel' }),
           elemento('td', {}, [
@@ -168,10 +168,10 @@ export async function telaTickets(raiz, contexto) {
               t.prioridade === 'alta' ? selo('alta', 's-alerta') : null,
               t.atrasado ? selo('atrasado', 's-critico') : null,
             ].filter(Boolean)),
-            elemento('div', { classe: 'celula-fraca', style: 'margin-top:4px',
+            elemento('div', { classe: 'celula-fraca esp-t-1',
               texto: `aberto em ${dataCurta(t.criado_em)}` }),
           ]),
-          elemento('td', {}, [elemento('div', { classe: 'acoes-linha' }, acoes)]),
+          elemento('td', {}, [elemento('div', { classe: 'linha linha--fim' }, acoes)]),
         ])
       }))
   }
@@ -199,7 +199,7 @@ export async function telaTickets(raiz, contexto) {
             aoClick: () => abrirTicket(recarregar) })]
         : [],
     }),
-    elemento('div', { classe: 'barra-filtros' }, [seletorStatus, seletorCategoria]),
+    elemento('div', { classe: 'filtros' }, [seletorStatus, seletorCategoria]),
     areaLista,
   )
 

@@ -86,21 +86,21 @@ export async function telaOcorrencias(raiz, contexto) {
 
         return elemento('tr', {}, [
           elemento('td', {}, [
-            elemento('div', { classe: 'celula-forte mono', texto: o.placa }),
+            elemento('div', { classe: 'celula-forte dado', texto: o.placa }),
             elemento('div', { classe: 'celula-fraca', texto: o.modelo }),
           ]),
           elemento('td', {}, [
-            elemento('div', { style: 'max-width:380px', texto: o.descricao }),
-            o.item_id ? elemento('div', { classe: 'celula-fraca mono', texto: o.item_id }) : null,
+            elemento('div', { classe: 'limite-texto', texto: o.descricao }),
+            o.item_id ? elemento('div', { classe: 'celula-fraca dado', texto: o.item_id }) : null,
           ]),
           elemento('td', {}, [selo(o.criticidade, TOM_CRITICIDADE[o.criticidade])]),
           elemento('td', { classe: 'celula-fraca', texto: o.responsavel_nome || 'sem responsavel' }),
           elemento('td', {}, [
             selo(ROTULO_STATUS[o.status], TOM_STATUS[o.status]),
-            elemento('div', { classe: 'celula-fraca', style: 'margin-top:4px',
+            elemento('div', { classe: 'celula-fraca esp-t-1',
               texto: `desde ${dataCurta(o.aberta_em)}` }),
           ]),
-          elemento('td', {}, [elemento('div', { classe: 'acoes-linha' }, acoes)]),
+          elemento('td', {}, [elemento('div', { classe: 'linha linha--fim' }, acoes)]),
         ])
       }))
   }
@@ -124,7 +124,7 @@ export async function telaOcorrencias(raiz, contexto) {
       titulo: 'Ocorrencias',
       descricao: 'Nao conformidades encontradas em checklist ou promovidas de tickets. Mais criticas primeiro.',
     }),
-    elemento('div', { classe: 'barra-filtros' }, [seletorStatus, seletorCriticidade]),
+    elemento('div', { classe: 'filtros' }, [seletorStatus, seletorCriticidade]),
     areaLista,
   )
   await recarregar()
@@ -149,7 +149,7 @@ function resumirMudanca(evento) {
 export async function telaAuditoria(raiz, contexto) {
   const filtros = { busca: '', entidade: '' }
   const areaLista = elemento('div', {})
-  const areaFiltros = elemento('div', { classe: 'barra-filtros' })
+  const areaFiltros = elemento('div', { classe: 'filtros' })
 
   async function recarregar() {
     const { eventos, limite } = await api.auditoria(filtros)
@@ -161,20 +161,20 @@ export async function telaAuditoria(raiz, contexto) {
 
     const tabelaEventos = tabela(['Quando', 'Quem', 'Acao', 'Sobre', 'Mudanca'],
       eventos.map((e) => elemento('tr', {}, [
-        elemento('td', { classe: 'celula-fraca mono' }, [
+        elemento('td', { classe: 'celula-fraca dado' }, [
           elemento('div', { texto: dataCurta(e.criado_em) }),
           elemento('div', { texto: e.criado_em.slice(11, 19) }),
         ]),
         elemento('td', { classe: 'celula-fraca', texto: e.ator_nome || 'sistema' }),
-        elemento('td', {}, [elemento('span', { classe: 'mono celula-forte', texto: e.acao })]),
-        elemento('td', { classe: 'celula-fraca mono', texto: e.entidade }),
-        elemento('td', { classe: 'celula-fraca', style: 'max-width:340px', texto: resumirMudanca(e) }),
+        elemento('td', {}, [elemento('span', { classe: 'celula-forte dado', texto: e.acao })]),
+        elemento('td', { classe: 'celula-fraca dado', texto: e.entidade }),
+        elemento('td', { classe: 'celula-fraca limite-texto', texto: resumirMudanca(e) }),
       ])))
 
     return elemento('div', {}, [
       tabelaEventos,
       eventos.length >= limite
-        ? elemento('div', { classe: 'campo-dica', style: 'margin-top:10px',
+        ? elemento('div', { classe: 'campo-dica esp-t-3',
             texto: `Mostrando os ${limite} eventos mais recentes. Use a busca para estreitar.` })
         : null,
     ])

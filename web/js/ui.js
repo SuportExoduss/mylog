@@ -21,6 +21,63 @@ export function elemento(tag, atributos = {}, filhos = []) {
 
 export function limpar(no) { while (no.firstChild) no.removeChild(no.firstChild) }
 
+
+// --------------------------------------------------------------- marca
+
+// Simbolo do MyLog: um registro conferido e assinado — quadrado de ficha,
+// visto de verificacao e a linha de assinatura embaixo. Herda currentColor,
+// entao serve em qualquer fundo e em qualquer tema sem segunda versao.
+export function simbolo(classe = 'marca-simbolo') {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+  svg.setAttribute('viewBox', '0 0 32 32')
+  svg.setAttribute('fill', 'none')
+  svg.setAttribute('aria-hidden', 'true')
+  svg.setAttribute('class', classe)
+  svg.innerHTML = `
+    <rect x="2.6" y="2.6" width="26.8" height="26.8" rx="7.5"
+          stroke="currentColor" stroke-width="2.4"/>
+    <path d="M9.8 15.6 L14 19.8 L22.4 11"
+          stroke="currentColor" stroke-width="3"
+          stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M10.2 24.2 H21.8"
+          stroke="currentColor" stroke-width="2.4"
+          stroke-linecap="round" opacity=".45"/>`
+  return svg
+}
+
+// Assinatura visual completa: simbolo + nome.
+export function marca({ grande = false } = {}) {
+  return elemento('div', { classe: 'marca' }, [
+    simbolo(grande ? 'marca-simbolo marca-simbolo--grande' : 'marca-simbolo'),
+    elemento('div', {
+      classe: grande ? 'marca-nome marca-nome--grande' : 'marca-nome',
+      html: 'My<span>Log</span>',
+    }),
+  ])
+}
+
+// ---------------------------------------------------------------- tema
+
+const CHAVE_TEMA = 'mylog.tema'
+
+export function aplicarTemaGuardado() {
+  try {
+    const guardado = localStorage.getItem(CHAVE_TEMA)
+    if (guardado) document.documentElement.dataset.tema = guardado
+  } catch { /* navegador sem storage: segue a preferencia do sistema */ }
+}
+
+export function alternarTema() {
+  const raiz = document.documentElement
+  const escuroAgora = raiz.dataset.tema
+    ? raiz.dataset.tema === 'escuro'
+    : matchMedia('(prefers-color-scheme: dark)').matches
+  const novo = escuroAgora ? 'claro' : 'escuro'
+  raiz.dataset.tema = novo
+  try { localStorage.setItem(CHAVE_TEMA, novo) } catch { /* sem storage, vale so nesta aba */ }
+  return novo
+}
+
 // --------------------------------------------------------------- rotulos
 
 export const ROTULO_STATUS_USUARIO = {
@@ -56,7 +113,7 @@ export const TOM_STATUS_PREVENTIVA = {
 }
 
 export function selo(texto, tom = 's-neutro') {
-  return elemento('span', { classe: `selo-status ${tom}`, texto })
+  return elemento('span', { classe: `selo ${tom}`, texto })
 }
 
 export function dataCurta(iso) {
@@ -188,7 +245,7 @@ export function abrirModal({ titulo, subtitulo, campos = [], confirmar = 'Salvar
 // ------------------------------------------------------------- estruturas
 
 export function cabecalhoTela({ titulo, descricao, acoes = [] }) {
-  return elemento('div', { classe: 'topo' }, [
+  return elemento('header', { classe: 'topo' }, [
     elemento('div', {}, [
       elemento('h1', { texto: titulo }),
       descricao ? elemento('p', { texto: descricao }) : null,
@@ -197,12 +254,16 @@ export function cabecalhoTela({ titulo, descricao, acoes = [] }) {
   ])
 }
 
+// Coluna com rotulo vazio e' coluna de acoes: encolhe ao conteudo.
+// A caixa rola na horizontal sozinha — a pagina nunca rola de lado.
 export function tabela(colunas, linhas) {
   return elemento('div', { classe: 'tabela-caixa' }, [
-    elemento('table', {}, [
-      elemento('thead', {}, [elemento('tr', {}, colunas.map((c) =>
-        elemento('th', { texto: c, style: c === '' ? 'width:1%' : null })))]),
-      elemento('tbody', {}, linhas),
+    elemento('div', { classe: 'tabela-rolagem' }, [
+      elemento('table', {}, [
+        elemento('thead', {}, [elemento('tr', {}, colunas.map((c) =>
+          elemento('th', { texto: c, classe: c === '' ? 'celula-acoes' : null })))]),
+        elemento('tbody', {}, linhas),
+      ]),
     ]),
   ])
 }
