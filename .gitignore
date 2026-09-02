@@ -1,0 +1,7 @@
+node_modules/
+servidor/dados/*.db
+servidor/dados/*.db-wal
+servidor/dados/*.db-shm
+servidor/dados/evidencias/
+servidor/.env
+*.log

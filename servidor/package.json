@@ -1,0 +1,17 @@
+{
+  "name": "mylog-servidor",
+  "version": "0.1.0",
+  "description": "MyLog — plataforma de checklist, tickets e preventivas de frota",
+  "type": "module",
+  "main": "src/servidor.js",
+  "private": true,
+  "scripts": {
+    "start": "node --no-warnings --env-file-if-exists=.env src/servidor.js",
+    "semear": "node --no-warnings --env-file-if-exists=.env src/dados/semente.js",
+    "testar": "node --no-warnings --test \"testes/**/*.teste.js\""
+  },
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "dependencies": {}
+}
