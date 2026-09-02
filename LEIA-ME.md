@@ -38,9 +38,11 @@ cd servidor && npm test
 ```
 servidor/
   src/
-    nucleo/       config, banco, roteador http, auditoria, motor de preventivas
+    nucleo/       config, banco, roteador http, auditoria,
+                  motor de preventivas, motor de checklist
     seguranca/    senha (scrypt), sessao revogavel, tabela de permissoes
-    rotas/        autenticacao, usuarios, veiculos e vinculos, painel
+    rotas/        autenticacao, painel, usuarios, veiculos, templates,
+                  preventivas, tickets
     dados/        esquema.sql e semente de desenvolvimento
   testes/         regras que nao podem quebrar em silencio
 web/
@@ -56,10 +58,10 @@ docs/
 | Fase | Situacao |
 |---|---|
 | F1 — Fundacao | **feita** — banco multi-tenant, auth, RBAC, auditoria, esqueleto web |
-| F2 — Web ADM | **parcial** — usuarios, credenciais, veiculos, vinculos e dashboard prontos; falta o editor de template de checklist |
-| F3 — Android | nao iniciada |
-| F4 — Regras | nao iniciada (tabelas ja modeladas) |
-| F5 — Preventivas | motor de status pronto e testado; falta a tela e o ciclo de reagendamento |
+| F2 — Web ADM | **feita** — usuarios, credenciais, veiculos, vinculos, dashboard e editor de checklist versionado |
+| F3 — Android | nao iniciada — decisao de stack ainda em aberto |
+| F4 — Regras | **parcial** — motor de criticidade e resumo de inspecao prontos e testados; tickets completos; falta a execucao da inspecao que os alimenta |
+| F5 — Preventivas | **feita** — KM/data, ciclo de conclusao, reagendamento e alertas no painel |
 | F6 — Relatorios | nao iniciada |
 
 ## Regras que o sistema ja garante
@@ -74,6 +76,11 @@ docs/
 - Liberar veiculo bloqueado exige motivo.
 - Status de preventiva e' **calculado** a partir de KM/data, nunca digitado.
 - Toda empresa so enxerga os proprios dados (coberto por teste).
+- Versao publicada de checklist e imutavel; editar cria a versao seguinte.
+- Concluir uma preventiva obriga a definir a proxima, por KM ou por data.
+- Colaborador sem veiculo proprio abre ticket escolhendo o veiculo por
+  modelo/placa, sem tocar no cadastro mestre.
+- Ticket so vai a "resolvido" com a solucao descrita; "fechado" e terminal.
 
 ## Producao — pendente antes de qualquer piloto
 

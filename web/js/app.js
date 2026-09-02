@@ -6,13 +6,15 @@ import { telaUsuarios } from './usuarios.js'
 import { telaVeiculos } from './veiculos.js'
 import { telaTemplates } from './templates.js'
 import { telaPreventivas } from './preventivas.js'
+import { telaTickets } from './tickets.js'
 
 const TELAS = [
-  { chave: 'painel', rotulo: 'Painel', capacidade: 'painel.ver', montar: telaPainel },
-  { chave: 'veiculos', rotulo: 'Frota', capacidade: 'veiculos.ler', montar: telaVeiculos },
-  { chave: 'preventivas', rotulo: 'Preventivas', capacidade: 'preventivas.ler', montar: telaPreventivas },
-  { chave: 'templates', rotulo: 'Checklists', capacidade: 'templates.ler', montar: telaTemplates },
-  { chave: 'usuarios', rotulo: 'Usuarios', capacidade: 'usuarios.ler', montar: telaUsuarios },
+  { chave: 'painel', rotulo: 'Painel', capacidades: ['painel.ver'], montar: telaPainel },
+  { chave: 'veiculos', rotulo: 'Frota', capacidades: ['veiculos.ler'], montar: telaVeiculos },
+  { chave: 'tickets', rotulo: 'Tickets', capacidades: ['tickets.ler', 'tickets.abrir'], montar: telaTickets },
+  { chave: 'preventivas', rotulo: 'Preventivas', capacidades: ['preventivas.ler'], montar: telaPreventivas },
+  { chave: 'templates', rotulo: 'Checklists', capacidades: ['templates.ler'], montar: telaTemplates },
+  { chave: 'usuarios', rotulo: 'Usuarios', capacidades: ['usuarios.ler'], montar: telaUsuarios },
 ]
 
 const estado = { usuario: null, telaAtual: null, parametros: {} }
@@ -26,8 +28,10 @@ const contexto = {
 
 // ------------------------------------------------------------- navegacao
 
+// Uma tela aparece quando o papel tem QUALQUER uma das capacidades listadas:
+// manutencao ve tickets por "tratar", o colaborador ve por "abrir".
 function telasVisiveis() {
-  return TELAS.filter((tela) => contexto.pode(tela.capacidade))
+  return TELAS.filter((tela) => tela.capacidades.some((c) => contexto.pode(c)))
 }
 
 function desenharNavegacao() {

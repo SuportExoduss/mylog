@@ -303,6 +303,103 @@ test('template: estrutura incompleta nao publica', async () => {
   assert.match(r.dados.mensagem, /sem nenhum item/)
 })
 
+// --------------------------------------------- criterio: ticket (sec. 16 e 34)
+
+test('ticket: colaborador sem veiculo proprio consegue abrir uma solicitacao', async () => {
+  const token = await entrar('colab.a@teste.local')
+  const r = await chamar('POST', '/api/tickets', {
+    token,
+    corpo: { categoria: 'solicitacao', prioridade: 'normal',
+             descricao: 'Preciso de um veiculo para a entrega de quinta.' },
+  })
+  assert.equal(r.status, 200)
+  assert.equal(r.dados.ticket.status, 'aberto')
+  assert.equal(r.dados.ticket.veiculo_id, null)
+  assert.ok(r.dados.ticket.numero >= 1)
+})
+
+test('ticket: categoria sobre o ativo exige dizer qual veiculo', async () => {
+  const token = await entrar('colab.a@teste.local')
+  const semVeiculo = await chamar('POST', '/api/tickets', {
+    token, corpo: { categoria: 'dano', descricao: 'Arranhao novo na lateral direita.' },
+  })
+  assert.equal(semVeiculo.status, 400)
+
+  const comVeiculo = await chamar('POST', '/api/tickets', {
+    token, corpo: { categoria: 'dano', veiculo_id: veiculoA, descricao: 'Arranhao novo na lateral direita.' },
+  })
+  assert.equal(comVeiculo.status, 200)
+  assert.equal(comVeiculo.dados.ticket.placa, 'AAA1A11')
+})
+
+test('ticket: o solicitante escolhe o veiculo mas nao altera dado mestre', async () => {
+  const token = await entrar('colab.a@teste.local')
+  // Vinculo do ticket com o ativo: permitido.
+  const abertura = await chamar('POST', '/api/tickets', {
+    token, corpo: { categoria: 'limpeza', veiculo_id: veiculoA, descricao: 'Veiculo entregue sujo hoje.' },
+  })
+  assert.equal(abertura.status, 200)
+  // Tocar no cadastro do mesmo veiculo: recusado (secao 16).
+  const escrita = await chamar('PATCH', `/api/veiculos/${veiculoA}`, { token, corpo: { modelo: 'Outro' } })
+  assert.equal(escrita.status, 403)
+})
+
+test('ticket: cada solicitante enxerga apenas os proprios', async () => {
+  const tokenColab = await entrar('colab.a@teste.local')
+  const tokenAdm = await entrar('adm.a@teste.local')
+
+  const doColab = await chamar('GET', '/api/tickets', { token: tokenColab })
+  const doAdm = await chamar('GET', '/api/tickets', { token: tokenAdm })
+  assert.equal(doColab.dados.vejo_todos, false)
+  assert.equal(doAdm.dados.vejo_todos, true)
+  assert.ok(doAdm.dados.tickets.length >= doColab.dados.tickets.length)
+  for (const t of doColab.dados.tickets) assert.equal(t.solicitante_nome, 'Colaborador A')
+})
+
+test('ticket: nao se marca como resolvido sem dizer o que foi feito', async () => {
+  const tokenColab = await entrar('colab.a@teste.local')
+  const tokenAdm = await entrar('adm.a@teste.local')
+  const { dados } = await chamar('POST', '/api/tickets', {
+    token: tokenColab,
+    corpo: { categoria: 'problema', veiculo_id: veiculoA, descricao: 'Ar-condicionado nao gela.' },
+  })
+  const id = dados.ticket.id
+
+  const semSolucao = await chamar('POST', `/api/tickets/${id}/status`,
+    { token: tokenAdm, corpo: { status: 'resolvido' } })
+  assert.equal(semSolucao.status, 400)
+
+  const comSolucao = await chamar('POST', `/api/tickets/${id}/status`,
+    { token: tokenAdm, corpo: { status: 'resolvido', resolucao: 'Recarga de gas e troca do filtro.' } })
+  assert.equal(comSolucao.status, 200)
+
+  // "fechado" e terminal: nao volta.
+  await chamar('POST', `/api/tickets/${id}/status`, { token: tokenAdm, corpo: { status: 'fechado' } })
+  const reabrir = await chamar('POST', `/api/tickets/${id}/status`,
+    { token: tokenAdm, corpo: { status: 'em_andamento' } })
+  assert.equal(reabrir.status, 409)
+})
+
+test('ticket: responsavel precisa ser alguem que trata tickets', async () => {
+  const tokenAdm = await entrar('adm.a@teste.local')
+  const lista = await chamar('GET', '/api/tickets', { token: tokenAdm })
+  const alvo = lista.dados.tickets.find((t) => t.status === 'aberto')
+
+  const usuarios = await chamar('GET', '/api/usuarios', { token: tokenAdm })
+  const colaborador = usuarios.dados.usuarios.find((u) => u.papel === 'colaborador' && u.status === 'ativo')
+
+  const recusa = await chamar('POST', `/api/tickets/${alvo.id}/atribuir`,
+    { token: tokenAdm, corpo: { responsavel_id: colaborador.id } })
+  assert.equal(recusa.status, 400)
+  assert.match(recusa.dados.mensagem, /nao trata tickets/)
+
+  const eu = await chamar('GET', '/api/auth/eu', { token: tokenAdm })
+  const aceita = await chamar('POST', `/api/tickets/${alvo.id}/atribuir`,
+    { token: tokenAdm, corpo: { responsavel_id: eu.dados.usuario.id } })
+  assert.equal(aceita.status, 200)
+  assert.equal(aceita.dados.ticket.status, 'atribuido')
+})
+
 // -------------------------------------------------- criterio: auditoria
 
 test('auditoria: alteracoes criticas deixam rastro de quem, quando e o que mudou', async () => {

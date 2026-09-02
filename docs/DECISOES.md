@@ -109,6 +109,48 @@ operacao pedir outra, e' um numero so.
 apagado"). Se um dia for preciso corrigir um evento, sera migracao revisada, nao
 funcionalidade de tela.
 
+## D11 — Template publicado e' imutavel
+
+**Escolha:** editar uma versao publicada e' recusado pela API. Alterar o
+checklist cria a versao seguinte; publicar a nova arquiva a anterior.
+
+**Por que:** cada inspecao aponta para a versao do template que foi respondida.
+Editar uma versao publicada reescreveria o significado de inspecoes ja feitas —
+um item removido faria uma inspecao antiga parecer incompleta, e um limite
+alterado faria uma resposta aprovada virar reprovada retroativamente.
+
+## D12 — Cada ciclo de preventiva e' uma linha
+
+**Escolha:** concluir uma preventiva marca a linha como "realizada" e cria uma
+nova para o proximo ciclo, em vez de reciclar a mesma linha.
+
+**Por que:** o historico de manutencao do veiculo passa a ser uma consulta
+simples, com km, data, servico e responsavel de cada execucao. Reciclar a linha
+guardaria so o ultimo ciclo, e o roadmap (secao 26) pede relatorio de
+preventivas realizadas por veiculo.
+
+**Efeito de projeto:** concluir e agendar a proxima sao o mesmo endpoint. Nao
+existe "concluir e decidir depois" — e' assim que uma frota perde a agenda.
+
+## D13 — Ticket e nao conformidade sao entidades separadas
+
+**Escolha:** tabelas distintas. Um ticket PODE virar ocorrencia, por acao
+explicita da supervisao, e a ligacao fica na auditoria.
+
+**Por que:** secao 24 do roadmap. Ticket responde "o que alguem solicitou";
+nao conformidade responde "o que deu errado no checklist". Juntar os dois num
+"chamado" generico faria o relatorio de conformidade contar pedido de limpeza
+como falha de inspecao.
+
+## D14 — Prazo de ticket derivado da prioridade
+
+**Escolha:** 8 horas para prioridade alta, 72 para normal, calculado na
+abertura. "Atrasado" e' prazo vencido com o ticket ainda aberto.
+
+**Por que:** o painel precisa de uma nocao de atraso desde o primeiro dia, e
+SLA configuravel por empresa e' complexidade que ainda nao se justifica.
+Quando a operacao pedir, viram dois numeros na politica da empresa.
+
 ## Em aberto — decidir antes da F3
 
 - **Android nativo (Kotlin) x PWA instalavel.** A API ja e' agnostica de cliente

@@ -73,6 +73,14 @@ export const api = {
   reagendarPreventiva: (id, dados) => pedir('PATCH', `/api/preventivas/${id}`, dados),
   concluirPreventiva: (id, dados) => pedir('POST', `/api/preventivas/${id}/concluir`, dados),
 
+  tickets: (filtros) => pedir('GET', comQuery('/api/tickets', filtros)),
+  ticket: (id) => pedir('GET', `/api/tickets/${id}`),
+  criarTicket: (dados) => pedir('POST', '/api/tickets', dados),
+  statusTicket: (id, status, resolucao) => pedir('POST', `/api/tickets/${id}/status`, { status, resolucao }),
+  atribuirTicket: (id, responsavel_id) => pedir('POST', `/api/tickets/${id}/atribuir`, { responsavel_id }),
+  ticketVirarOcorrencia: (id, criticidade) => pedir('POST', `/api/tickets/${id}/ocorrencia`, { criticidade }),
+  buscarVeiculos: (termo) => pedir('GET', comQuery('/api/veiculos/busca', { termo })),
+
   criarVinculo: (dados) => pedir('POST', '/api/vinculos', dados),
   removerVinculo: (id) => pedir('DELETE', `/api/vinculos/${id}`),
 }

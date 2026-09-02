@@ -42,7 +42,7 @@ function criarUsuario(nome, email, papel, status, senha) {
 const admId = criarUsuario('Andre Roberth', 'adm@mylog.local', 'adm', 'ativo', 'mylog123')
 const supId = criarUsuario('Marina Lopes', 'supervisao@mylog.local', 'supervisor', 'ativo', 'mylog123')
 const colaId = criarUsuario('Carlos Nunes', 'carlos@mylog.local', 'colaborador', 'ativo', 'mylog123')
-criarUsuario('Rita Alves', 'rita@mylog.local', 'colaborador', 'pendente', 'mylog123')
+const ritaId = criarUsuario('Rita Alves', 'rita@mylog.local', 'colaborador', 'pendente', 'mylog123')
 criarUsuario('Joao Pires', 'joao@mylog.local', 'manutencao', 'ativo', 'mylog123')
 criarUsuario('Bruno Dias', 'bruno@mylog.local', 'colaborador', 'bloqueado', 'mylog123')
 
@@ -188,6 +188,28 @@ executar(
    VALUES (?, ?, 'diario-leve', 'Checklist diario — veiculo leve', 'carro', 1, 'publicado', ?, ?, ?, ?)`,
   [templateId, empresaId, JSON.stringify(ESTRUTURA_DIARIO), ts, ts, ts],
 )
+
+// ---------------------------------------------------------------- tickets
+// Inclui o caso central da secao 16: colaborador sem veiculo proprio pedindo
+// para usar um carro identificado por modelo + placa.
+function criarTicket(numero, solicitante, veiculo, categoria, prioridade, descricao, status, horasAtras) {
+  const criado = new Date(Date.now() - horasAtras * 3600000).toISOString()
+  const prazo = new Date(new Date(criado).getTime() + (prioridade === 'alta' ? 8 : 72) * 3600000).toISOString()
+  executar(
+    `INSERT INTO tickets (id, empresa_id, numero, solicitante_id, veiculo_id, categoria,
+                          prioridade, descricao, status, prazo_em, criado_em)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [novoId('ticket'), empresaId, numero, solicitante, veiculo, categoria,
+     prioridade, descricao, status, prazo, criado],
+  )
+}
+
+criarTicket(1, ritaId, null, 'solicitacao', 'normal',
+  'Preciso de um veiculo para a entrega em Betim na quinta-feira de manha.', 'aberto', 6)
+criarTicket(2, colaId, v3, 'problema', 'alta',
+  'Ar-condicionado do Master parou de gelar. Cabine fica insuportavel a tarde.', 'em_andamento', 30)
+criarTicket(3, colaId, v1, 'dano', 'normal',
+  'Arranhao novo na lateral direita da Strada, notado ao retirar o veiculo hoje.', 'aberto', 2)
 
 console.log('Banco semeado em', config.bancoCaminho)
 console.log('')
