@@ -81,6 +81,13 @@ export const api = {
   ticketVirarOcorrencia: (id, criticidade) => pedir('POST', `/api/tickets/${id}/ocorrencia`, { criticidade }),
   buscarVeiculos: (termo) => pedir('GET', comQuery('/api/veiculos/busca', { termo })),
 
+  ocorrencias: (filtros) => pedir('GET', comQuery('/api/ocorrencias', filtros)),
+  ocorrencia: (id) => pedir('GET', `/api/ocorrencias/${id}`),
+  statusOcorrencia: (id, status, resolucao) => pedir('POST', `/api/ocorrencias/${id}/status`, { status, resolucao }),
+  atribuirOcorrencia: (id, responsavel_id) => pedir('POST', `/api/ocorrencias/${id}/atribuir`, { responsavel_id }),
+
+  auditoria: (filtros) => pedir('GET', comQuery('/api/auditoria', filtros)),
+
   criarVinculo: (dados) => pedir('POST', '/api/vinculos', dados),
   removerVinculo: (id) => pedir('DELETE', `/api/vinculos/${id}`),
 }

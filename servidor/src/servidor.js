@@ -13,6 +13,7 @@ import { registrarRotasPainel } from './rotas/painel.js'
 import { registrarRotasTemplates } from './rotas/templates.js'
 import { registrarRotasPreventivas } from './rotas/preventivas.js'
 import { registrarRotasTickets } from './rotas/tickets.js'
+import { registrarRotasOcorrencias, registrarRotasAuditoria } from './rotas/ocorrencias.js'
 
 avisarSegredoFraco()
 abrirBanco()
@@ -25,6 +26,8 @@ registrarRotasVeiculos(rotas)
 registrarRotasTemplates(rotas)
 registrarRotasPreventivas(rotas)
 registrarRotasTickets(rotas)
+registrarRotasOcorrencias(rotas)
+registrarRotasAuditoria(rotas)
 
 // ----------------------------------------------------------- arquivos web
 

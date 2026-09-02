@@ -7,6 +7,11 @@ import {
   ROTULO_STATUS_USUARIO, TOM_STATUS_USUARIO,
 } from './ui.js'
 
+const DESTINO_ALERTA = {
+  preventiva: 'preventivas', nao_conformidade: 'ocorrencias',
+  usuario: 'usuarios', veiculo: 'veiculos', ticket: 'tickets',
+}
+
 function card(titulo, valor, detalhes = [], aoClick) {
   return elemento('div', {
     classe: 'card',
@@ -48,17 +53,17 @@ export async function telaPainel(raiz, contexto) {
     { critico: 'Criticas', alto: 'Altas', medio: 'Medias', baixo: 'Baixas', informativo: 'Informativas' },
     { critico: 's-critico', alto: 's-alerta', medio: 's-atencao', baixo: 's-neutro', informativo: 's-neutro' },
     ['critico', 'alto', 'medio', 'baixo', 'informativo'],
-  )))
+  ), contexto.pode('nc.ler') ? () => contexto.irPara('ocorrencias') : null))
 
   cards.push(card('Tickets abertos', dados.tickets.abertos, [
     dados.tickets.atrasados > 0 ? selo(`${dados.tickets.atrasados} atrasados`, 's-critico') : null,
-  ].filter(Boolean)))
+  ].filter(Boolean), contexto.pode('tickets.ler') ? () => contexto.irPara('tickets') : null))
 
   const prev = dados.preventivas.por_status
   cards.push(card('Preventivas vencidas', prev.vencida || 0, selosDe(
     prev, ROTULO_STATUS_PREVENTIVA, TOM_STATUS_PREVENTIVA,
     ['muito_proxima', 'proxima', 'em_dia'],
-  )))
+  ), contexto.pode('preventivas.ler') ? () => contexto.irPara('preventivas') : null))
 
   cards.push(card('Usuarios', Object.values(dados.usuarios.por_status).reduce((a, b) => a + b, 0), selosDe(
     dados.usuarios.por_status, ROTULO_STATUS_USUARIO, TOM_STATUS_USUARIO,
@@ -67,7 +72,12 @@ export async function telaPainel(raiz, contexto) {
 
   const alertas = dados.alertas.length
     ? elemento('div', { classe: 'fila-alertas' }, dados.alertas.map((alerta) =>
-        elemento('div', { classe: `alerta-linha nivel-${alerta.nivel}` }, [
+        elemento('div', {
+          classe: `alerta-linha nivel-${alerta.nivel}`,
+          style: 'cursor:pointer',
+          // Clicar no alerta leva a tela que resolve o alerta.
+          aoClick: () => contexto.irPara(DESTINO_ALERTA[alerta.tipo] || 'painel'),
+        }, [
           selo(alerta.tipo.replace('_', ' '), alerta.nivel === 'critico' ? 's-critico' : 's-atencao'),
           elemento('div', { classe: 'alerta-texto', texto: alerta.texto }),
         ])))

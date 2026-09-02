@@ -43,7 +43,7 @@ const admId = criarUsuario('Andre Roberth', 'adm@mylog.local', 'adm', 'ativo', '
 const supId = criarUsuario('Marina Lopes', 'supervisao@mylog.local', 'supervisor', 'ativo', 'mylog123')
 const colaId = criarUsuario('Carlos Nunes', 'carlos@mylog.local', 'colaborador', 'ativo', 'mylog123')
 const ritaId = criarUsuario('Rita Alves', 'rita@mylog.local', 'colaborador', 'pendente', 'mylog123')
-criarUsuario('Joao Pires', 'joao@mylog.local', 'manutencao', 'ativo', 'mylog123')
+const joaoId = criarUsuario('Joao Pires', 'joao@mylog.local', 'manutencao', 'ativo', 'mylog123')
 criarUsuario('Bruno Dias', 'bruno@mylog.local', 'colaborador', 'bloqueado', 'mylog123')
 
 function criarVeiculo(placa, marca, modelo, ano, tipo, km, status, motivo) {
@@ -210,6 +210,27 @@ criarTicket(2, colaId, v3, 'problema', 'alta',
   'Ar-condicionado do Master parou de gelar. Cabine fica insuportavel a tarde.', 'em_andamento', 30)
 criarTicket(3, colaId, v1, 'dano', 'normal',
   'Arranhao novo na lateral direita da Strada, notado ao retirar o veiculo hoje.', 'aberto', 2)
+
+// ----------------------------------------------------------- ocorrencias
+// Quando a F3 existir, estas nascerao de checklists reais. Por ora ilustram a
+// fila de tratamento e o veiculo bloqueado por falha critica.
+function criarOcorrencia(veiculo, itemId, descricao, criticidade, status, responsavel, diasAtras) {
+  const aberta = new Date(Date.now() - diasAtras * 86400000).toISOString()
+  executar(
+    `INSERT INTO nao_conformidades (id, empresa_id, veiculo_id, item_id, descricao,
+                                    criticidade, status, responsavel_id, aberta_em)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [novoId('nao_conformidade'), empresaId, veiculo, itemId, descricao,
+     criticidade, status, responsavel, aberta],
+  )
+}
+
+criarOcorrencia(v4, 'freio_servico',
+  'Freio de servico com folga excessiva no pedal.', 'critico', 'em_tratamento', joaoId, 3)
+criarOcorrencia(v3, 'pneu_de_condicao',
+  'Pneu dianteiro esquerdo com desgaste visivel na banda de rodagem.', 'medio', 'aberta', null, 8)
+criarOcorrencia(v1, 'estepe',
+  'Estepe sem pressao adequada.', 'baixo', 'resolvida', joaoId, 15)
 
 console.log('Banco semeado em', config.bancoCaminho)
 console.log('')

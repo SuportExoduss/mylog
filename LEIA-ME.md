@@ -42,7 +42,7 @@ servidor/
                   motor de preventivas, motor de checklist
     seguranca/    senha (scrypt), sessao revogavel, tabela de permissoes
     rotas/        autenticacao, painel, usuarios, veiculos, templates,
-                  preventivas, tickets
+                  preventivas, tickets, ocorrencias, auditoria
     dados/        esquema.sql e semente de desenvolvimento
   testes/         regras que nao podem quebrar em silencio
 web/
@@ -60,7 +60,7 @@ docs/
 | F1 — Fundacao | **feita** — banco multi-tenant, auth, RBAC, auditoria, esqueleto web |
 | F2 — Web ADM | **feita** — usuarios, credenciais, veiculos, vinculos, dashboard e editor de checklist versionado |
 | F3 — Android | nao iniciada — decisao de stack ainda em aberto |
-| F4 — Regras | **parcial** — motor de criticidade e resumo de inspecao prontos e testados; tickets completos; falta a execucao da inspecao que os alimenta |
+| F4 — Regras | **parcial** — motor de criticidade e resumo de inspecao prontos e testados; tickets e ocorrencias completos; falta a execucao da inspecao que os alimenta |
 | F5 — Preventivas | **feita** — KM/data, ciclo de conclusao, reagendamento e alertas no painel |
 | F6 — Relatorios | nao iniciada |
 
@@ -81,6 +81,10 @@ docs/
 - Colaborador sem veiculo proprio abre ticket escolhendo o veiculo por
   modelo/placa, sem tocar no cadastro mestre.
 - Ticket so vai a "resolvido" com a solucao descrita; "fechado" e terminal.
+- Ocorrencia tem duas saidas distintas: "resolvida" e quem executou, "validada"
+  e a supervisao conferindo — e quem executou nao valida a propria solucao.
+- Encerrar a ultima ocorrencia critica nao desbloqueia o veiculo sozinho:
+  liberar veiculo continua sendo decisao explicita, com motivo.
 
 ## Producao — pendente antes de qualquer piloto
 

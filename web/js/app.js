@@ -7,14 +7,17 @@ import { telaVeiculos } from './veiculos.js'
 import { telaTemplates } from './templates.js'
 import { telaPreventivas } from './preventivas.js'
 import { telaTickets } from './tickets.js'
+import { telaOcorrencias, telaAuditoria } from './ocorrencias.js'
 
 const TELAS = [
   { chave: 'painel', rotulo: 'Painel', capacidades: ['painel.ver'], montar: telaPainel },
   { chave: 'veiculos', rotulo: 'Frota', capacidades: ['veiculos.ler'], montar: telaVeiculos },
+  { chave: 'ocorrencias', rotulo: 'Ocorrencias', capacidades: ['nc.ler'], montar: telaOcorrencias },
   { chave: 'tickets', rotulo: 'Tickets', capacidades: ['tickets.ler', 'tickets.abrir'], montar: telaTickets },
   { chave: 'preventivas', rotulo: 'Preventivas', capacidades: ['preventivas.ler'], montar: telaPreventivas },
   { chave: 'templates', rotulo: 'Checklists', capacidades: ['templates.ler'], montar: telaTemplates },
   { chave: 'usuarios', rotulo: 'Usuarios', capacidades: ['usuarios.ler'], montar: telaUsuarios },
+  { chave: 'auditoria', rotulo: 'Auditoria', capacidades: ['auditoria.ler'], montar: telaAuditoria },
 ]
 
 const estado = { usuario: null, telaAtual: null, parametros: {} }
