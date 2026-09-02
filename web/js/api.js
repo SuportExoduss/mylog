@@ -67,6 +67,12 @@ export const api = {
   descartarTemplate: (id) => pedir('DELETE', `/api/templates/${id}`),
   conferirTemplate: (estrutura) => pedir('POST', '/api/templates/conferir', { estrutura }),
 
+  preventivas: (filtros) => pedir('GET', comQuery('/api/preventivas', filtros)),
+  preventiva: (id) => pedir('GET', `/api/preventivas/${id}`),
+  criarPreventiva: (dados) => pedir('POST', '/api/preventivas', dados),
+  reagendarPreventiva: (id, dados) => pedir('PATCH', `/api/preventivas/${id}`, dados),
+  concluirPreventiva: (id, dados) => pedir('POST', `/api/preventivas/${id}/concluir`, dados),
+
   criarVinculo: (dados) => pedir('POST', '/api/vinculos', dados),
   removerVinculo: (id) => pedir('DELETE', `/api/vinculos/${id}`),
 }

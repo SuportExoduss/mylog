@@ -5,10 +5,12 @@ import { telaPainel } from './painel.js'
 import { telaUsuarios } from './usuarios.js'
 import { telaVeiculos } from './veiculos.js'
 import { telaTemplates } from './templates.js'
+import { telaPreventivas } from './preventivas.js'
 
 const TELAS = [
   { chave: 'painel', rotulo: 'Painel', capacidade: 'painel.ver', montar: telaPainel },
   { chave: 'veiculos', rotulo: 'Frota', capacidade: 'veiculos.ler', montar: telaVeiculos },
+  { chave: 'preventivas', rotulo: 'Preventivas', capacidade: 'preventivas.ler', montar: telaPreventivas },
   { chave: 'templates', rotulo: 'Checklists', capacidade: 'templates.ler', montar: telaTemplates },
   { chave: 'usuarios', rotulo: 'Usuarios', capacidade: 'usuarios.ler', montar: telaUsuarios },
 ]
