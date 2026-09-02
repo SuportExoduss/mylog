@@ -58,6 +58,15 @@ export const api = {
   statusVeiculo: (id, status, motivo) => pedir('POST', `/api/veiculos/${id}/status`, { status, motivo }),
   atualizarKm: (id, km_atual, motivo) => pedir('POST', `/api/veiculos/${id}/km`, { km_atual, motivo }),
 
+  templates: (filtros) => pedir('GET', comQuery('/api/templates', filtros)),
+  template: (id) => pedir('GET', `/api/templates/${id}`),
+  criarTemplate: (dados) => pedir('POST', '/api/templates', dados),
+  salvarTemplate: (id, dados) => pedir('PUT', `/api/templates/${id}`, dados),
+  publicarTemplate: (id) => pedir('POST', `/api/templates/${id}/publicar`, {}),
+  novaVersaoTemplate: (id) => pedir('POST', `/api/templates/${id}/versao`, {}),
+  descartarTemplate: (id) => pedir('DELETE', `/api/templates/${id}`),
+  conferirTemplate: (estrutura) => pedir('POST', '/api/templates/conferir', { estrutura }),
+
   criarVinculo: (dados) => pedir('POST', '/api/vinculos', dados),
   removerVinculo: (id) => pedir('DELETE', `/api/vinculos/${id}`),
 }

@@ -4,10 +4,12 @@ import { elemento, limpar, notificar, ROTULO_PAPEL } from './ui.js'
 import { telaPainel } from './painel.js'
 import { telaUsuarios } from './usuarios.js'
 import { telaVeiculos } from './veiculos.js'
+import { telaTemplates } from './templates.js'
 
 const TELAS = [
   { chave: 'painel', rotulo: 'Painel', capacidade: 'painel.ver', montar: telaPainel },
   { chave: 'veiculos', rotulo: 'Frota', capacidade: 'veiculos.ler', montar: telaVeiculos },
+  { chave: 'templates', rotulo: 'Checklists', capacidade: 'templates.ler', montar: telaTemplates },
   { chave: 'usuarios', rotulo: 'Usuarios', capacidade: 'usuarios.ler', montar: telaUsuarios },
 ]
 

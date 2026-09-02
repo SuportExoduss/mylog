@@ -82,13 +82,32 @@ export function notificar(mensagem) {
 
 // ---------------------------------------------------------------- modal
 
-// campos: [{ nome, rotulo, tipo, valor, opcoes, obrigatorio, dica }]
+// campos: [{ nome, rotulo, tipo, valor, opcoes, obrigatorio, dica, visivelQuando }]
+//
+// visivelQuando: (valores) => boolean — esconde o campo enquanto ele nao fizer
+// sentido. Um formulario que mostra "minimo aceito" para uma pergunta de
+// assinatura ensina o usuario errado.
 export function abrirModal({ titulo, subtitulo, campos = [], confirmar = 'Salvar', perigo = false, aoConfirmar }) {
   const area = document.getElementById('area-modal')
   limpar(area)
 
   const avisoErro = elemento('div', { classe: 'aviso aviso--erro oculto' })
   const controles = {}
+  const envolucros = {}
+
+  function valoresAtuais() {
+    const v = {}
+    for (const [nome, entrada] of Object.entries(controles)) v[nome] = entrada.value
+    return v
+  }
+
+  function aplicarVisibilidade() {
+    const valores = valoresAtuais()
+    for (const campo of campos) {
+      if (!campo.visivelQuando) continue
+      envolucros[campo.nome]?.classList.toggle('oculto', !campo.visivelQuando(valores))
+    }
+  }
 
   const corpoCampos = campos.map((campo) => {
     let entrada
@@ -105,11 +124,15 @@ export function abrirModal({ titulo, subtitulo, campos = [], confirmar = 'Salvar
     }
     if (campo.obrigatorio) entrada.required = true
     controles[campo.nome] = entrada
-    return elemento('div', { classe: 'campo' }, [
+    entrada.addEventListener('change', aplicarVisibilidade)
+
+    const envolucro = elemento('div', { classe: 'campo' }, [
       elemento('label', { for: `campo-${campo.nome}`, texto: campo.rotulo }),
       entrada,
       campo.dica ? elemento('div', { classe: 'campo-dica', texto: campo.dica }) : null,
     ])
+    envolucros[campo.nome] = envolucro
+    return envolucro
   })
 
   const botaoConfirmar = elemento('button', {
@@ -124,8 +147,13 @@ export function abrirModal({ titulo, subtitulo, campos = [], confirmar = 'Salvar
       evento.preventDefault()
       avisoErro.classList.add('oculto')
       botaoConfirmar.disabled = true
+      // Campo escondido nao participa do resultado: se ele nao fazia sentido
+      // para este tipo, o valor que sobrou nele tambem nao faz.
       const valores = {}
-      for (const [nome, entrada] of Object.entries(controles)) valores[nome] = entrada.value.trim()
+      for (const campo of campos) {
+        const visivel = !campo.visivelQuando || campo.visivelQuando(valoresAtuais())
+        valores[campo.nome] = visivel ? controles[campo.nome].value.trim() : ''
+      }
       try {
         await aoConfirmar(valores)
         fechar()
@@ -152,6 +180,7 @@ export function abrirModal({ titulo, subtitulo, campos = [], confirmar = 'Salvar
   }, [formulario])
 
   area.append(fundo)
+  aplicarVisibilidade()
   setTimeout(() => formulario.querySelector('input, select, textarea')?.focus(), 30)
   return { fechar }
 }

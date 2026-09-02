@@ -100,6 +100,95 @@ criarPreventiva(v3, 'data', { ultimaData: emDias(-170), proximaData: emDias(5), 
 // Veiculo antigo com preventiva atrasada.
 criarPreventiva(v4, 'data', { ultimaData: emDias(-400), proximaData: emDias(-35), alertaDias: 10 })
 
+// ------------------------------------------------------------- template
+// Checklist de partida. Nao pretende ser o modelo definitivo da empresa — isso
+// so sai da F0, mapeando o PROLOG real. Serve para exercitar o motor: tem item
+// condicional, limite numerico, foto obrigatoria em item critico e selecao com
+// criticidade por opcao.
+const ESTRUTURA_DIARIO = {
+  secoes: [
+    {
+      id: 'documentacao',
+      titulo: 'Documentacao e identificacao',
+      itens: [
+        { id: 'crlv_presente', rotulo: 'CRLV do veiculo esta no porta-luvas?',
+          tipo: 'sim_nao', valor_conforme: 'sim', criticidade: 'alto' },
+        { id: 'km_partida', rotulo: 'Quilometragem do hodometro', tipo: 'numero', unidade: 'km' },
+      ],
+    },
+    {
+      id: 'seguranca',
+      titulo: 'Itens de seguranca',
+      itens: [
+        { id: 'extintor_presente', rotulo: 'Extintor presente e no prazo?',
+          tipo: 'sim_nao', valor_conforme: 'sim', criticidade: 'critico',
+          foto_obrigatoria_se_nok: true },
+        { id: 'extintor_validade', rotulo: 'Data de validade do extintor', tipo: 'datahora',
+          condicao: { item_id: 'extintor_presente', operador: 'igual', valor: 'sim' } },
+        { id: 'triangulo_macaco', rotulo: 'Triangulo, macaco e chave de roda',
+          tipo: 'ok_nok', criticidade: 'medio' },
+        { id: 'cintos', rotulo: 'Cintos de seguranca', tipo: 'ok_nok', criticidade: 'critico',
+          foto_obrigatoria_se_nok: true },
+      ],
+    },
+    {
+      id: 'pneus',
+      titulo: 'Pneus e rodagem',
+      itens: [
+        { id: 'pneu_de_condicao', rotulo: 'Condicao do pneu dianteiro esquerdo', tipo: 'selecao',
+          opcoes: [
+            { valor: 'normal', rotulo: 'Normal', conforme: true },
+            { valor: 'atencao', rotulo: 'Desgaste visivel', conforme: false, criticidade: 'medio' },
+            { valor: 'critico', rotulo: 'Liso ou danificado', conforme: false, criticidade: 'critico' },
+          ],
+          foto_obrigatoria_se_nok: true },
+        { id: 'pneu_de_pressao', rotulo: 'Pressao do pneu dianteiro esquerdo (PSI)',
+          tipo: 'numero', minimo: 28, maximo: 36, unidade: 'PSI', criticidade: 'medio' },
+        { id: 'estepe', rotulo: 'Estepe em condicao de uso', tipo: 'ok_nok', criticidade: 'baixo' },
+      ],
+    },
+    {
+      id: 'motor',
+      titulo: 'Motor e fluidos',
+      itens: [
+        { id: 'oleo_nivel', rotulo: 'Nivel de oleo do motor', tipo: 'ok_nok', criticidade: 'alto' },
+        { id: 'oleo_obs', rotulo: 'O que foi observado no oleo?', tipo: 'texto',
+          condicao: { item_id: 'oleo_nivel', operador: 'nao_conforme' } },
+        { id: 'agua_radiador', rotulo: 'Nivel da agua do radiador', tipo: 'ok_nok', criticidade: 'alto' },
+        { id: 'vazamentos', rotulo: 'Ha vazamento visivel sob o veiculo?',
+          tipo: 'sim_nao', valor_conforme: 'nao', criticidade: 'alto', foto_obrigatoria_se_nok: true },
+      ],
+    },
+    {
+      id: 'freios_luzes',
+      titulo: 'Freios e iluminacao',
+      itens: [
+        { id: 'freio_servico', rotulo: 'Freio de servico', tipo: 'ok_nok', criticidade: 'critico',
+          foto_obrigatoria_se_nok: true },
+        { id: 'freio_estacionamento', rotulo: 'Freio de estacionamento', tipo: 'ok_nok', criticidade: 'alto' },
+        { id: 'farois', rotulo: 'Farois alto e baixo', tipo: 'ok_nok', criticidade: 'alto' },
+        { id: 'lanternas_setas', rotulo: 'Lanternas e setas', tipo: 'ok_nok', criticidade: 'medio' },
+      ],
+    },
+    {
+      id: 'encerramento',
+      titulo: 'Encerramento',
+      itens: [
+        { id: 'observacoes', rotulo: 'Observacoes gerais', tipo: 'texto', obrigatorio: false },
+        { id: 'assinatura_condutor', rotulo: 'Assinatura do condutor', tipo: 'assinatura' },
+      ],
+    },
+  ],
+}
+
+const templateId = novoId('template')
+executar(
+  `INSERT INTO templates (id, empresa_id, codigo, nome, tipo_veiculo, versao, status, estrutura,
+                          publicado_em, criado_em, atualizado_em)
+   VALUES (?, ?, 'diario-leve', 'Checklist diario — veiculo leve', 'carro', 1, 'publicado', ?, ?, ?, ?)`,
+  [templateId, empresaId, JSON.stringify(ESTRUTURA_DIARIO), ts, ts, ts],
+)
+
 console.log('Banco semeado em', config.bancoCaminho)
 console.log('')
 console.log('  ADM .......... adm@mylog.local        / mylog123')
