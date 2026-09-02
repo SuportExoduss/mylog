@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>MyLog — Checklist</title>
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#35539f">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+
+  <link rel="manifest" href="/app/manifest.json">
+  <link rel="icon" href="/app/icone.svg">
+  <link rel="apple-touch-icon" href="/app/icone.svg">
+
+  <!-- Mesmo design system do painel, literalmente o mesmo arquivo.
+       campo.css traz so as diferencas de contexto: alvo de toque grande,
+       texto maior, uma decisao por tela. -->
+  <link rel="stylesheet" href="/css/estilo.css">
+  <link rel="stylesheet" href="/app/css/campo.css">
+
+  <script>
+    try {
+      var t = localStorage.getItem('mylog.tema')
+      if (t) document.documentElement.dataset.tema = t
+    } catch (e) { /* sem storage: segue a preferencia do sistema */ }
+  </script>
+</head>
+<body>
+  <div id="app"></div>
+  <script type="module" src="/app/js/app.js"></script>
+</body>
+</html>

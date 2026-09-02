@@ -1,5 +1,11 @@
 // Motor de checklist configuravel (secoes 11, 12 e 13 do roadmap).
 //
+// ATENCAO: este arquivo roda em DOIS lugares — no servidor (Node) e dentro do
+// aplicativo de campo (navegador, muitas vezes sem rede). Nao importe nada de
+// node:*, nao toque em banco, relogio de servidor ou variavel de ambiente.
+// A regra existe para que a inspecao julgada offline no celular chegue ao
+// servidor e seja julgada exatamente igual.
+//
 // Um template e' dado, nao codigo: a estrutura vive em JSON e este modulo
 // sabe (a) validar essa estrutura, (b) decidir se um item deve aparecer dada
 // as respostas ja dadas e (c) julgar se uma resposta e' conforme.
@@ -171,6 +177,11 @@ export function avaliarResposta(item, valorBruto) {
 // Um item aparece quando nao tem condicao, ou quando a condicao bate contra
 // uma resposta ja dada. Se o item de referencia ainda nao foi respondido, o
 // item condicional fica escondido (secao 12).
+//
+// ATENCAO ao contrato: os operadores "conforme" e "nao_conforme" leem o campo
+// `conforme` da resposta, que NAO vem do cliente — quem o calcula e'
+// itensAplicaveis(), varrendo os itens em ordem. Chamar itemVisivel direto com
+// respostas cruas faz esses dois operadores nunca baterem. Use itensAplicaveis.
 export function itemVisivel(item, respostas) {
   if (!item.condicao) return true
   const { item_id, operador, valor } = item.condicao
@@ -193,11 +204,31 @@ export function itemVisivel(item, respostas) {
 }
 
 // Achata o template na lista de itens que valem para estas respostas.
+//
+// Varre em ordem e vai ENRIQUECENDO cada resposta com o juizo de conformidade
+// antes de avaliar o proximo item. E' isso que faz "mostrar so quando o item
+// anterior estiver nao conforme" funcionar a partir de respostas cruas — nem o
+// aplicativo nem o servidor precisam calcular conformidade por fora.
+//
+// A varredura em uma passada so e' suficiente porque a validacao garante que
+// uma condicao so aponta para item anterior.
 export function itensAplicaveis(estrutura, respostas = {}) {
   const saida = []
+  const julgadas = {}
+
   for (const secao of estrutura.secoes) {
     for (const item of secao.itens) {
-      if (itemVisivel(item, respostas)) saida.push({ ...item, secao_id: secao.id, secao_titulo: secao.titulo })
+      if (!itemVisivel(item, julgadas)) continue
+      saida.push({ ...item, secao_id: secao.id, secao_titulo: secao.titulo })
+
+      const bruta = respostas[item.id]
+      const valor = bruta && typeof bruta === 'object' ? bruta.valor : bruta
+      const respondido = valor !== undefined && valor !== null && valor !== ''
+      julgadas[item.id] = {
+        ...(bruta && typeof bruta === 'object' ? bruta : {}),
+        valor,
+        conforme: respondido ? avaliarResposta(item, valor).conforme : undefined,
+      }
     }
   }
   return saida

@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Icone do aplicativo: o simbolo da marca sobre a cor da marca.
+       Margem generosa para sobreviver ao recorte "maskable" do Android. -->
+  <rect width="512" height="512" rx="112" fill="#35539f"/>
+  <g stroke="#ffffff" fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="140" y="140" width="232" height="232" rx="56" stroke-width="24"/>
+    <path d="M196 254 L240 300 L322 208" stroke-width="30"/>
+    <path d="M198 340 H314" stroke-width="24" opacity=".5"/>
+  </g>
+</svg>

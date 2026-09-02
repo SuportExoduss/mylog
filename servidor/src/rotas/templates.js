@@ -7,7 +7,7 @@ import { erro } from '../nucleo/http.js'
 import { registrarEvento } from '../nucleo/auditoria.js'
 import { exigirAutenticado } from '../seguranca/sessao.js'
 import { exigir } from '../seguranca/permissoes.js'
-import { conferirEstrutura, validarEstrutura } from '../nucleo/template.js'
+import { conferirEstrutura, validarEstrutura } from '../../../compartilhado/template.js'
 
 const CODIGO = /^[a-z0-9_-]{2,40}$/
 

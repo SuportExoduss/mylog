@@ -1,0 +1,284 @@
+/* ============================================================================
+   MyLog — aplicativo de campo
+   ----------------------------------------------------------------------------
+   Carrega /css/estilo.css antes deste arquivo: tokens, marca, botoes e selos
+   sao os MESMOS do painel. Aqui ficam so as diferencas de contexto de uso.
+
+   O contexto muda tudo: patio, sol na tela, luva na mao, pressa antes de sair
+   com o veiculo. Disso decorre alvo de toque grande, texto maior, uma decisao
+   por vez e nenhum menu escondido.
+   ========================================================================== */
+
+:root {
+  --alvo-toque: 48px;      /* minimo confortavel com luva */
+  --barra-altura: 64px;
+}
+
+body { background: var(--fundo); }
+
+/* ------------------------------------------------------------------ shell */
+
+.campo-app {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  max-width: 560px;
+  margin: 0 auto;
+  background: var(--fundo);
+}
+
+.campo-topo {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: var(--e-3);
+  min-height: var(--barra-altura);
+  padding: var(--e-2) var(--e-4);
+  background: var(--superficie);
+  border-bottom: 1px solid var(--borda);
+}
+.campo-topo h1 {
+  font-size: var(--t-medio);
+  margin: 0;
+  letter-spacing: -.015em;
+  flex: 1;
+  line-height: var(--entrelinha-apertada);
+}
+.campo-topo-sub { font-size: var(--t-mini); color: var(--texto-fraco); }
+
+.campo-corpo { flex: 1; padding: var(--e-4); }
+
+/* Barra fixa de acao: o botao que conclui a etapa nunca sai da tela. */
+.campo-rodape {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  gap: var(--e-2);
+  padding: var(--e-3) var(--e-4);
+  background: var(--superficie);
+  border-top: 1px solid var(--borda);
+  box-shadow: 0 -4px 16px rgba(0, 0, 0, .06);
+}
+.campo-rodape .botao { flex: 1; min-height: var(--alvo-toque); font-size: var(--t-medio); }
+
+/* ------------------------------------------------------------ conexao */
+
+.tira-conexao {
+  display: flex;
+  align-items: center;
+  gap: var(--e-2);
+  padding: var(--e-2) var(--e-4);
+  font-size: var(--t-mini);
+  font-weight: var(--peso-forte);
+}
+.tira-conexao--offline { background: var(--atencao-fundo); color: var(--atencao); }
+.tira-conexao--fila { background: var(--marca-tinta); color: var(--marca); }
+
+/* --------------------------------------------------------------- veiculo */
+
+.veiculo-cartao {
+  background: var(--superficie);
+  border: 1px solid var(--borda);
+  border-radius: var(--r-3);
+  padding: var(--e-4);
+  margin-bottom: var(--e-3);
+  display: flex;
+  align-items: center;
+  gap: var(--e-3);
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  min-height: var(--alvo-toque);
+}
+.veiculo-cartao:hover { border-color: var(--borda-forte); }
+.veiculo-placa {
+  font-family: var(--fonte-dado);
+  font-size: var(--t-grande);
+  font-weight: var(--peso-maximo);
+  letter-spacing: -.02em;
+}
+.veiculo-modelo { font-size: var(--t-pequeno); color: var(--texto-fraco); }
+.veiculo-cartao-fim { margin-left: auto; text-align: right; }
+
+/* --------------------------------------------------------------- progresso */
+
+.progresso {
+  height: 4px;
+  background: var(--superficie-3);
+  border-radius: var(--r-pilula);
+  overflow: hidden;
+  margin-bottom: var(--e-4);
+}
+.progresso-barra {
+  height: 100%;
+  background: var(--marca);
+  border-radius: var(--r-pilula);
+  transition: width var(--mov-base) var(--mov-curva);
+}
+.progresso-texto {
+  display: flex;
+  justify-content: space-between;
+  font-size: var(--t-mini);
+  color: var(--texto-fraco);
+  margin-bottom: var(--e-1);
+}
+
+/* ------------------------------------------------------------------- item */
+
+.item {
+  background: var(--superficie);
+  border: 1px solid var(--borda);
+  border-radius: var(--r-3);
+  padding: var(--e-4);
+  margin-bottom: var(--e-3);
+}
+.item--nok { border-color: var(--critico); box-shadow: inset 3px 0 0 var(--critico); }
+.item--ok { border-color: var(--ok); box-shadow: inset 3px 0 0 var(--ok); }
+
+.item-secao {
+  font-size: var(--t-micro);
+  font-weight: var(--peso-forte);
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--texto-fraco);
+  margin-bottom: var(--e-1);
+}
+.item-pergunta {
+  font-size: var(--t-medio);
+  font-weight: var(--peso-forte);
+  line-height: var(--entrelinha-apertada);
+  margin-bottom: var(--e-3);
+}
+
+/* Escolhas em botoes grandes lado a lado. Um toque responde. */
+.escolhas { display: grid; gap: var(--e-2); grid-template-columns: 1fr 1fr; }
+.escolhas--coluna { grid-template-columns: 1fr; }
+
+.escolha {
+  min-height: var(--alvo-toque);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--e-2);
+  padding: var(--e-2) var(--e-3);
+  background: var(--superficie-2);
+  border: 1.5px solid var(--borda);
+  border-radius: var(--r-2);
+  font-size: var(--t-base);
+  font-weight: var(--peso-forte);
+  cursor: pointer;
+  transition: all var(--mov-rapido) var(--mov-curva);
+}
+.escolha:hover { border-color: var(--borda-forte); }
+.escolha--marcada-ok {
+  background: var(--ok-fundo); border-color: var(--ok); color: var(--ok);
+}
+.escolha--marcada-nok {
+  background: var(--critico-fundo); border-color: var(--critico); color: var(--critico);
+}
+.escolha--marcada-neutra {
+  background: var(--marca-tinta); border-color: var(--marca); color: var(--marca);
+}
+
+.item-extra { margin-top: var(--e-3); }
+
+/* Foto obrigatoria pendente grita: sem ela a inspecao nao fecha. */
+.foto-area {
+  display: flex;
+  align-items: center;
+  gap: var(--e-3);
+  margin-top: var(--e-3);
+  padding: var(--e-3);
+  border: 1.5px dashed var(--borda-forte);
+  border-radius: var(--r-2);
+}
+.foto-area--exigida { border-color: var(--critico); background: var(--critico-fundo); }
+.foto-area--pronta { border-style: solid; border-color: var(--ok); background: var(--ok-fundo); }
+.foto-miniatura {
+  width: 56px; height: 56px;
+  object-fit: cover;
+  border-radius: var(--r-2);
+  border: 1px solid var(--borda);
+}
+.foto-texto { flex: 1; font-size: var(--t-pequeno); }
+
+/* ----------------------------------------------------------------- resumo */
+
+.resumo-numeros {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--e-2);
+  margin-bottom: var(--e-4);
+}
+.resumo-numero {
+  background: var(--superficie);
+  border: 1px solid var(--borda);
+  border-radius: var(--r-3);
+  padding: var(--e-3);
+  text-align: center;
+}
+.resumo-numero b {
+  display: block;
+  font-family: var(--fonte-dado);
+  font-size: var(--t-titulo);
+  font-weight: var(--peso-maximo);
+  line-height: 1.1;
+}
+.resumo-numero span {
+  font-size: var(--t-micro);
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  color: var(--texto-fraco);
+}
+
+/* Veredito: a consequencia aparece ANTES de finalizar (secao 27). */
+.veredito {
+  padding: var(--e-4);
+  border-radius: var(--r-3);
+  border: 1px solid currentColor;
+  margin-bottom: var(--e-4);
+}
+.veredito h3 { margin: 0 0 var(--e-1); font-size: var(--t-medio); }
+.veredito p { margin: 0; font-size: var(--t-pequeno); opacity: .9; }
+.veredito--aprovado { background: var(--ok-fundo); color: var(--ok); }
+.veredito--com_pendencia { background: var(--atencao-fundo); color: var(--atencao); }
+.veredito--reprovado { background: var(--critico-fundo); color: var(--critico); }
+
+.lista-nc { display: flex; flex-direction: column; gap: var(--e-2); }
+.lista-nc-item {
+  background: var(--superficie);
+  border: 1px solid var(--borda);
+  border-left: 3px solid var(--critico);
+  border-radius: var(--r-2);
+  padding: var(--e-3);
+  font-size: var(--t-pequeno);
+}
+
+/* --------------------------------------------------------------- assinatura */
+
+.assinatura-tela {
+  width: 100%;
+  height: 180px;
+  background: var(--superficie);
+  border: 1.5px dashed var(--borda-forte);
+  border-radius: var(--r-3);
+  touch-action: none;
+  display: block;
+}
+.assinatura-tela--assinada { border-style: solid; border-color: var(--ok); }
+
+/* ------------------------------------------------------------------- fila */
+
+.fila-cartao {
+  background: var(--superficie);
+  border: 1px solid var(--borda);
+  border-radius: var(--r-2);
+  padding: var(--e-3);
+  margin-bottom: var(--e-2);
+  display: flex;
+  align-items: center;
+  gap: var(--e-3);
+  font-size: var(--t-pequeno);
+}

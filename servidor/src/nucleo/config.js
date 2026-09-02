@@ -18,6 +18,8 @@ export const config = {
   storageCaminho: process.env.MYLOG_STORAGE || path.join(RAIZ_SERVIDOR, 'dados', 'evidencias'),
 
   webCaminho: path.join(RAIZ_PROJETO, 'web'),
+  appCaminho: path.join(RAIZ_PROJETO, 'app'),
+  compartilhadoCaminho: path.join(RAIZ_PROJETO, 'compartilhado'),
 
   // Segredo usado para derivar o hash do token de sessao guardado no banco.
   segredoSessao: process.env.MYLOG_SEGREDO || 'desenvolvimento-trocar-em-producao',

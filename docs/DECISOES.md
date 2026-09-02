@@ -151,11 +151,78 @@ abertura. "Atrasado" e' prazo vencido com o ticket ainda aberto.
 SLA configuravel por empresa e' complexidade que ainda nao se justifica.
 Quando a operacao pedir, viram dois numeros na politica da empresa.
 
+## D15 — O aplicativo de campo e' um PWA, nao um app nativo
+
+**Escolha:** cliente instalavel em `app/`, servido pelo mesmo processo, com
+service worker e IndexedDB. A decisao entre Kotlin, Flutter e PWA estava aberta;
+esta e' a escolha para o PILOTO.
+
+**Por que:** o risco concentrado da F3 nao e' a linguagem, e' a fila de fotos
+offline. Um app nativo adiciona uma stack nova (que ninguem aqui ja publicou)
+exatamente em cima do trecho mais arriscado. O PWA usa o que ja dominamos e
+valida o dominio primeiro.
+
+**O que isso NAO fecha:** a API continua agnostica de cliente (token no corpo
+alem do cookie, JSON puro, nenhuma sessao de navegador obrigatoria). Trocar por
+Kotlin depois nao mexe no backend.
+
+**O risco assumido, explicitamente:** o navegador pode despejar o storage do
+site e levar fotos junto. Mitigacoes ja no codigo — `navigator.storage.persist()`
+pedido no inicio, fotos comprimidas antes de guardar, fila que nunca apaga item
+em silencio. Isso precisa de teste em aparelho real antes do piloto: e' o
+criterio que decide se o nativo volta a mesa.
+
+## D16 — O motor de checklist e' UM arquivo, servido aos dois lados
+
+**Escolha:** `compartilhado/template.js` e' importado pelo servidor (Node) e
+servido ao navegador em `/compartilhado/template.js`. Nao ha copia.
+
+**Por que:** o aplicativo precisa julgar a inspecao offline para mostrar o
+resumo antes de finalizar (secao 27), e o servidor precisa julgar de novo ao
+receber. Duas implementacoes divergiriam, e a divergencia apareceria da pior
+forma possivel: o motorista ve "aprovado" no patio e o veiculo aparece
+reprovado no painel horas depois.
+
+**Consequencia de projeto:** esse arquivo nao pode importar `node:*`, nem tocar
+banco, relogio de servidor ou variavel de ambiente. Esta escrito no topo dele.
+
+## D17 — O servidor RE-JULGA toda inspecao recebida
+
+**Escolha:** `POST /api/inspecoes` recalcula o veredito com o motor e a versao
+do template respondida. Qualquer `resultado` ou `estado_veiculo` que venha no
+corpo e' ignorado.
+
+**Por que:** o aplicativo roda no aparelho do usuario. Aceitar o veredito dele
+seria deixar a decisao de liberar um caminhao com freio reprovado do lado de
+fora do sistema. O vinculo usuario-veiculo tambem e' reconferido aqui — nao
+basta o app ter mostrado o veiculo na tela.
+
+**Coberto por teste:** um envio que afirma "aprovado" respondendo falha critica
+volta como "reprovado" e bloqueia o veiculo.
+
+## D18 — Idempotencia por `cliente_uuid`
+
+**Escolha:** o aplicativo gera o id da inspecao antes de enviar. Reenvio da
+mesma inspecao devolve a que ja existe, com `duplicada: true`.
+
+**Por que:** a fila offline reenvia o que nao teve confirmacao — e "nao teve
+confirmacao" inclui o caso em que o servidor gravou e a resposta se perdeu no
+caminho. Sem isso, um checklist virava tres.
+
+## D19 — Desempate de checklist por data de publicacao
+
+**Escolha:** quando mais de um template publicado se aplica ao veiculo, vence o
+de tipo exato; empatou, vence o publicado mais recentemente.
+
+**Por que:** a versao so tem significado dentro de um mesmo codigo. A regra
+anterior ordenava por `versao DESC` entre codigos diferentes, o que fazia a
+frota inteira responder um checklist escolhido ao acaso. Encontrado por teste.
+
 ## Em aberto — decidir antes da F3
 
-- **Android nativo (Kotlin) x PWA instalavel.** A API ja e' agnostica de cliente
-  (token no corpo, JSON puro), entao a decisao pode esperar. A recomendacao atual
-  e' PWA para o piloto, pelo risco concentrado na fila de fotos offline.
+- ~~Android nativo x PWA~~ — decidido em D15: PWA para o piloto.
+- **Teste de retencao de storage em aparelho real.** E' o criterio que confirma
+  ou derruba D15. Nao da para fazer nesta maquina.
 - **Storage de evidencia.** Local no piloto; S3/Cloudflare R2 quando o volume
   justificar. O caminho ja esta modelado como `empresa/veiculo/inspecao/item/arquivo`.
 - **Exportacao do historico do PROLOG.** Bloqueia a F8. Precisa ser respondido

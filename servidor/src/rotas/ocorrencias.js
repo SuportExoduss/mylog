@@ -9,7 +9,7 @@ import { erro } from '../nucleo/http.js'
 import { registrarEvento } from '../nucleo/auditoria.js'
 import { exigirAutenticado } from '../seguranca/sessao.js'
 import { exigir, pode } from '../seguranca/permissoes.js'
-import { CRITICIDADES } from '../nucleo/template.js'
+import { CRITICIDADES } from '../../../compartilhado/template.js'
 
 export const STATUS_NC = ['aberta', 'em_tratamento', 'resolvida', 'validada', 'encerrada']
 

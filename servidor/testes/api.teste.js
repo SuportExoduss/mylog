@@ -400,6 +400,161 @@ test('ticket: responsavel precisa ser alguem que trata tickets', async () => {
   assert.equal(aceita.dados.ticket.status, 'atribuido')
 })
 
+// ------------------------------------ criterio: checklist e sincronizacao
+
+const ESTRUTURA_CAMPO = { secoes: [{ id: 'seguranca', titulo: 'Seguranca', itens: [
+  { id: 'farois', rotulo: 'Farois funcionando', tipo: 'ok_nok', criticidade: 'medio' },
+  { id: 'freio', rotulo: 'Freio de servico', tipo: 'ok_nok', criticidade: 'critico',
+    foto_obrigatoria_se_nok: true },
+] }] }
+
+async function prepararChecklist(token, veiculoId, usuarioEmail) {
+  const criado = await chamar('POST', '/api/templates', {
+    token,
+    corpo: {
+      codigo: 'campo-' + Math.random().toString(36).slice(2, 8),
+      nome: 'Checklist de campo', tipo_veiculo: 'carro', estrutura: ESTRUTURA_CAMPO,
+    },
+  })
+  await chamar('POST', `/api/templates/${criado.dados.template.id}/publicar`, { token })
+
+  const usuarios = await chamar('GET', '/api/usuarios', { token })
+  const alvo = usuarios.dados.usuarios.find((u) => u.email === usuarioEmail)
+  await chamar('POST', '/api/vinculos',
+    { token, corpo: { usuario_id: alvo.id, veiculo_id: veiculoId, principal: true } })
+
+  return criado.dados.template.id
+}
+
+test('app: o contexto traz veiculo autorizado, checklist e politica de uma vez', async () => {
+  const tokenAdm = await entrar('adm.a@teste.local')
+  await prepararChecklist(tokenAdm, veiculoA, 'colab.a@teste.local')
+
+  const token = await entrar('colab.a@teste.local')
+  const r = await chamar('GET', '/api/app/inicio', { token })
+  assert.equal(r.status, 200)
+  assert.deepEqual(r.dados.veiculos.map((v) => v.placa), ['AAA1A11'])
+  assert.ok(r.dados.templates[veiculoA], 'o checklist do veiculo precisa vir junto')
+  assert.ok(r.dados.templates[veiculoA].estrutura.secoes.length > 0)
+  assert.ok('politicas' in r.dados)
+})
+
+test('inspecao: o vinculo e conferido no servidor, nao no aplicativo', async () => {
+  const token = await entrar('colab.a@teste.local')
+  const contexto = await chamar('GET', '/api/app/inicio', { token })
+  const templateId = contexto.dados.templates[veiculoA].id
+
+  // veiculoB pertence a outra empresa; o colaborador nao tem vinculo nenhum
+  const r = await chamar('POST', '/api/inspecoes', {
+    token,
+    corpo: {
+      cliente_uuid: 'sem-vinculo-1', veiculo_id: veiculoB, template_id: templateId,
+      respostas: { farois: 'ok', freio: 'ok' },
+    },
+  })
+  assert.equal(r.status, 403)
+})
+
+test('inspecao: o servidor RE-JULGA e ignora o veredito do cliente', async () => {
+  const token = await entrar('colab.a@teste.local')
+  const contexto = await chamar('GET', '/api/app/inicio', { token })
+  const templateId = contexto.dados.templates[veiculoA].id
+
+  // O cliente afirma "aprovado" enquanto responde uma falha critica.
+  const r = await chamar('POST', '/api/inspecoes', {
+    token,
+    corpo: {
+      cliente_uuid: 'mentiroso-1', veiculo_id: veiculoA, template_id: templateId,
+      respostas: { farois: 'ok', freio: { valor: 'nok', tem_evidencia: true } },
+      resultado: 'aprovado', estado_veiculo: 'disponivel',
+    },
+  })
+  assert.equal(r.status, 200)
+  assert.equal(r.dados.resultado, 'reprovado', 'quem decide e o servidor')
+  assert.equal(r.dados.estado_veiculo, 'bloqueado')
+
+  const tokenAdm = await entrar('adm.a@teste.local')
+  const veiculo = await chamar('GET', `/api/veiculos/${veiculoA}`, { token: tokenAdm })
+  assert.equal(veiculo.dados.veiculo.status, 'bloqueado')
+  assert.match(veiculo.dados.veiculo.motivo_status, /critica/)
+
+  const ocs = await chamar('GET', '/api/ocorrencias', { token: tokenAdm })
+  const daInspecao = ocs.dados.ocorrencias.find((o) => o.item_id === 'freio')
+  assert.ok(daInspecao, 'a falha critica precisa abrir ocorrencia')
+  assert.equal(daInspecao.criticidade, 'critico')
+})
+
+test('inspecao: reenvio da fila offline e idempotente', async () => {
+  const token = await entrar('colab.a@teste.local')
+  const contexto = await chamar('GET', '/api/app/inicio', { token })
+  const corpo = {
+    cliente_uuid: 'fila-repetida-1', veiculo_id: veiculoA,
+    template_id: contexto.dados.templates[veiculoA].id,
+    respostas: { farois: 'ok', freio: 'ok' },
+  }
+
+  const primeira = await chamar('POST', '/api/inspecoes', { token, corpo })
+  const segunda = await chamar('POST', '/api/inspecoes', { token, corpo })
+  const terceira = await chamar('POST', '/api/inspecoes', { token, corpo })
+
+  assert.equal(primeira.dados.duplicada, false)
+  assert.equal(segunda.dados.duplicada, true)
+  assert.equal(terceira.dados.duplicada, true)
+  assert.equal(segunda.dados.inspecao_id, primeira.dados.inspecao_id)
+
+  const tokenAdm = await entrar('adm.a@teste.local')
+  const lista = await chamar('GET', '/api/inspecoes', { token: tokenAdm })
+  const iguais = lista.dados.inspecoes.filter((i) => i.id === primeira.dados.inspecao_id)
+  assert.equal(iguais.length, 1, 'tres envios nao podem virar tres inspecoes')
+})
+
+test('inspecao: incompleta e recusada, com o motivo', async () => {
+  const token = await entrar('colab.a@teste.local')
+  const contexto = await chamar('GET', '/api/app/inicio', { token })
+  const templateId = contexto.dados.templates[veiculoA].id
+
+  const semTudo = await chamar('POST', '/api/inspecoes', {
+    token,
+    corpo: {
+      cliente_uuid: 'incompleta-1', veiculo_id: veiculoA,
+      template_id: templateId, respostas: { farois: 'ok' },
+    },
+  })
+  assert.equal(semTudo.status, 400)
+  assert.match(semTudo.dados.mensagem, /sem resposta/)
+
+  const semFoto = await chamar('POST', '/api/inspecoes', {
+    token,
+    corpo: {
+      cliente_uuid: 'sem-foto-1', veiculo_id: veiculoA, template_id: templateId,
+      respostas: { farois: 'ok', freio: 'nok' },
+    },
+  })
+  assert.equal(semFoto.status, 400)
+  assert.match(semFoto.dados.mensagem, /foto/)
+})
+
+test('inspecao: KM do checklist nao anda para tras', async () => {
+  const tokenAdm = await entrar('adm.a@teste.local')
+  await chamar('POST', `/api/veiculos/${veiculoA}/km`,
+    { token: tokenAdm, corpo: { km_atual: 90000, motivo: 'ajuste do teste' } })
+
+  const token = await entrar('colab.a@teste.local')
+  const contexto = await chamar('GET', '/api/app/inicio', { token })
+  await chamar('POST', '/api/inspecoes', {
+    token,
+    corpo: {
+      cliente_uuid: 'km-menor-1', veiculo_id: veiculoA,
+      template_id: contexto.dados.templates[veiculoA].id,
+      respostas: { farois: 'ok', freio: 'ok' }, km_informado: 100,
+    },
+  })
+
+  const veiculo = await chamar('GET', `/api/veiculos/${veiculoA}`, { token: tokenAdm })
+  assert.equal(veiculo.dados.veiculo.km_atual, 90000,
+    'um 100 digitado errado nao pode adiar a preventiva em 90 mil km')
+})
+
 // -------------------------------------------------- criterio: auditoria
 
 test('auditoria: alteracoes criticas deixam rastro de quem, quando e o que mudou', async () => {

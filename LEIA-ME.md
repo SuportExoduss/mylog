@@ -7,6 +7,15 @@ Android e' o posto de execucao de checklist.
 Especificacao-mestra: `MyLog_Roadmap_Completo.docx`.
 Decisoes tecnicas e o porque de cada uma: [`docs/DECISOES.md`](docs/DECISOES.md).
 
+## Duas frentes
+
+| | Endereco | Quem usa |
+|---|---|---|
+| Painel web | `http://localhost:4000` | ADM, supervisao, manutencao, auditoria |
+| Aplicativo de campo | `http://localhost:4000/app/` | quem executa checklist |
+
+O aplicativo e um PWA instalavel: no Android, "Adicionar a tela inicial".
+
 ## Rodar
 
 Precisa apenas de Node 22.5+ (a maquina tem a 24). Nao ha dependencias para instalar.
@@ -36,6 +45,8 @@ cd servidor && npm test
 ## Estrutura
 
 ```
+compartilhado/
+  template.js     motor de checklist — roda no servidor E no aplicativo
 servidor/
   src/
     nucleo/       config, banco, roteador http, auditoria,
@@ -49,8 +60,13 @@ web/
   index.html      shell (login + painel)
   css/            folha unica
   js/             api, ui, e uma tela por arquivo
+app/              aplicativo de campo (PWA instalavel)
+  index.html      shell
+  sw.js           service worker: guarda a casca, nunca resposta de API
+  js/             armazem (IndexedDB), sincronia (fila), checklist, telas
 docs/
   DECISOES.md     registro de decisoes tecnicas
+  DESIGN.md       design system e identidade visual
 ```
 
 ## Estado por fase do roadmap
@@ -59,8 +75,8 @@ docs/
 |---|---|
 | F1 — Fundacao | **feita** — banco multi-tenant, auth, RBAC, auditoria, esqueleto web |
 | F2 — Web ADM | **feita** — usuarios, credenciais, veiculos, vinculos, dashboard e editor de checklist versionado |
-| F3 — Android | nao iniciada — decisao de stack ainda em aberto |
-| F4 — Regras | **parcial** — motor de criticidade e resumo de inspecao prontos e testados; tickets e ocorrencias completos; falta a execucao da inspecao que os alimenta |
+| F3 — Aplicativo de campo | **parcial** — PWA com login, checklist adaptativo, evidencias, assinatura, fila offline e sincronizacao idempotente. Falta upload das fotos ao servidor e teste em aparelho real |
+| F4 — Regras | **feita** — inspecao gera nao conformidade, aplica criticidade e muda o estado do veiculo conforme a politica da empresa |
 | F5 — Preventivas | **feita** — KM/data, ciclo de conclusao, reagendamento e alertas no painel |
 | F6 — Relatorios | nao iniciada |
 
@@ -83,6 +99,13 @@ docs/
 - Ticket so vai a "resolvido" com a solucao descrita; "fechado" e terminal.
 - Ocorrencia tem duas saidas distintas: "resolvida" e quem executou, "validada"
   e a supervisao conferindo — e quem executou nao valida a propria solucao.
+- O aplicativo julga a inspecao offline com o MESMO motor do servidor, mas quem
+  decide e o servidor: um envio que afirma "aprovado" respondendo falha critica
+  volta reprovado e bloqueia o veiculo.
+- Reenvio da fila offline nunca duplica inspecao (idempotente por cliente_uuid).
+- Checklist so fecha com todos os itens aplicaveis respondidos e todas as fotos
+  obrigatorias anexadas — conferido no aparelho e de novo no servidor.
+- KM informado no checklist nunca faz o hodometro andar para tras.
 - Encerrar a ultima ocorrencia critica nao desbloqueia o veiculo sozinho:
   liberar veiculo continua sendo decisao explicita, com motivo.
 

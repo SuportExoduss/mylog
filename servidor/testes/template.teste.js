@@ -6,7 +6,7 @@ import assert from 'node:assert/strict'
 
 const {
   conferirEstrutura, avaliarResposta, itemVisivel, itensAplicaveis, resumirInspecao,
-} = await import('../src/nucleo/template.js')
+} = await import('../../compartilhado/template.js')
 
 const estruturaBoa = {
   secoes: [{
@@ -136,10 +136,47 @@ test('item condicional so aparece quando a condicao bate', () => {
   assert.equal(itemVisivel(validade, { extintor: 'sim' }), true)
 })
 
-test('condicao por nao conformidade abre o campo de detalhe', () => {
-  const detalhe = { condicao: { item_id: 'oleo', operador: 'nao_conforme' } }
-  assert.equal(itemVisivel(detalhe, { oleo: { valor: 'ok', conforme: true } }), false)
-  assert.equal(itemVisivel(detalhe, { oleo: { valor: 'nok', conforme: false } }), true)
+test('condicao por nao conformidade funciona com resposta CRUA', () => {
+  // Regressao: a versao anterior so funcionava se quem chamasse ja tivesse
+  // calculado o campo `conforme`. Nem o aplicativo nem o servidor calculam —
+  // ambos passam o que o motorista respondeu. O item condicional nunca
+  // aparecia, e portanto nunca era cobrado como pendencia.
+  const estrutura = { secoes: [{ id: 'motor', titulo: 'Motor', itens: [
+    { id: 'oleo_nivel', rotulo: 'Nivel de oleo', tipo: 'ok_nok', criticidade: 'alto' },
+    { id: 'oleo_obs', rotulo: 'O que foi observado?', tipo: 'texto',
+      condicao: { item_id: 'oleo_nivel', operador: 'nao_conforme' } },
+  ] }] }
+
+  const comOk = itensAplicaveis(estrutura, { oleo_nivel: 'ok' }).map((i) => i.id)
+  assert.deepEqual(comOk, ['oleo_nivel'], 'com oleo conforme o detalhe fica escondido')
+
+  const comNok = itensAplicaveis(estrutura, { oleo_nivel: 'nok' }).map((i) => i.id)
+  assert.deepEqual(comNok, ['oleo_nivel', 'oleo_obs'], 'com oleo nao conforme o detalhe aparece')
+
+  // E a mesma resposta vinda do app como objeto tem de dar no mesmo.
+  const comObjeto = itensAplicaveis(estrutura, { oleo_nivel: { valor: 'nok' } }).map((i) => i.id)
+  assert.deepEqual(comObjeto, ['oleo_nivel', 'oleo_obs'])
+
+  // Sem responder nada, o condicional continua escondido.
+  assert.deepEqual(itensAplicaveis(estrutura, {}).map((i) => i.id), ['oleo_nivel'])
+})
+
+test('detalhe exigido por nao conformidade vira pendencia de verdade', () => {
+  // Consequencia do bug: se o item nunca aparece, ele nunca e' cobrado e a
+  // inspecao fecha sem a explicacao que a regra exigia.
+  const estrutura = { secoes: [{ id: 'motor', titulo: 'Motor', itens: [
+    { id: 'oleo_nivel', rotulo: 'Nivel de oleo', tipo: 'ok_nok', criticidade: 'alto' },
+    { id: 'oleo_obs', rotulo: 'O que foi observado?', tipo: 'texto',
+      condicao: { item_id: 'oleo_nivel', operador: 'nao_conforme' } },
+  ] }] }
+
+  const semDetalhe = resumirInspecao(estrutura, { oleo_nivel: 'nok' }, {})
+  assert.equal(semDetalhe.pode_finalizar, false)
+  assert.deepEqual(semDetalhe.pendencias.map((p) => p.item_id), ['oleo_obs'])
+
+  const comDetalhe = resumirInspecao(estrutura,
+    { oleo_nivel: 'nok', oleo_obs: 'Nivel abaixo da marca minima.' }, {})
+  assert.equal(comDetalhe.pode_finalizar, true)
 })
 
 test('condicao numerica compara como numero, nao como texto', () => {

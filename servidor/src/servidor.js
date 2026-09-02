@@ -14,6 +14,7 @@ import { registrarRotasTemplates } from './rotas/templates.js'
 import { registrarRotasPreventivas } from './rotas/preventivas.js'
 import { registrarRotasTickets } from './rotas/tickets.js'
 import { registrarRotasOcorrencias, registrarRotasAuditoria } from './rotas/ocorrencias.js'
+import { registrarRotasInspecoes } from './rotas/inspecoes.js'
 
 avisarSegredoFraco()
 abrirBanco()
@@ -28,6 +29,7 @@ registrarRotasPreventivas(rotas)
 registrarRotasTickets(rotas)
 registrarRotasOcorrencias(rotas)
 registrarRotasAuditoria(rotas)
+registrarRotasInspecoes(rotas)
 
 // ----------------------------------------------------------- arquivos web
 
@@ -44,17 +46,34 @@ const TIPOS = {
 }
 
 function servirEstatico(caminhoUrl, res) {
-  const relativo = caminhoUrl === '/' ? 'index.html' : caminhoUrl.slice(1)
-  const destino = path.resolve(config.webCaminho, relativo)
-  // Barra qualquer tentativa de sair da pasta web/.
-  if (!destino.startsWith(path.resolve(config.webCaminho))) {
+  // O motor de checklist e' o mesmo arquivo que o servidor usa: servido daqui,
+  // nao copiado. Copia vira divergencia, e divergencia aqui significa o app
+  // aprovar offline o que o servidor reprova depois.
+  if (caminhoUrl.startsWith('/compartilhado/')) {
+    return servirArquivo(path.resolve(config.compartilhadoCaminho, caminhoUrl.slice(15)),
+      config.compartilhadoCaminho, res)
+  }
+  // O aplicativo de campo tem shell proprio; rota desconhecida sob /app cai
+  // no index dele, nao no do painel.
+  const noApp = caminhoUrl === '/app' || caminhoUrl.startsWith('/app/')
+  const raiz = noApp ? config.appCaminho : config.webCaminho
+  const relativo = noApp
+    ? (caminhoUrl === '/app' || caminhoUrl === '/app/' ? 'index.html' : caminhoUrl.slice(5))
+    : (caminhoUrl === '/' ? 'index.html' : caminhoUrl.slice(1))
+  const destino = path.resolve(raiz, relativo)
+  return servirArquivo(destino, raiz, res)
+}
+
+function servirArquivo(destino, raiz, res) {
+  // Barra qualquer tentativa de sair da raiz servida.
+  if (!destino.startsWith(path.resolve(raiz))) {
     res.writeHead(403).end('Acesso negado')
     return
   }
   fs.readFile(destino, (falha, conteudo) => {
     if (falha) {
-      // Rotas do painel sao resolvidas no cliente: cai no index.
-      fs.readFile(path.join(config.webCaminho, 'index.html'), (falha2, indice) => {
+      // Rotas resolvidas no cliente: cai no index da raiz correspondente.
+      fs.readFile(path.join(raiz, 'index.html'), (falha2, indice) => {
         if (falha2) { res.writeHead(404).end('Nao encontrado'); return }
         res.writeHead(200, { 'content-type': TIPOS['.html'] }).end(indice)
       })
