@@ -1,73 +1,136 @@
-// Editor de template de checklist (secoes 11 e 12).
-// O checklist e' produto configuravel: quem monta e' o ADM, na tela, sem codigo.
-// Uma versao publicada nunca e' editada — o botao vira "Nova versao".
+// Editor de checklist (roadmap 11).
+// Toda pergunta e' uma verificacao visual: foto + OK/Ocorrencia. Nao ha tipo
+// de resposta nem item condicional.
 import { api } from './api.js'
 import {
-  elemento, cabecalhoTela, tabela, selo, vazio, abrirModal, notificar, dataCurta,
+  elemento, cabecalhoTela, tabela, selo, vazio, abrirModal, notificar, menuAcoes, dataCurta,
+  ROTULO_TIPO_VEICULO, ROTULO_PRIORIDADE, TOM_PRIORIDADE,
 } from './ui.js'
 
-const TIPOS_ITEM = [
-  { valor: 'ok_nok', rotulo: 'OK / Nao OK' },
-  { valor: 'sim_nao', rotulo: 'Sim / Nao' },
-  { valor: 'numero', rotulo: 'Numero com limite' },
-  { valor: 'selecao', rotulo: 'Selecao de opcoes' },
-  { valor: 'texto', rotulo: 'Texto livre' },
-  { valor: 'foto', rotulo: 'Foto' },
-  { valor: 'assinatura', rotulo: 'Assinatura' },
-  { valor: 'datahora', rotulo: 'Data / hora' },
+const TIPOS = Object.entries(ROTULO_TIPO_VEICULO).map(([valor, rotulo]) => ({ valor, rotulo }))
+
+const MODOS_FOTO = [
+  { valor: 'obrigatorio', rotulo: 'Obrigatorio — abre a camera direto' },
+  { valor: 'opcional', rotulo: 'Opcional — pergunta antes' },
+  { valor: 'nao_capturar', rotulo: 'Nao capturar — segue sozinho' },
 ]
 
-// Tipos que produzem juizo de conformidade — espelha o motor no servidor.
-const TIPOS_AVALIAVEIS = new Set(['ok_nok', 'sim_nao', 'numero', 'selecao'])
-
-const CRITICIDADES = [
-  { valor: 'informativo', rotulo: 'Informativo' },
-  { valor: 'baixo', rotulo: 'Baixo' },
-  { valor: 'medio', rotulo: 'Medio' },
-  { valor: 'alto', rotulo: 'Alto' },
-  { valor: 'critico', rotulo: 'Critico' },
-]
-
-const TOM_CRITICIDADE = {
-  informativo: 's-neutro', baixo: 's-neutro', medio: 's-atencao',
-  alto: 's-alerta', critico: 's-critico',
-}
+const PRIORIDADES = Object.entries(ROTULO_PRIORIDADE).map(([valor, rotulo]) => ({ valor, rotulo }))
 
 const TOM_STATUS_TEMPLATE = { rascunho: 's-atencao', publicado: 's-ok', arquivado: 's-neutro' }
 
-const OPERADORES = [
-  { valor: 'igual', rotulo: 'for igual a' },
-  { valor: 'diferente', rotulo: 'for diferente de' },
-  { valor: 'nao_conforme', rotulo: 'estiver nao conforme' },
-  { valor: 'conforme', rotulo: 'estiver conforme' },
-  { valor: 'maior', rotulo: 'for maior que' },
-  { valor: 'menor', rotulo: 'for menor que' },
-  { valor: 'preenchido', rotulo: 'estiver preenchido' },
-]
-
-function idAPartirDoRotulo(rotulo) {
-  return rotulo
+function idAPartirDo(texto, usados) {
+  const base = texto
     .toLowerCase()
     .normalize('NFD').replace(/[̀-ͯ]/g, '')
     .replace(/[^a-z0-9]+/g, '_')
     .replace(/^_+|_+$/g, '')
     .slice(0, 40) || 'item'
-}
-
-function idUnico(base, usados) {
   if (!usados.has(base)) return base
   let n = 2
   while (usados.has(`${base}_${n}`)) n += 1
   return `${base}_${n}`
 }
 
+// ------------------------------------------------------------------ criar
+
+async function novoChecklist(contexto) {
+  const { cargos } = await api.cargos()
+  const area = document.getElementById('area-modal')
+
+  const nome = elemento('input', { required: true, placeholder: 'Checklist padrao diario' })
+  const codigo = elemento('input', { required: true, placeholder: 'diario-padrao' })
+  const tipo = elemento('select', {}, TIPOS.map((t) =>
+    elemento('option', { value: t.valor, texto: t.rotulo })))
+  const assinatura = elemento('input', { type: 'checkbox' })
+  const aviso = elemento('div', { classe: 'aviso aviso--erro oculto' })
+
+  // "Todos" e' uma opcao real, nao a ausencia de escolha.
+  const todos = elemento('input', { type: 'checkbox', checked: true })
+  const caixasCargo = cargos.map((c) => {
+    const caixa = elemento('input', { type: 'checkbox', value: c.id })
+    return { cargo: c, caixa, no: elemento('label', { classe: 'campo-linha' }, [caixa, c.nome]) }
+  })
+  const listaCargos = elemento('div', { classe: 'oculto' }, caixasCargo.map((x) => x.no))
+  todos.addEventListener('change', () => listaCargos.classList.toggle('oculto', todos.checked))
+
+  // O codigo acompanha o nome ate alguem digitar um codigo proprio.
+  let codigoTocado = false
+  codigo.addEventListener('input', () => { codigoTocado = true })
+  nome.addEventListener('input', () => {
+    if (!codigoTocado) codigo.value = idAPartirDo(nome.value, new Set()).replace(/_/g, '-')
+  })
+
+  const formulario = elemento('form', {
+    classe: 'modal',
+    aoSubmit: async (evento) => {
+      evento.preventDefault()
+      aviso.classList.add('oculto')
+      const selecionados = todos.checked
+        ? ['*']
+        : caixasCargo.filter((x) => x.caixa.checked).map((x) => x.cargo.id)
+      if (!selecionados.length) {
+        aviso.textContent = 'Escolha ao menos um cargo, ou marque "todos".'
+        aviso.classList.remove('oculto')
+        return
+      }
+      try {
+        const { template } = await api.criarTemplate({
+          nome: nome.value.trim(), codigo: codigo.value.trim().toLowerCase(),
+          tipo_veiculo: tipo.value, cargos_liberados: selecionados,
+          exige_assinatura: assinatura.checked,
+          estrutura: { perguntas: [] },
+        })
+        area.replaceChildren()
+        // Criado o rascunho, cai direto na configuracao das perguntas.
+        contexto.irPara('templates', { id: template.id })
+      } catch (falha) {
+        aviso.textContent = falha.message
+        aviso.classList.remove('oculto')
+      }
+    },
+  }, [
+    elemento('h3', { texto: 'Novo checklist' }),
+    elemento('p', { classe: 'modal-sub',
+      texto: 'Nasce como rascunho. So passa a valer no aplicativo quando for publicado.' }),
+    aviso,
+    elemento('div', { classe: 'campo' }, [elemento('label', { texto: 'Nome' }), nome]),
+    elemento('div', { classe: 'campo' }, [
+      elemento('label', { texto: 'Codigo' }), codigo,
+      elemento('div', { classe: 'campo-dica', texto: 'Identificador estavel entre versoes.' }),
+    ]),
+    elemento('div', { classe: 'campo' }, [
+      elemento('label', { texto: 'Tipo de veiculo' }), tipo,
+      elemento('div', { classe: 'campo-dica', texto: 'O checklist so aparece para veiculos deste tipo.' }),
+    ]),
+    elemento('div', { classe: 'campo' }, [
+      elemento('label', { texto: 'Cargos liberados' }),
+      elemento('label', { classe: 'campo-linha' }, [todos, 'Todos os cargos']),
+      listaCargos,
+      elemento('div', { classe: 'campo-dica',
+        texto: 'Se o cargo da pessoa nao estiver liberado, o checklist nem aparece para ela.' }),
+    ]),
+    elemento('div', { classe: 'campo' }, [
+      elemento('label', { classe: 'campo-linha' }, [assinatura, 'Exigir assinatura digital ao finalizar']),
+    ]),
+    elemento('div', { classe: 'modal-acoes' }, [
+      elemento('button', { classe: 'botao botao--suave', type: 'button', texto: 'Cancelar',
+        aoClick: () => area.replaceChildren() }),
+      elemento('button', { classe: 'botao', type: 'submit', texto: 'Criar rascunho' }),
+    ]),
+  ])
+
+  area.replaceChildren(elemento('div', { classe: 'fundo-modal' }, [formulario]))
+}
+
 // ------------------------------------------------------------------ lista
 
 export async function telaTemplates(raiz, contexto) {
-  if (contexto.parametros.id) return editorTemplate(raiz, contexto, contexto.parametros.id)
+  if (contexto.parametros.id) return editor(raiz, contexto, contexto.parametros.id)
 
-  const podeEscrever = contexto.pode('templates.escrever')
   const areaLista = elemento('div', {})
+  const { cargos } = await api.cargos()
+  const nomeCargo = (id) => cargos.find((c) => c.id === id)?.nome || id
 
   async function recarregar() {
     const { templates } = await api.templates()
@@ -75,72 +138,65 @@ export async function telaTemplates(raiz, contexto) {
   }
 
   function desenhar(templates) {
-    if (!templates.length) {
-      return vazio('Nenhum template ainda. Crie o primeiro checklist da empresa.')
-    }
-    return tabela(['Checklist', 'Versao', 'Tamanho', 'Situacao', 'Publicado em', ''],
+    if (!templates.length) return vazio('Nenhum checklist ainda. Crie o primeiro modelo da empresa.')
+
+    return tabela(['Checklist', 'Veiculo', 'Cargos', 'Versao', 'Situacao', 'Publicado', ''],
       templates.map((t) => {
-        const acoes = []
-        acoes.push(elemento('button', {
-          classe: 'botao botao--suave botao--mini',
-          texto: t.status === 'rascunho' && podeEscrever ? 'Editar' : 'Ver',
+        const acoes = [{
+          rotulo: t.status === 'rascunho' ? 'Editar perguntas' : 'Ver perguntas',
           aoClick: () => contexto.irPara('templates', { id: t.id }),
-        }))
-        if (podeEscrever && t.status === 'publicado') {
-          acoes.push(elemento('button', {
-            classe: 'botao botao--suave botao--mini', texto: 'Nova versao',
-            aoClick: async () => {
-              try {
-                const { template } = await api.novaVersaoTemplate(t.id)
-                notificar(`Versao ${template.versao} criada como rascunho.`)
-                contexto.irPara('templates', { id: template.id })
-              } catch (falha) { notificar(falha.message) }
-            },
-          }))
+        }]
+        if (t.status === 'publicado') {
+          acoes.push({ rotulo: 'Criar nova versao', aoClick: async () => {
+            try {
+              const { template } = await api.novaVersaoTemplate(t.id)
+              notificar(`Versao ${template.versao} criada como rascunho.`)
+              contexto.irPara('templates', { id: template.id })
+            } catch (falha) { notificar(falha.message) }
+          } })
         }
+        if (t.status === 'rascunho') {
+          acoes.push({ rotulo: 'Descartar rascunho', perigo: true, separar: true, aoClick: async () => {
+            try {
+              await api.descartarTemplate(t.id)
+              notificar('Rascunho descartado.')
+              await recarregar()
+            } catch (falha) { notificar(falha.message) }
+          } })
+        }
+
+        const cargosTexto = t.cargos_liberados.includes('*')
+          ? 'Todos'
+          : t.cargos_liberados.map(nomeCargo).join(', ')
+
         return elemento('tr', {}, [
           elemento('td', {}, [
             elemento('div', { classe: 'celula-forte', texto: t.nome }),
             elemento('div', { classe: 'celula-fraca dado', texto: t.codigo }),
           ]),
+          elemento('td', { classe: 'celula-fraca', texto: ROTULO_TIPO_VEICULO[t.tipo_veiculo] || t.tipo_veiculo }),
+          elemento('td', { classe: 'celula-fraca limite-texto-curto', texto: cargosTexto }),
           elemento('td', { classe: 'celula-fraca dado', texto: `v${t.versao}` }),
-          elemento('td', { classe: 'celula-fraca',
-            texto: `${t.total_secoes} secoes · ${t.total_itens} itens` }),
-          elemento('td', {}, [selo(t.status, TOM_STATUS_TEMPLATE[t.status])]),
+          elemento('td', {}, [
+            elemento('div', { classe: 'card-detalhe' }, [
+              selo(t.status, TOM_STATUS_TEMPLATE[t.status]),
+              t.exige_assinatura ? selo('assinatura', 's-neutro') : null,
+            ].filter(Boolean)),
+            elemento('div', { classe: 'celula-fraca esp-t-1',
+              texto: `${t.total_perguntas} pergunta(s)` }),
+          ]),
           elemento('td', { classe: 'celula-fraca', texto: t.publicado_em ? dataCurta(t.publicado_em) : '—' }),
-          elemento('td', {}, [elemento('div', { classe: 'linha linha--fim' }, acoes)]),
+          elemento('td', { classe: 'celula-acoes' }, [menuAcoes(acoes)]),
         ])
       }))
-  }
-
-  function novoTemplate() {
-    abrirModal({
-      titulo: 'Novo checklist',
-      subtitulo: 'Nasce como rascunho. So passa a valer quando for publicado.',
-      campos: [
-        { nome: 'nome', rotulo: 'Nome', obrigatorio: true, dica: 'Ex.: Checklist diario — caminhao' },
-        { nome: 'codigo', rotulo: 'Codigo', obrigatorio: true,
-          dica: 'Identificador estavel entre versoes. Ex.: diario-caminhao' },
-        { nome: 'tipo_veiculo', rotulo: 'Tipo de veiculo (opcional)' },
-      ],
-      confirmar: 'Criar rascunho',
-      aoConfirmar: async (valores) => {
-        const { template } = await api.criarTemplate({
-          ...valores,
-          estrutura: { secoes: [{ id: 'geral', titulo: 'Geral', itens: [] }] },
-        })
-        contexto.irPara('templates', { id: template.id })
-      },
-    })
   }
 
   raiz.append(
     cabecalhoTela({
       titulo: 'Checklists',
-      descricao: 'Modelos de inspecao versionados. O aplicativo executa a versao publicada.',
-      acoes: podeEscrever
-        ? [elemento('button', { classe: 'botao', texto: '+ Novo checklist', aoClick: novoTemplate })]
-        : [],
+      descricao: 'Modelos versionados. O aplicativo executa a versao publicada do tipo de veiculo e do cargo.',
+      acoes: [elemento('button', { classe: 'botao', texto: '+ Novo checklist',
+        aoClick: () => novoChecklist(contexto) })],
     }),
     areaLista,
   )
@@ -149,249 +205,212 @@ export async function telaTemplates(raiz, contexto) {
 
 // ----------------------------------------------------------------- editor
 
-async function editorTemplate(raiz, contexto, id) {
+async function editor(raiz, contexto, id) {
   const { template } = await api.template(id)
-  const editavel = template.status === 'rascunho' && contexto.pode('templates.escrever')
+  const editavel = template.status === 'rascunho'
   const estrutura = template.estrutura
+  if (!Array.isArray(estrutura.perguntas)) estrutura.perguntas = []
 
-  const areaSecoes = elemento('div', {})
+  const areaPerguntas = elemento('div', {})
   const areaAviso = elemento('div', {})
 
-  function idsUsados() {
-    const usados = new Set()
-    for (const secao of estrutura.secoes) for (const item of secao.itens) usados.add(item.id)
-    return usados
-  }
+  const idsUsados = () => new Set(estrutura.perguntas.map((p) => p.id))
 
-  // Itens que vem ANTES do item indicado — os unicos que uma condicao pode olhar.
-  function itensAnteriores(secaoIndice, itemIndice) {
-    const anteriores = []
-    estrutura.secoes.forEach((secao, si) => {
-      secao.itens.forEach((item, ii) => {
-        if (si < secaoIndice || (si === secaoIndice && ii < itemIndice)) anteriores.push(item)
-      })
-    })
-    return anteriores
-  }
-
-  async function salvar({ silencioso } = {}) {
+  async function salvar() {
     await api.salvarTemplate(template.id, { estrutura })
-    if (!silencioso) notificar('Rascunho salvo.')
     await conferir()
   }
 
   async function conferir() {
-    const resultado = await api.conferirTemplate(estrutura)
+    const r = await api.conferirTemplate(estrutura)
     areaAviso.replaceChildren(
-      resultado.valido
+      r.valido
         ? elemento('div', { classe: 'aviso aviso--ok',
-            texto: `Estrutura valida: ${resultado.resumo.secoes} secoes, ${resultado.resumo.itens} itens. Pronto para publicar.` })
-        : elemento('div', { classe: 'aviso aviso--erro', texto: resultado.mensagem }),
+            texto: `Estrutura valida: ${r.resumo.perguntas} pergunta(s), ${r.resumo.opcoes_que_abrem_ocorrencia} opcao(oes) que abrem ocorrencia. Pronto para publicar.` })
+        : elemento('div', { classe: 'aviso aviso--erro', texto: r.mensagem }),
     )
-    return resultado.valido
+    return r.valido
   }
 
-  // ------------------------------------------------------------- itens
+  // ---------------------------------------------------------- pergunta
 
-  function formularioItem(secaoIndice, itemIndice) {
-    const criando = itemIndice === null
-    const item = criando ? { tipo: 'ok_nok', criticidade: 'medio' } : estrutura.secoes[secaoIndice].itens[itemIndice]
-    const anteriores = itensAnteriores(secaoIndice, criando ? estrutura.secoes[secaoIndice].itens.length : itemIndice)
-
-    const campos = [
-      { nome: 'rotulo', rotulo: 'Pergunta', valor: item.rotulo || '', obrigatorio: true,
-        dica: 'E o que o motorista le na tela do celular.' },
-      { nome: 'tipo', rotulo: 'Tipo de resposta', tipo: 'select', opcoes: TIPOS_ITEM, valor: item.tipo },
-      { nome: 'criticidade', rotulo: 'Criticidade quando nao conforme', tipo: 'select',
-        opcoes: CRITICIDADES, valor: item.criticidade || 'medio',
-        dica: 'Criticidade "critico" pode bloquear o veiculo, conforme a politica da empresa.',
-        visivelQuando: (v) => TIPOS_AVALIAVEIS.has(v.tipo) },
-      { nome: 'valor_conforme', rotulo: 'Resposta considerada conforme (Sim/Nao)', tipo: 'select',
-        opcoes: [{ valor: 'sim', rotulo: 'Sim' }, { valor: 'nao', rotulo: 'Nao' }],
-        valor: item.valor_conforme || 'sim',
-        dica: 'Em "Ha vazamento?", a resposta conforme e "Nao".',
-        visivelQuando: (v) => v.tipo === 'sim_nao' },
-      { nome: 'minimo', rotulo: 'Minimo aceito', tipo: 'number', valor: item.minimo ?? '',
-        visivelQuando: (v) => v.tipo === 'numero' },
-      { nome: 'maximo', rotulo: 'Maximo aceito', tipo: 'number', valor: item.maximo ?? '',
-        visivelQuando: (v) => v.tipo === 'numero' },
-      { nome: 'unidade', rotulo: 'Unidade', valor: item.unidade || '',
-        dica: 'Ex.: PSI, km, litros.',
-        visivelQuando: (v) => v.tipo === 'numero' },
-      { nome: 'opcoes', rotulo: 'Opcoes da selecao', tipo: 'textarea',
-        visivelQuando: (v) => v.tipo === 'selecao',
-        valor: (item.opcoes || []).map((o) =>
-          `${o.valor}|${o.rotulo || o.valor}|${o.conforme === false ? 'nok' : 'ok'}|${o.criticidade || ''}`).join('\n'),
-        dica: 'Uma por linha: valor|rotulo|ok ou nok|criticidade' },
-      { nome: 'foto_obrigatoria_se_nok', rotulo: 'Exigir foto quando nao conforme', tipo: 'select',
-        opcoes: [{ valor: 'nao', rotulo: 'Nao' }, { valor: 'sim', rotulo: 'Sim' }],
-        valor: item.foto_obrigatoria_se_nok ? 'sim' : 'nao',
-        dica: 'A foto vira evidencia no relatorio, amarrada ao item e ao horario.',
-        visivelQuando: (v) => TIPOS_AVALIAVEIS.has(v.tipo) },
-      { nome: 'condicao_item', rotulo: 'Mostrar somente quando...', tipo: 'select',
-        opcoes: [{ valor: '', rotulo: 'Sempre mostrar' },
-          ...anteriores.map((a) => ({ valor: a.id, rotulo: a.rotulo }))],
-        valor: item.condicao?.item_id || '' },
-      { nome: 'condicao_operador', rotulo: '...esse item', tipo: 'select', opcoes: OPERADORES,
-        valor: item.condicao?.operador || 'igual',
-        visivelQuando: (v) => Boolean(v.condicao_item) },
-      { nome: 'condicao_valor', rotulo: '...com o valor', valor: item.condicao?.valor ?? '',
-        dica: 'Nao usado nos operadores "conforme", "nao conforme" e "preenchido".',
-        visivelQuando: (v) => Boolean(v.condicao_item)
-          && !['conforme', 'nao_conforme', 'preenchido'].includes(v.condicao_operador) },
-    ]
+  function formularioPergunta(indice) {
+    const criando = indice === null
+    const p = criando
+      ? { foto_ok: 'obrigatorio', max_fotos_ok: 4, opcoes_problema: [] }
+      : estrutura.perguntas[indice]
 
     abrirModal({
-      titulo: criando ? 'Novo item' : 'Editar item',
-      subtitulo: estrutura.secoes[secaoIndice].titulo,
-      campos,
-      confirmar: criando ? 'Adicionar' : 'Salvar item',
+      titulo: criando ? 'Nova pergunta' : 'Editar pergunta',
+      subtitulo: 'O colaborador ve a foto de exemplo e decide entre Ocorrencia e OK.',
+      campos: [
+        { nome: 'titulo', rotulo: 'Titulo da pergunta', valor: p.titulo || '', obrigatorio: true,
+          dica: 'E o que ele le na tela do celular. Ex.: Lateral esquerda.' },
+        { nome: 'foto_exibicao', rotulo: 'Foto de exibicao (URL)', valor: p.foto_exibicao || '',
+          dica: 'Exemplo de como a foto deve ser tirada. Aparece no meio da tela.' },
+        { nome: 'foto_ok', rotulo: 'Captura de foto ao marcar OK', tipo: 'select',
+          opcoes: MODOS_FOTO, valor: p.foto_ok || 'obrigatorio' },
+        { nome: 'max_fotos_ok', rotulo: 'Maximo de fotos no OK', tipo: 'number',
+          valor: p.max_fotos_ok ?? 4,
+          visivelQuando: (v) => v.foto_ok !== 'nao_capturar' },
+      ],
+      confirmar: criando ? 'Adicionar' : 'Salvar',
       aoConfirmar: async (v) => {
-        const novo = { rotulo: v.rotulo, tipo: v.tipo, criticidade: v.criticidade }
-
-        novo.id = criando ? idUnico(idAPartirDoRotulo(v.rotulo), idsUsados()) : item.id
-
-        if (v.tipo === 'sim_nao') novo.valor_conforme = v.valor_conforme
-        if (v.tipo === 'numero') {
-          if (v.minimo !== '') novo.minimo = Number(v.minimo)
-          if (v.maximo !== '') novo.maximo = Number(v.maximo)
-          if (v.unidade) novo.unidade = v.unidade
+        const nova = {
+          id: criando ? idAPartirDo(v.titulo, idsUsados()) : p.id,
+          titulo: v.titulo,
+          foto_exibicao: v.foto_exibicao || null,
+          foto_ok: v.foto_ok,
+          max_fotos_ok: v.foto_ok === 'nao_capturar' ? 1 : Number(v.max_fotos_ok || 1),
+          opcoes_problema: p.opcoes_problema || [],
         }
-        if (v.tipo === 'selecao') {
-          novo.opcoes = v.opcoes.split('\n').map((linha) => linha.trim()).filter(Boolean).map((linha) => {
-            const [valor, rotulo, conformidade, criticidade] = linha.split('|').map((p) => (p || '').trim())
-            const opcao = { valor, rotulo: rotulo || valor }
-            if (conformidade === 'nok') {
-              opcao.conforme = false
-              if (criticidade) opcao.criticidade = criticidade
-            }
-            return opcao
-          })
-        }
-        if (v.foto_obrigatoria_se_nok === 'sim') novo.foto_obrigatoria_se_nok = true
-        if (v.condicao_item) {
-          novo.condicao = { item_id: v.condicao_item, operador: v.condicao_operador }
-          if (v.condicao_valor !== '') novo.condicao.valor = v.condicao_valor
-        }
-
-        if (criando) estrutura.secoes[secaoIndice].itens.push(novo)
-        else estrutura.secoes[secaoIndice].itens[itemIndice] = novo
-
-        await salvar({ silencioso: true })
-        desenharSecoes()
+        if (criando) estrutura.perguntas.push(nova)
+        else estrutura.perguntas[indice] = nova
+        await salvar()
+        desenhar()
       },
     })
   }
 
-  function moverItem(secaoIndice, itemIndice, direcao) {
-    const itens = estrutura.secoes[secaoIndice].itens
-    const destino = itemIndice + direcao
-    if (destino < 0 || destino >= itens.length) return
-    ;[itens[itemIndice], itens[destino]] = [itens[destino], itens[itemIndice]]
-    salvar({ silencioso: true }).then(desenharSecoes)
+  function formularioOpcao(iPergunta, iOpcao) {
+    const criando = iOpcao === null
+    const pergunta = estrutura.perguntas[iPergunta]
+    const o = criando
+      ? { foto: 'obrigatorio', max_fotos: 3, abrir_ocorrencia: true, prioridade: 'media' }
+      : pergunta.opcoes_problema[iOpcao]
+
+    abrirModal({
+      titulo: criando ? 'Nova opcao de problema' : 'Editar opcao',
+      subtitulo: `${pergunta.titulo} — o colaborador escolhe daqui em vez de escrever.`,
+      campos: [
+        { nome: 'nome', rotulo: 'Nome da opcao', valor: o.nome || '', obrigatorio: true,
+          dica: 'Ex.: Lataria amassada.' },
+        { nome: 'foto', rotulo: 'Obrigatoriedade de fotos', tipo: 'select',
+          opcoes: MODOS_FOTO, valor: o.foto || 'obrigatorio' },
+        { nome: 'max_fotos', rotulo: 'Maximo de fotos', tipo: 'number', valor: o.max_fotos ?? 3,
+          visivelQuando: (v) => v.foto !== 'nao_capturar' },
+        { nome: 'abrir_ocorrencia', rotulo: 'Abrir ocorrencia?', tipo: 'select',
+          opcoes: [{ valor: 'sim', rotulo: 'Sim — vai para a fila da frota' },
+                   { valor: 'nao', rotulo: 'Nao — so registra no checklist' }],
+          valor: o.abrir_ocorrencia === false ? 'nao' : 'sim' },
+        { nome: 'prioridade', rotulo: 'Prioridade da ocorrencia', tipo: 'select',
+          opcoes: PRIORIDADES, valor: o.prioridade || 'media',
+          dica: 'Critica bloqueia o veiculo na hora, e so a frota libera com motivo.',
+          visivelQuando: (v) => v.abrir_ocorrencia === 'sim' },
+      ],
+      confirmar: criando ? 'Adicionar opcao' : 'Salvar',
+      aoConfirmar: async (v) => {
+        const usados = new Set((pergunta.opcoes_problema || []).map((x) => x.id))
+        if (!criando) usados.delete(o.id)
+        const abre = v.abrir_ocorrencia === 'sim'
+        const nova = {
+          id: criando ? idAPartirDo(v.nome, usados) : o.id,
+          nome: v.nome,
+          foto: v.foto,
+          max_fotos: v.foto === 'nao_capturar' ? 1 : Number(v.max_fotos || 1),
+          abrir_ocorrencia: abre,
+        }
+        if (abre) nova.prioridade = v.prioridade
+        if (criando) pergunta.opcoes_problema.push(nova)
+        else pergunta.opcoes_problema[iOpcao] = nova
+        await salvar()
+        desenhar()
+      },
+    })
+  }
+
+  async function mover(indice, direcao) {
+    const destino = indice + direcao
+    if (destino < 0 || destino >= estrutura.perguntas.length) return
+    const lista = estrutura.perguntas
+    ;[lista[indice], lista[destino]] = [lista[destino], lista[indice]]
+    await salvar()
+    desenhar()
   }
 
   // ------------------------------------------------------------ desenho
 
-  function linhaItem(item, secaoIndice, itemIndice, totalItens) {
-    const marcas = []
-    if (item.criticidade && item.tipo !== 'texto' && item.tipo !== 'foto' && item.tipo !== 'assinatura') {
-      marcas.push(selo(item.criticidade, TOM_CRITICIDADE[item.criticidade]))
-    }
-    if (item.foto_obrigatoria_se_nok) marcas.push(selo('foto obrigatoria', 's-neutro'))
-    if (item.condicao) marcas.push(selo('condicional', 's-atencao'))
-    if (item.tipo === 'numero' && (item.minimo != null || item.maximo != null)) {
-      marcas.push(selo(`${item.minimo ?? '—'} a ${item.maximo ?? '—'} ${item.unidade || ''}`.trim(), 's-neutro'))
-    }
+  function blocoPergunta(p, i) {
+    const marcas = [
+      selo(MODOS_FOTO.find((m) => m.valor === p.foto_ok)?.rotulo.split(' —')[0] || p.foto_ok,
+        p.foto_ok === 'obrigatorio' ? 's-marca' : 's-neutro'),
+    ]
+    if (p.foto_ok !== 'nao_capturar') marcas.push(selo(`ate ${p.max_fotos_ok} foto(s)`, 's-neutro'))
+    if (p.foto_exibicao) marcas.push(selo('com foto de exemplo', 's-neutro'))
 
     const acoes = editavel ? [
-      elemento('button', { classe: 'botao botao--suave botao--mini', texto: '↑',
-        aoClick: () => moverItem(secaoIndice, itemIndice, -1), disabled: itemIndice === 0 }),
-      elemento('button', { classe: 'botao botao--suave botao--mini', texto: '↓',
-        aoClick: () => moverItem(secaoIndice, itemIndice, 1), disabled: itemIndice === totalItens - 1 }),
-      elemento('button', { classe: 'botao botao--suave botao--mini', texto: 'Editar',
-        aoClick: () => formularioItem(secaoIndice, itemIndice) }),
-      elemento('button', { classe: 'botao botao--suave botao--mini', texto: 'Remover',
-        aoClick: async () => {
-          estrutura.secoes[secaoIndice].itens.splice(itemIndice, 1)
-          await salvar({ silencioso: true })
-          desenharSecoes()
-        } }),
+      { rotulo: '+ Opcao de problema', aoClick: () => formularioOpcao(i, null) },
+      { rotulo: 'Editar pergunta', aoClick: () => formularioPergunta(i) },
+      { rotulo: 'Mover para cima', aoClick: () => mover(i, -1) },
+      { rotulo: 'Mover para baixo', aoClick: () => mover(i, 1) },
+      { rotulo: 'Remover pergunta', perigo: true, separar: true, aoClick: async () => {
+        estrutura.perguntas.splice(i, 1)
+        await salvar()
+        desenhar()
+      } },
     ] : []
 
-    return elemento('tr', {}, [
-      elemento('td', {}, [
-        elemento('div', { classe: 'celula-forte', texto: item.rotulo }),
-        elemento('div', { classe: 'celula-fraca dado', texto: item.id }),
+    const opcoes = (p.opcoes_problema || []).length
+      ? tabela(['Opcao', 'Foto', 'Ocorrencia', ''], p.opcoes_problema.map((o, j) =>
+          elemento('tr', {}, [
+            elemento('td', {}, [
+              elemento('div', { classe: 'celula-forte', texto: o.nome }),
+              elemento('div', { classe: 'celula-fraca dado', texto: o.id }),
+            ]),
+            elemento('td', { classe: 'celula-fraca' }, [
+              elemento('div', { texto: o.foto }),
+              o.foto !== 'nao_capturar' ? elemento('div', { texto: `ate ${o.max_fotos}` }) : null,
+            ]),
+            elemento('td', {}, [
+              o.abrir_ocorrencia
+                ? selo(ROTULO_PRIORIDADE[o.prioridade], TOM_PRIORIDADE[o.prioridade])
+                : selo('so registra', 's-neutro'),
+            ]),
+            elemento('td', { classe: 'celula-acoes' }, [menuAcoes(editavel ? [
+              { rotulo: 'Editar', aoClick: () => formularioOpcao(i, j) },
+              { rotulo: 'Remover', perigo: true, aoClick: async () => {
+                p.opcoes_problema.splice(j, 1)
+                await salvar()
+                desenhar()
+              } },
+            ] : [])]),
+          ])))
+      : vazio('Sem opcoes de problema. Sem elas o colaborador nao tem o que escolher ao marcar Ocorrencia.')
+
+    return elemento('section', { classe: 'secao' }, [
+      elemento('div', { classe: 'secao-titulo' }, [
+        elemento('div', {}, [
+          elemento('h2', { texto: `${i + 1}. ${p.titulo}` }),
+          elemento('div', { classe: 'celula-fraca dado', texto: p.id }),
+        ]),
+        elemento('div', { classe: 'linha' }, [
+          elemento('div', { classe: 'card-detalhe' }, marcas),
+          menuAcoes(acoes),
+        ]),
       ]),
-      elemento('td', { classe: 'celula-fraca',
-        texto: TIPOS_ITEM.find((t) => t.valor === item.tipo)?.rotulo || item.tipo }),
-      elemento('td', {}, [elemento('div', { classe: 'card-detalhe' }, marcas)]),
-      elemento('td', {}, [elemento('div', { classe: 'linha linha--fim' }, acoes)]),
+      opcoes,
     ])
   }
 
-  function desenharSecoes() {
-    const blocos = estrutura.secoes.map((secao, si) => {
-      const cabecalho = elemento('div', { classe: 'secao-titulo esp-t-5' }, [
-        elemento('div', {}, [
-          elemento('h2', { texto: secao.titulo }),
-          elemento('div', { classe: 'celula-fraca dado', texto: `${secao.id} · ${secao.itens.length} itens` }),
-        ]),
-        editavel ? elemento('div', { classe: 'linha linha--fim' }, [
-          elemento('button', { classe: 'botao botao--mini', texto: '+ Item',
-            aoClick: () => formularioItem(si, null) }),
-          elemento('button', { classe: 'botao botao--suave botao--mini', texto: 'Renomear',
-            aoClick: () => abrirModal({
-              titulo: 'Renomear secao',
-              campos: [{ nome: 'titulo', rotulo: 'Titulo', valor: secao.titulo, obrigatorio: true }],
-              aoConfirmar: async (v) => {
-                secao.titulo = v.titulo
-                await salvar({ silencioso: true })
-                desenharSecoes()
-              },
-            }) }),
-          elemento('button', { classe: 'botao botao--suave botao--mini', texto: 'Remover secao',
-            aoClick: async () => {
-              estrutura.secoes.splice(si, 1)
-              await salvar({ silencioso: true })
-              desenharSecoes()
-            } }),
-        ]) : null,
-      ])
-
-      const corpo = secao.itens.length
-        ? tabela(['Item', 'Tipo', 'Regras', ''],
-            secao.itens.map((item, ii) => linhaItem(item, si, ii, secao.itens.length)))
-        : vazio('Secao sem itens. Um template so publica com todas as secoes preenchidas.')
-
-      return elemento('section', {}, [cabecalho, corpo])
-    })
-
-    areaSecoes.replaceChildren(...blocos)
+  function desenhar() {
+    areaPerguntas.replaceChildren(
+      estrutura.perguntas.length
+        ? elemento('div', {}, estrutura.perguntas.map(blocoPergunta))
+        : vazio('Nenhuma pergunta ainda. Cada pergunta e uma verificacao visual do veiculo.'),
+    )
   }
 
-  // ------------------------------------------------------------ cabecalho
+  // --------------------------------------------------------- cabecalho
 
-  const acoes = []
-  acoes.push(elemento('button', {
+  const acoes = [elemento('button', {
     classe: 'botao botao--suave', texto: '← Checklists',
     aoClick: () => contexto.irPara('templates'),
-  }))
+  })]
+
   if (editavel) {
     acoes.push(elemento('button', {
-      classe: 'botao botao--suave', texto: '+ Secao',
-      aoClick: () => abrirModal({
-        titulo: 'Nova secao',
-        campos: [{ nome: 'titulo', rotulo: 'Titulo da secao', obrigatorio: true,
-          dica: 'Ex.: Pneus e rodagem' }],
-        aoConfirmar: async (v) => {
-          const usados = new Set(estrutura.secoes.map((s) => s.id))
-          estrutura.secoes.push({ id: idUnico(idAPartirDoRotulo(v.titulo), usados), titulo: v.titulo, itens: [] })
-          await salvar({ silencioso: true })
-          desenharSecoes()
-        },
-      }),
+      classe: 'botao botao--suave', texto: '+ Pergunta',
+      aoClick: () => formularioPergunta(null),
     }))
     acoes.push(elemento('button', {
       classe: 'botao', texto: 'Publicar versao',
@@ -399,7 +418,7 @@ async function editorTemplate(raiz, contexto, id) {
         if (!(await conferir())) { notificar('Corrija a estrutura antes de publicar.'); return }
         abrirModal({
           titulo: `Publicar versao ${template.versao}?`,
-          subtitulo: 'Depois de publicada, esta versao nao pode ser alterada — mudancas viram a versao seguinte. A versao publicada anterior sera arquivada.',
+          subtitulo: 'Depois de publicada esta versao nao pode ser alterada — mudancas viram a versao seguinte. A versao publicada anterior sera arquivada.',
           confirmar: 'Publicar',
           aoConfirmar: async () => {
             await api.publicarTemplate(template.id)
@@ -414,14 +433,15 @@ async function editorTemplate(raiz, contexto, id) {
   raiz.append(
     cabecalhoTela({
       titulo: template.nome,
-      descricao: `${template.codigo} · versao ${template.versao} · ${template.status}`
-        + (editavel ? ' — alteracoes sao salvas automaticamente' : ' — somente leitura'),
+      descricao: `${template.codigo} · versao ${template.versao} · ${ROTULO_TIPO_VEICULO[template.tipo_veiculo]}`
+        + (template.exige_assinatura ? ' · exige assinatura' : '')
+        + (editavel ? ' — alteracoes salvam sozinhas' : ' — somente leitura'),
       acoes,
     }),
     areaAviso,
-    areaSecoes,
+    areaPerguntas,
   )
 
-  desenharSecoes()
+  desenhar()
   if (editavel) await conferir()
 }

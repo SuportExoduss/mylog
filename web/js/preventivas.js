@@ -2,7 +2,7 @@
 // perguntas: o que esta vencido, e o que vence em breve.
 import { api } from './api.js'
 import {
-  elemento, cabecalhoTela, tabela, selo, vazio, abrirModal, notificar, numero, dataCurta,
+  elemento, cabecalhoTela, tabela, selo, vazio, abrirModal, notificar, numero, dataCurta, menuAcoes,
   ROTULO_STATUS_PREVENTIVA, TOM_STATUS_PREVENTIVA,
 } from './ui.js'
 
@@ -149,7 +149,7 @@ function concluir(p, recarregar) {
 }
 
 export async function telaPreventivas(raiz, contexto) {
-  const podeEscrever = contexto.pode('preventivas.escrever')
+  const podeEscrever = contexto.ehFrota
   const filtros = { status: contexto.parametros.status || '', historico: '' }
   const areaLista = elemento('div', {})
 
@@ -163,13 +163,10 @@ export async function telaPreventivas(raiz, contexto) {
 
     return tabela(['Veiculo', 'Metodo', 'Alvo', 'Situacao', 'Ultima execucao', ''],
       preventivas.map((p) => {
-        const acoes = []
-        if (podeEscrever && p.status !== 'realizada') {
-          acoes.push(elemento('button', { classe: 'botao botao--mini', texto: 'Concluir',
-            aoClick: () => concluir(p, recarregar) }))
-          acoes.push(elemento('button', { classe: 'botao botao--suave botao--mini', texto: 'Reagendar',
-            aoClick: () => reagendar(p, recarregar) }))
-        }
+        const acoes = podeEscrever && p.status !== 'realizada' ? [
+          { rotulo: 'Concluir e agendar proxima', aoClick: () => concluir(p, recarregar) },
+          { rotulo: 'Reagendar', aoClick: () => reagendar(p, recarregar) },
+        ] : []
 
         return elemento('tr', {}, [
           elemento('td', {}, [
@@ -191,7 +188,7 @@ export async function telaPreventivas(raiz, contexto) {
             elemento('div', { texto: p.ultimo_servico_data ? dataCurta(p.ultimo_servico_data) : '—' }),
             p.concluida_por_nome ? elemento('div', { texto: p.concluida_por_nome }) : null,
           ]),
-          elemento('td', {}, [elemento('div', { classe: 'linha linha--fim' }, acoes)]),
+          elemento('td', { classe: 'celula-acoes' }, [menuAcoes(acoes)]),
         ])
       }))
   }

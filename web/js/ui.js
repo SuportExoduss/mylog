@@ -90,17 +90,45 @@ export const TOM_STATUS_USUARIO = {
 }
 
 export const ROTULO_STATUS_VEICULO = {
-  disponivel: 'Disponivel', com_pendencia: 'Com pendencia', restrito: 'Restrito',
+  disponivel: 'Disponivel', com_pendencia: 'Com pendencia',
   bloqueado: 'Bloqueado', manutencao: 'Em manutencao',
 }
 export const TOM_STATUS_VEICULO = {
-  disponivel: 's-ok', com_pendencia: 's-atencao', restrito: 's-alerta',
+  disponivel: 's-ok', com_pendencia: 's-atencao',
   bloqueado: 's-critico', manutencao: 's-neutro',
 }
 
-export const ROTULO_PAPEL = {
-  adm: 'Administrador', supervisor: 'Supervisor', colaborador: 'Colaborador',
-  manutencao: 'Manutencao', auditoria: 'Auditoria',
+export const ROTULO_TIPO_VEICULO = {
+  compacto_leve: 'Compacto leve', pickup: 'Pick-up', quatro_x_quatro: '4x4',
+  motocicleta: 'Motocicleta', caminhao: 'Caminhao',
+}
+
+// Dois niveis, e apenas dois (roadmap 3).
+export const ROTULO_NIVEL = { frota: 'Equipe da frota', colaborador: 'Colaborador' }
+
+export const ROTULO_PRIORIDADE = {
+  baixa: 'Baixa', media: 'Media', alta: 'Alta', critica: 'Critica',
+}
+export const TOM_PRIORIDADE = {
+  baixa: 's-neutro', media: 's-atencao', alta: 's-alerta', critica: 's-critico',
+}
+
+export const ROTULO_STATUS_OCORRENCIA = {
+  aberta: 'Em aberto', em_tratamento: 'Em tratamento',
+  resolvida: 'Resolvida', encerrada: 'Encerrada',
+}
+export const TOM_STATUS_OCORRENCIA = {
+  aberta: 's-critico', em_tratamento: 's-alerta',
+  resolvida: 's-ok', encerrada: 's-neutro',
+}
+
+export const ROTULO_STATUS_SOLICITACAO = {
+  pendente: 'Pendente', aprovada: 'Aprovada', recusada: 'Recusada', em_uso: 'Em uso',
+  devolvida: 'Devolvida', devolvida_com_atraso: 'Devolvida com atraso', cancelada: 'Cancelada',
+}
+export const TOM_STATUS_SOLICITACAO = {
+  pendente: 's-atencao', aprovada: 's-marca', recusada: 's-neutro', em_uso: 's-alerta',
+  devolvida: 's-ok', devolvida_com_atraso: 's-critico', cancelada: 's-neutro',
 }
 
 export const ROTULO_STATUS_PREVENTIVA = {
@@ -120,6 +148,21 @@ export function dataCurta(iso) {
   if (!iso) return '—'
   const d = new Date(iso.length === 10 ? `${iso}T12:00:00` : iso)
   return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })
+}
+
+// Janela de solicitacao: data + hora, que e' o que a reserva significa.
+export function dataHora(iso) {
+  if (!iso) return '—'
+  const d = new Date(iso)
+  return d.toLocaleString('pt-BR', {
+    day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
+  })
+}
+
+export function cpfFormatado(cpf) {
+  const n = String(cpf || '').replace(/\D/g, '')
+  if (n.length !== 11) return cpf || '—'
+  return `${n.slice(0, 3)}.${n.slice(3, 6)}.${n.slice(6, 9)}-${n.slice(9)}`
 }
 
 export function numero(valor) {
@@ -243,6 +286,50 @@ export function abrirModal({ titulo, subtitulo, campos = [], confirmar = 'Salvar
 }
 
 // ------------------------------------------------------------- estruturas
+
+// ------------------------------------------------------------ menu de acoes
+
+// Roadmap 21: nenhuma lista tem botao solto na linha. Botao visivel em cada
+// linha polui a leitura, e a tabela existe para ser lida antes de ser clicada.
+// acoes: [{ rotulo, aoClick, perigo?, separar? }]
+export function menuAcoes(acoes) {
+  const uteis = acoes.filter(Boolean)
+  if (!uteis.length) return elemento('span', {})
+
+  const lista = elemento('div', { classe: 'menu-lista oculto', role: 'menu' },
+    uteis.map((acao) => elemento('button', {
+      classe: `menu-item${acao.perigo ? ' menu-item--perigo' : ''}${acao.separar ? ' menu-item--separado' : ''}`,
+      type: 'button',
+      texto: acao.rotulo,
+      aoClick: (evento) => { evento.stopPropagation(); fechar(); acao.aoClick() },
+    })))
+
+  const gatilho = elemento('button', {
+    classe: 'botao botao--icone', type: 'button',
+    'aria-label': 'Acoes', 'aria-haspopup': 'menu', texto: '⋯',
+    aoClick: (evento) => { evento.stopPropagation(); alternar() },
+  })
+
+  const caixa = elemento('div', { classe: 'menu' }, [gatilho, lista])
+
+  function fechar() {
+    lista.classList.add('oculto')
+    document.removeEventListener('click', fechar)
+  }
+  function alternar() {
+    const aberto = !lista.classList.contains('oculto')
+    // So um menu aberto por vez na tela.
+    for (const outro of document.querySelectorAll('.menu-lista')) outro.classList.add('oculto')
+    if (aberto) return fechar()
+    lista.classList.remove('oculto')
+    // Se o menu fica perto do rodape, abre para cima.
+    const espacoAbaixo = window.innerHeight - caixa.getBoundingClientRect().bottom
+    lista.classList.toggle('menu-lista--acima', espacoAbaixo < 200)
+    setTimeout(() => document.addEventListener('click', fechar), 0)
+  }
+
+  return caixa
+}
 
 export function cabecalhoTela({ titulo, descricao, acoes = [] }) {
   return elemento('header', { classe: 'topo' }, [

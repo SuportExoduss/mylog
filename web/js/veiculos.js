@@ -1,18 +1,14 @@
-// Cadastro mestre da frota e vinculo usuario-veiculo (secoes 9 e 13).
+// Cadastro mestre da frota (roadmap 9).
+// Nao existe condutor principal nem area de condutores: os carros trocam de
+// mao o tempo todo e o controle de quem pega o carro e' fisico, pelo galpao.
 import { api } from './api.js'
 import {
   elemento, cabecalhoTela, tabela, selo, vazio, abrirModal, notificar, numero,
-  ROTULO_STATUS_VEICULO, TOM_STATUS_VEICULO,
+  menuAcoes, dataHora, dataCurta,
+  ROTULO_STATUS_VEICULO, TOM_STATUS_VEICULO, ROTULO_TIPO_VEICULO,
 } from './ui.js'
 
-const TIPOS = [
-  { valor: 'carro', rotulo: 'Carro' },
-  { valor: 'caminhao', rotulo: 'Caminhao' },
-  { valor: 'van', rotulo: 'Van' },
-  { valor: 'moto', rotulo: 'Moto' },
-  { valor: 'maquina', rotulo: 'Maquina' },
-]
-
+const TIPOS = Object.entries(ROTULO_TIPO_VEICULO).map(([valor, rotulo]) => ({ valor, rotulo }))
 const OPCOES_STATUS = Object.entries(ROTULO_STATUS_VEICULO).map(([valor, rotulo]) => ({ valor, rotulo }))
 
 function novoVeiculo(recarregar) {
@@ -24,163 +20,99 @@ function novoVeiculo(recarregar) {
       { nome: 'marca', rotulo: 'Marca' },
       { nome: 'modelo', rotulo: 'Modelo', obrigatorio: true },
       { nome: 'ano', rotulo: 'Ano', tipo: 'number' },
-      { nome: 'tipo', rotulo: 'Tipo', tipo: 'select', opcoes: TIPOS, valor: 'carro' },
+      { nome: 'tipo', rotulo: 'Tipo', tipo: 'select', opcoes: TIPOS, valor: 'compacto_leve',
+        dica: 'Define quais checklists valem para este veiculo.' },
       { nome: 'km_atual', rotulo: 'Quilometragem atual', tipo: 'number', valor: '0' },
     ],
     confirmar: 'Cadastrar',
-    aoConfirmar: async (valores) => {
-      await api.criarVeiculo(valores)
+    aoConfirmar: async (v) => {
+      await api.criarVeiculo(v)
       notificar('Veiculo cadastrado.')
       await recarregar()
     },
   })
 }
 
+// O KM entra aqui, digitavel, sem botao proprio nem tela separada (roadmap 9.2).
 function editarVeiculo(veiculo, recarregar) {
   abrirModal({
     titulo: `Editar ${veiculo.placa}`,
+    subtitulo: 'A placa nao muda: ela amarra todo o historico do ativo.',
     campos: [
       { nome: 'marca', rotulo: 'Marca', valor: veiculo.marca || '' },
       { nome: 'modelo', rotulo: 'Modelo', valor: veiculo.modelo, obrigatorio: true },
       { nome: 'ano', rotulo: 'Ano', tipo: 'number', valor: veiculo.ano ?? '' },
       { nome: 'tipo', rotulo: 'Tipo', tipo: 'select', opcoes: TIPOS, valor: veiculo.tipo },
+      { nome: 'km_atual', rotulo: 'Quilometragem', tipo: 'number', valor: veiculo.km_atual,
+        dica: 'A preventiva por KM depende deste numero.' },
+      { nome: 'motivo_km', rotulo: 'Motivo da correcao de KM',
+        dica: 'Exigido apenas se a quilometragem for menor que a registrada.',
+        visivelQuando: (v) => Number(v.km_atual) < Number(veiculo.km_atual) },
     ],
-    aoConfirmar: async (valores) => {
-      await api.atualizarVeiculo(veiculo.id, valores)
+    aoConfirmar: async (v) => {
+      await api.atualizarVeiculo(veiculo.id, v)
       notificar('Cadastro atualizado.')
       await recarregar()
     },
   })
 }
 
-function mudarStatusVeiculo(veiculo, recarregar) {
+function mudarStatus(veiculo, recarregar) {
   abrirModal({
     titulo: `Status de ${veiculo.placa}`,
-    subtitulo: 'O status controla se o veiculo pode operar.',
+    subtitulo: veiculo.status === 'bloqueado'
+      ? 'Este veiculo esta bloqueado. Liberar exige motivo — por exemplo, um diagnostico tecnico.'
+      : 'O status controla se o veiculo pode ser reservado e operado.',
     campos: [
       { nome: 'status', rotulo: 'Novo status', tipo: 'select', opcoes: OPCOES_STATUS, valor: veiculo.status },
-      { nome: 'motivo', rotulo: 'Motivo', tipo: 'textarea', valor: veiculo.motivo_status || '',
-        dica: 'Obrigatorio para liberar um veiculo que esta bloqueado.' },
+      { nome: 'motivo', rotulo: 'Motivo', tipo: 'textarea', valor: veiculo.motivo_status || '' },
     ],
-    aoConfirmar: async (valores) => {
-      await api.statusVeiculo(veiculo.id, valores.status, valores.motivo)
+    aoConfirmar: async (v) => {
+      await api.statusVeiculo(veiculo.id, v.status, v.motivo)
       notificar('Status atualizado.')
       await recarregar()
     },
   })
 }
 
-function atualizarKm(veiculo, recarregar) {
-  abrirModal({
-    titulo: `Quilometragem de ${veiculo.placa}`,
-    subtitulo: `Registro atual: ${numero(veiculo.km_atual)} km. A preventiva por KM depende deste numero.`,
-    campos: [
-      { nome: 'km_atual', rotulo: 'Quilometragem', tipo: 'number', valor: veiculo.km_atual, obrigatorio: true },
-      { nome: 'motivo', rotulo: 'Motivo da correcao', dica: 'Exigido apenas se o valor for menor que o atual.' },
-    ],
-    confirmar: 'Registrar',
-    aoConfirmar: async (valores) => {
-      await api.atualizarKm(veiculo.id, Number(valores.km_atual), valores.motivo)
-      notificar('Quilometragem registrada.')
-      await recarregar()
-    },
-  })
-}
-
-// O vinculo e' camada de autorizacao, nao detalhe de cadastro (secao 9).
-async function gerenciarCondutores(veiculo, recarregar) {
-  const [{ condutores }, { usuarios }] = await Promise.all([
-    api.veiculo(veiculo.id),
-    api.usuarios({ status: 'ativo' }),
-  ])
-
+async function verHistorico(veiculo, contexto) {
+  const dados = await api.historicoVeiculo(veiculo.id)
   const area = document.getElementById('area-modal')
-  const lista = elemento('div', {})
 
-  function desenharLista(atuais) {
-    lista.replaceChildren(
-      atuais.length
-        ? elemento('div', { classe: 'tabela-caixa' }, [
-            elemento('table', {}, [elemento('tbody', {}, atuais.map((c) =>
-              elemento('tr', {}, [
-                elemento('td', {}, [
-                  elemento('div', { classe: 'celula-forte', texto: c.nome }),
-                  c.principal ? elemento('div', { classe: 'celula-fraca', texto: 'Condutor principal' }) : null,
-                ]),
-                elemento('td', {}, [elemento('div', { classe: 'linha linha--fim' }, [
-                  elemento('button', {
-                    classe: 'botao botao--suave botao--mini', type: 'button', texto: 'Remover',
-                    aoClick: async (evento) => {
-                      evento.preventDefault()
-                      await api.removerVinculo(c.vinculo_id)
-                      const atualizado = await api.veiculo(veiculo.id)
-                      desenharLista(atualizado.condutores)
-                      notificar('Autorizacao revogada.')
-                      await recarregar()
-                    },
-                  }),
-                ])]),
-              ])))]),
-          ])
-        : vazio('Nenhum condutor autorizado. Sem vinculo, o app recusa a inspecao.'),
-    )
-  }
-  desenharLista(condutores)
-
-  const seletor = elemento('select', {}, [
-    elemento('option', { value: '', texto: 'Selecione um usuario ativo' }),
-    ...usuarios.map((u) => elemento('option', { value: u.id, texto: `${u.nome} (${u.email})` })),
-  ])
-  const marcaPrincipal = elemento('input', { type: 'checkbox', id: 'vinc-principal' })
-
-  const formulario = elemento('form', { classe: 'modal' }, [
-    elemento('h3', { texto: `Condutores de ${veiculo.placa}` }),
+  const formulario = elemento('div', { classe: 'modal', style: 'max-width:620px' }, [
+    elemento('h3', { texto: `Historico de ${veiculo.placa}` }),
     elemento('p', { classe: 'modal-sub', texto: `${veiculo.marca || ''} ${veiculo.modelo}`.trim() }),
-    lista,
-    elemento('div', { classe: 'campo esp-t-4' }, [
-      elemento('label', { texto: 'Autorizar novo condutor' }),
-      seletor,
-    ]),
-    elemento('label', { classe: 'campo-linha' }, [
-      marcaPrincipal, 'Definir como condutor principal',
-    ]),
+    elemento('div', { classe: 'secao-titulo' }, [elemento('h2', { texto: 'Checklists' })]),
+    dados.inspecoes.length
+      ? tabela(['Quando', 'Momento', 'Quem', 'Resultado'], dados.inspecoes.map((i) =>
+          elemento('tr', {}, [
+            elemento('td', { classe: 'celula-fraca dado', texto: dataHora(i.finalizada_em) }),
+            elemento('td', {}, [selo(i.momento === 'saida' ? 'Saida' : 'Retorno',
+              i.momento === 'saida' ? 's-marca' : 's-neutro')]),
+            elemento('td', { classe: 'celula-fraca', texto: i.usuario }),
+            elemento('td', {}, [selo(i.resultado || '—',
+              i.resultado === 'aprovado' ? 's-ok' : i.resultado === 'reprovado' ? 's-critico' : 's-atencao')]),
+          ])))
+      : vazio('Nenhum checklist ainda.'),
+    elemento('div', { classe: 'secao-titulo esp-t-4' }, [elemento('h2', { texto: 'Alteracoes de cadastro' })]),
+    dados.eventos.length
+      ? tabela(['Quando', 'Quem', 'Acao'], dados.eventos.map((e) => elemento('tr', {}, [
+          elemento('td', { classe: 'celula-fraca dado', texto: dataCurta(e.criado_em) }),
+          elemento('td', { classe: 'celula-fraca', texto: e.ator_nome || 'sistema' }),
+          elemento('td', {}, [elemento('span', { classe: 'celula-forte dado', texto: e.acao })]),
+        ])))
+      : vazio('Sem alteracoes.'),
     elemento('div', { classe: 'modal-acoes' }, [
-      elemento('button', {
-        classe: 'botao botao--suave', type: 'button', texto: 'Fechar',
-        aoClick: () => { area.replaceChildren(); recarregar() },
-      }),
-      elemento('button', {
-        classe: 'botao', type: 'button', texto: 'Autorizar',
-        aoClick: async () => {
-          if (!seletor.value) return
-          try {
-            await api.criarVinculo({
-              usuario_id: seletor.value, veiculo_id: veiculo.id, principal: marcaPrincipal.checked,
-            })
-            const atualizado = await api.veiculo(veiculo.id)
-            desenharLista(atualizado.condutores)
-            seletor.value = ''
-            marcaPrincipal.checked = false
-            notificar('Condutor autorizado.')
-            await recarregar()
-          } catch (falha) { notificar(falha.message) }
-        },
-      }),
+      elemento('button', { classe: 'botao botao--suave', type: 'button', texto: 'Fechar',
+        aoClick: () => area.replaceChildren() }),
     ]),
   ])
-
-  const fundo = elemento('div', {
-    classe: 'fundo-modal',
-    aoClick: (evento) => { if (evento.target === fundo) { area.replaceChildren(); recarregar() } },
-  }, [formulario])
-  area.replaceChildren(fundo)
+  area.replaceChildren(elemento('div', { classe: 'fundo-modal' }, [formulario]))
 }
 
 export async function telaVeiculos(raiz, contexto) {
-  const podeEscrever = contexto.pode('veiculos.escrever')
-  const podeVincular = contexto.pode('vinculos.escrever')
-
-  const filtros = { status: contexto.parametros.status || '', busca: '' }
+  const podeEscrever = contexto.ehFrota
+  const filtros = { status: contexto.parametros.status || '', tipo: '', busca: '' }
   const areaLista = elemento('div', {})
 
   async function recarregar() {
@@ -191,71 +123,54 @@ export async function telaVeiculos(raiz, contexto) {
   function desenhar(veiculos) {
     if (!veiculos.length) return vazio('Nenhum veiculo encontrado com esses filtros.')
 
-    return tabela(['Placa', 'Veiculo', 'Condutor principal', 'KM', 'Status', ''], veiculos.map((veiculo) => {
-      const acoes = []
-      if (podeVincular) {
-        acoes.push(elemento('button', {
-          classe: 'botao botao--suave botao--mini', texto: 'Condutores',
-          aoClick: () => gerenciarCondutores(veiculo, recarregar),
-        }))
-      }
-      if (podeEscrever) {
-        acoes.push(elemento('button', {
-          classe: 'botao botao--suave botao--mini', texto: 'KM',
-          aoClick: () => atualizarKm(veiculo, recarregar),
-        }))
-        acoes.push(elemento('button', {
-          classe: 'botao botao--suave botao--mini', texto: 'Status',
-          aoClick: () => mudarStatusVeiculo(veiculo, recarregar),
-        }))
-        acoes.push(elemento('button', {
-          classe: 'botao botao--suave botao--mini', texto: 'Editar',
-          aoClick: () => editarVeiculo(veiculo, recarregar),
-        }))
-      }
+    return tabela(['Placa', 'Veiculo', 'Tipo', 'KM', 'Status', ''], veiculos.map((v) => {
+      const acoes = podeEscrever ? [
+        { rotulo: 'Editar', aoClick: () => editarVeiculo(v, recarregar) },
+        { rotulo: 'Alterar status', aoClick: () => mudarStatus(v, recarregar) },
+        { rotulo: 'Historico', aoClick: () => verHistorico(v, contexto) },
+      ] : []
 
       return elemento('tr', {}, [
-        elemento('td', {}, [elemento('span', { classe: 'celula-forte dado', texto: veiculo.placa })]),
+        elemento('td', {}, [elemento('span', { classe: 'celula-forte dado', texto: v.placa })]),
         elemento('td', {}, [
-          elemento('div', { texto: veiculo.modelo }),
+          elemento('div', { texto: v.modelo }),
           elemento('div', { classe: 'celula-fraca',
-            texto: [veiculo.marca, veiculo.ano].filter(Boolean).join(' · ') || '—' }),
+            texto: [v.marca, v.ano].filter(Boolean).join(' · ') || '—' }),
         ]),
-        elemento('td', { classe: 'celula-fraca', texto: veiculo.usuario_principal_nome || 'sem condutor' }),
-        elemento('td', { classe: 'celula-fraca dado', texto: `${numero(veiculo.km_atual)} km` }),
+        elemento('td', { classe: 'celula-fraca', texto: ROTULO_TIPO_VEICULO[v.tipo] || v.tipo }),
+        elemento('td', { classe: 'celula-fraca dado', texto: `${numero(v.km_atual)} km` }),
         elemento('td', {}, [
-          selo(ROTULO_STATUS_VEICULO[veiculo.status], TOM_STATUS_VEICULO[veiculo.status]),
-          veiculo.motivo_status
-            ? elemento('div', { classe: 'celula-fraca esp-t-1 limite-texto-curto',
-                texto: veiculo.motivo_status })
+          selo(ROTULO_STATUS_VEICULO[v.status], TOM_STATUS_VEICULO[v.status]),
+          v.motivo_status
+            ? elemento('div', { classe: 'celula-fraca esp-t-1 limite-texto-curto', texto: v.motivo_status })
             : null,
         ]),
-        elemento('td', {}, [elemento('div', { classe: 'linha linha--fim' }, acoes)]),
+        elemento('td', { classe: 'celula-acoes' }, [menuAcoes(acoes)]),
       ])
     }))
   }
 
-  const campoBusca = elemento('input', {
-    type: 'search', placeholder: 'Buscar por placa, modelo ou marca',
-    aoInput: (evento) => { filtros.busca = evento.target.value; recarregar() },
-  })
-  const seletorStatus = elemento('select', {
-    aoChange: (evento) => { filtros.status = evento.target.value; recarregar() },
-  }, [
-    elemento('option', { value: '', texto: 'Todos os status' }),
-    ...OPCOES_STATUS.map((op) =>
-      elemento('option', { value: op.valor, texto: op.rotulo, selected: op.valor === filtros.status })),
-  ])
-
   raiz.append(
     cabecalhoTela({
       titulo: 'Frota',
-      descricao: 'Cadastro mestre dos veiculos e quem esta autorizado a operar cada um.',
+      descricao: 'Cadastro mestre dos veiculos. Quem opera cada carro vem da solicitacao, nao daqui.',
       acoes: podeEscrever
         ? [elemento('button', { classe: 'botao', texto: '+ Novo veiculo', aoClick: () => novoVeiculo(recarregar) })]
         : [],
     }),
-    elemento('div', { classe: 'filtros' }, [campoBusca, seletorStatus]),
+    elemento('div', { classe: 'filtros' }, [
+      elemento('input', { type: 'search', placeholder: 'Buscar por placa, modelo ou marca',
+        aoInput: (e) => { filtros.busca = e.target.value; recarregar() } }),
+      elemento('select', { aoChange: (e) => { filtros.status = e.target.value; recarregar() } }, [
+        elemento('option', { value: '', texto: 'Todos os status' }),
+        ...OPCOES_STATUS.map((o) => elemento('option', { value: o.valor, texto: o.rotulo,
+          selected: o.valor === filtros.status })),
+      ]),
+      elemento('select', { aoChange: (e) => { filtros.tipo = e.target.value; recarregar() } }, [
+        elemento('option', { value: '', texto: 'Todos os tipos' }),
+        ...TIPOS.map((t) => elemento('option', { value: t.valor, texto: t.rotulo })),
+      ]),
+    ]),
     areaLista,
   )
 

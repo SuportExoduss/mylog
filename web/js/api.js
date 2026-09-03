@@ -43,21 +43,40 @@ export const api = {
 
   painel: () => pedir('GET', '/api/painel'),
 
+  // ------------------------------------------------------------- usuarios
   usuarios: (filtros) => pedir('GET', comQuery('/api/usuarios', filtros)),
   usuario: (id) => pedir('GET', `/api/usuarios/${id}`),
   criarUsuario: (dados) => pedir('POST', '/api/usuarios', dados),
   atualizarUsuario: (id, dados) => pedir('PATCH', `/api/usuarios/${id}`, dados),
   statusUsuario: (id, status, motivo) => pedir('POST', `/api/usuarios/${id}/status`, { status, motivo }),
-  redefinirSenha: (id, senha) => pedir('POST', `/api/usuarios/${id}/senha`, { senha }),
-  revogarSessoes: (id) => pedir('POST', `/api/usuarios/${id}/sessoes/revogar`, {}),
+  novaSenha: (id) => pedir('POST', `/api/usuarios/${id}/senha`, {}),
+  historicoUsuario: (id) => pedir('GET', `/api/usuarios/${id}/historico`),
 
+  // ---------------------------------------------------------------- cargos
+  cargos: () => pedir('GET', '/api/cargos'),
+  criarCargo: (nome) => pedir('POST', '/api/cargos', { nome }),
+  renomearCargo: (id, nome) => pedir('PATCH', `/api/cargos/${id}`, { nome }),
+  removerCargo: (id) => pedir('DELETE', `/api/cargos/${id}`),
+
+  // -------------------------------------------------------------- veiculos
   veiculos: (filtros) => pedir('GET', comQuery('/api/veiculos', filtros)),
   veiculo: (id) => pedir('GET', `/api/veiculos/${id}`),
   criarVeiculo: (dados) => pedir('POST', '/api/veiculos', dados),
   atualizarVeiculo: (id, dados) => pedir('PATCH', `/api/veiculos/${id}`, dados),
   statusVeiculo: (id, status, motivo) => pedir('POST', `/api/veiculos/${id}/status`, { status, motivo }),
-  atualizarKm: (id, km_atual, motivo) => pedir('POST', `/api/veiculos/${id}/km`, { km_atual, motivo }),
+  historicoVeiculo: (id) => pedir('GET', `/api/veiculos/${id}/historico`),
 
+  // ---------------------------------------------------------- solicitacoes
+  solicitacoes: (filtros) => pedir('GET', comQuery('/api/solicitacoes', filtros)),
+  solicitacao: (id) => pedir('GET', `/api/solicitacoes/${id}`),
+  veiculosLivres: (janela_inicio, janela_fim) =>
+    pedir('GET', comQuery('/api/solicitacoes/disponiveis', { janela_inicio, janela_fim })),
+  criarSolicitacao: (dados) => pedir('POST', '/api/solicitacoes', dados),
+  aprovarSolicitacao: (id) => pedir('POST', `/api/solicitacoes/${id}/aprovar`, {}),
+  recusarSolicitacao: (id, motivo) => pedir('POST', `/api/solicitacoes/${id}/recusar`, { motivo }),
+  cancelarSolicitacao: (id) => pedir('POST', `/api/solicitacoes/${id}/cancelar`, {}),
+
+  // ------------------------------------------------------------ checklists
   templates: (filtros) => pedir('GET', comQuery('/api/templates', filtros)),
   template: (id) => pedir('GET', `/api/templates/${id}`),
   criarTemplate: (dados) => pedir('POST', '/api/templates', dados),
@@ -67,27 +86,23 @@ export const api = {
   descartarTemplate: (id) => pedir('DELETE', `/api/templates/${id}`),
   conferirTemplate: (estrutura) => pedir('POST', '/api/templates/conferir', { estrutura }),
 
+  // ----------------------------------------------------------- ocorrencias
+  ocorrencias: (filtros) => pedir('GET', comQuery('/api/ocorrencias', filtros)),
+  ocorrencia: (id) => pedir('GET', `/api/ocorrencias/${id}`),
+  statusOcorrencia: (id, status, resolucao) =>
+    pedir('POST', `/api/ocorrencias/${id}/status`, { status, resolucao }),
+  atribuirOcorrencia: (id, responsavel_id) =>
+    pedir('POST', `/api/ocorrencias/${id}/atribuir`, { responsavel_id }),
+
+  // ----------------------------------------------------------- preventivas
   preventivas: (filtros) => pedir('GET', comQuery('/api/preventivas', filtros)),
-  preventiva: (id) => pedir('GET', `/api/preventivas/${id}`),
   criarPreventiva: (dados) => pedir('POST', '/api/preventivas', dados),
   reagendarPreventiva: (id, dados) => pedir('PATCH', `/api/preventivas/${id}`, dados),
   concluirPreventiva: (id, dados) => pedir('POST', `/api/preventivas/${id}/concluir`, dados),
 
-  tickets: (filtros) => pedir('GET', comQuery('/api/tickets', filtros)),
-  ticket: (id) => pedir('GET', `/api/tickets/${id}`),
-  criarTicket: (dados) => pedir('POST', '/api/tickets', dados),
-  statusTicket: (id, status, resolucao) => pedir('POST', `/api/tickets/${id}/status`, { status, resolucao }),
-  atribuirTicket: (id, responsavel_id) => pedir('POST', `/api/tickets/${id}/atribuir`, { responsavel_id }),
-  ticketVirarOcorrencia: (id, criticidade) => pedir('POST', `/api/tickets/${id}/ocorrencia`, { criticidade }),
-  buscarVeiculos: (termo) => pedir('GET', comQuery('/api/veiculos/busca', { termo })),
-
-  ocorrencias: (filtros) => pedir('GET', comQuery('/api/ocorrencias', filtros)),
-  ocorrencia: (id) => pedir('GET', `/api/ocorrencias/${id}`),
-  statusOcorrencia: (id, status, resolucao) => pedir('POST', `/api/ocorrencias/${id}/status`, { status, resolucao }),
-  atribuirOcorrencia: (id, responsavel_id) => pedir('POST', `/api/ocorrencias/${id}/atribuir`, { responsavel_id }),
+  // ------------------------------------------------------------- inspecoes
+  inspecoes: (filtros) => pedir('GET', comQuery('/api/inspecoes', filtros)),
+  inspecao: (id) => pedir('GET', `/api/inspecoes/${id}`),
 
   auditoria: (filtros) => pedir('GET', comQuery('/api/auditoria', filtros)),
-
-  criarVinculo: (dados) => pedir('POST', '/api/vinculos', dados),
-  removerVinculo: (id) => pedir('DELETE', `/api/vinculos/${id}`),
 }

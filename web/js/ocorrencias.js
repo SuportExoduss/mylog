@@ -2,27 +2,14 @@
 // Duas telas irmas: uma trata o que deu errado, a outra prova o que aconteceu.
 import { api } from './api.js'
 import {
-  elemento, cabecalhoTela, tabela, selo, vazio, abrirModal, notificar, dataCurta,
+  elemento, cabecalhoTela, tabela, selo, vazio, abrirModal, notificar, dataCurta, menuAcoes,
+  ROTULO_STATUS_OCORRENCIA, TOM_STATUS_OCORRENCIA, ROTULO_PRIORIDADE, TOM_PRIORIDADE,
 } from './ui.js'
 
-const ROTULO_STATUS = {
-  aberta: 'Aberta', em_tratamento: 'Em tratamento', resolvida: 'Resolvida',
-  validada: 'Validada', encerrada: 'Encerrada',
-}
-const TOM_STATUS = {
-  aberta: 's-critico', em_tratamento: 's-alerta', resolvida: 's-atencao',
-  validada: 's-ok', encerrada: 's-neutro',
-}
-
-const CRITICIDADES = [
-  { valor: 'informativo', rotulo: 'Informativo' }, { valor: 'baixo', rotulo: 'Baixo' },
-  { valor: 'medio', rotulo: 'Medio' }, { valor: 'alto', rotulo: 'Alto' },
-  { valor: 'critico', rotulo: 'Critico' },
-]
-const TOM_CRITICIDADE = {
-  informativo: 's-neutro', baixo: 's-neutro', medio: 's-atencao',
-  alto: 's-alerta', critico: 's-critico',
-}
+// Filtros da v3.0: sai "Validada" da situacao e "Informativo" da prioridade.
+const ROTULO_STATUS = ROTULO_STATUS_OCORRENCIA
+const TOM_STATUS = TOM_STATUS_OCORRENCIA
+const PRIORIDADES = Object.entries(ROTULO_PRIORIDADE).map(([valor, rotulo]) => ({ valor, rotulo }))
 
 function tratar(ocorrencia, recarregar) {
   abrirModal({
@@ -32,7 +19,7 @@ function tratar(ocorrencia, recarregar) {
       { nome: 'status', rotulo: 'Novo status', tipo: 'select',
         opcoes: Object.entries(ROTULO_STATUS).map(([valor, rotulo]) => ({ valor, rotulo })),
         valor: ocorrencia.status,
-        dica: '"Resolvida" e quem executou; "validada" e a supervisao conferindo.' },
+        dica: 'Encerrar a ocorrencia nao libera o veiculo: isso e decisao a parte, com motivo.' },
       { nome: 'resolucao', rotulo: 'O que foi feito', tipo: 'textarea',
         valor: ocorrencia.resolucao || '' },
     ],
@@ -62,8 +49,8 @@ async function atribuir(ocorrencia, recarregar) {
 }
 
 export async function telaOcorrencias(raiz, contexto) {
-  const podeTratar = contexto.pode('nc.tratar')
-  const filtros = { status: contexto.parametros.status || '', criticidade: '' }
+  const podeTratar = contexto.ehFrota
+  const filtros = { status: contexto.parametros.status || '', prioridade: '' }
   const areaLista = elemento('div', {})
 
   async function recarregar() {
@@ -75,13 +62,11 @@ export async function telaOcorrencias(raiz, contexto) {
     if (!ocorrencias.length) {
       return vazio('Nenhuma ocorrencia em aberto. A frota esta sem pendencia registrada.')
     }
-    return tabela(['Veiculo', 'O que deu errado', 'Criticidade', 'Responsavel', 'Situacao', ''],
+    return tabela(['Veiculo', 'O que deu errado', 'Prioridade', 'Responsavel', 'Situacao', ''],
       ocorrencias.map((o) => {
         const acoes = podeTratar ? [
-          elemento('button', { classe: 'botao botao--mini', texto: 'Tratar',
-            aoClick: () => tratar(o, recarregar) }),
-          elemento('button', { classe: 'botao botao--suave botao--mini', texto: 'Atribuir',
-            aoClick: () => atribuir(o, recarregar) }),
+          { rotulo: 'Tratar', aoClick: () => tratar(o, recarregar) },
+          { rotulo: 'Atribuir responsavel', aoClick: () => atribuir(o, recarregar) },
         ] : []
 
         return elemento('tr', {}, [
@@ -91,16 +76,16 @@ export async function telaOcorrencias(raiz, contexto) {
           ]),
           elemento('td', {}, [
             elemento('div', { classe: 'limite-texto', texto: o.descricao }),
-            o.item_id ? elemento('div', { classe: 'celula-fraca dado', texto: o.item_id }) : null,
+            o.pergunta_id ? elemento('div', { classe: 'celula-fraca dado', texto: o.pergunta_id }) : null,
           ]),
-          elemento('td', {}, [selo(o.criticidade, TOM_CRITICIDADE[o.criticidade])]),
+          elemento('td', {}, [selo(ROTULO_PRIORIDADE[o.prioridade], TOM_PRIORIDADE[o.prioridade])]),
           elemento('td', { classe: 'celula-fraca', texto: o.responsavel_nome || 'sem responsavel' }),
           elemento('td', {}, [
             selo(ROTULO_STATUS[o.status], TOM_STATUS[o.status]),
             elemento('div', { classe: 'celula-fraca esp-t-1',
               texto: `desde ${dataCurta(o.aberta_em)}` }),
           ]),
-          elemento('td', {}, [elemento('div', { classe: 'linha linha--fim' }, acoes)]),
+          elemento('td', { classe: 'celula-acoes' }, [menuAcoes(acoes)]),
         ])
       }))
   }
@@ -108,15 +93,15 @@ export async function telaOcorrencias(raiz, contexto) {
   const seletorStatus = elemento('select', {
     aoChange: (e) => { filtros.status = e.target.value; recarregar() },
   }, [
-    elemento('option', { value: '', texto: 'Em aberto' }),
+    elemento('option', { value: '', texto: 'Nao encerradas' }),
     ...Object.entries(ROTULO_STATUS).map(([valor, rotulo]) =>
       elemento('option', { value: valor, texto: rotulo, selected: valor === filtros.status })),
   ])
-  const seletorCriticidade = elemento('select', {
-    aoChange: (e) => { filtros.criticidade = e.target.value; recarregar() },
+  const seletorPrioridade = elemento('select', {
+    aoChange: (e) => { filtros.prioridade = e.target.value; recarregar() },
   }, [
-    elemento('option', { value: '', texto: 'Todas as criticidades' }),
-    ...CRITICIDADES.map((c) => elemento('option', { value: c.valor, texto: c.rotulo })),
+    elemento('option', { value: '', texto: 'Todas as prioridades' }),
+    ...PRIORIDADES.map((c) => elemento('option', { value: c.valor, texto: c.rotulo })),
   ])
 
   raiz.append(
@@ -124,7 +109,7 @@ export async function telaOcorrencias(raiz, contexto) {
       titulo: 'Ocorrencias',
       descricao: 'Nao conformidades encontradas em checklist ou promovidas de tickets. Mais criticas primeiro.',
     }),
-    elemento('div', { classe: 'filtros' }, [seletorStatus, seletorCriticidade]),
+    elemento('div', { classe: 'filtros' }, [seletorStatus, seletorPrioridade]),
     areaLista,
   )
   await recarregar()
@@ -186,7 +171,7 @@ export async function telaAuditoria(raiz, contexto) {
       aoInput: (e) => { filtros.busca = e.target.value; recarregar() } }),
     elemento('select', { aoChange: (e) => { filtros.entidade = e.target.value; recarregar() } }, [
       elemento('option', { value: '', texto: 'Todas as entidades' }),
-      ...['usuario', 'veiculo', 'vinculo', 'template', 'preventiva', 'ticket', 'nao_conformidade']
+      ...['usuario', 'cargo', 'veiculo', 'template', 'preventiva', 'solicitacao', 'ocorrencia', 'inspecao']
         .map((v) => elemento('option', { value: v, texto: v })),
     ]),
     elemento('select', { aoChange: (e) => { filtros.acao = e.target.value; recarregar() } }, [

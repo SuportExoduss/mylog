@@ -683,6 +683,50 @@ tbody tr:hover { background: var(--superficie-2); }
 .celula-acoes { width: 1%; white-space: nowrap; }
 
 /* ---------------------------------------------------------------------------
+   13b. MENU DE ACOES
+   Roadmap 21: nenhuma lista tem botao solto na linha.
+   ------------------------------------------------------------------------ */
+
+.menu { position: relative; display: inline-block; }
+
+.menu-lista {
+  position: absolute;
+  right: 0;
+  top: calc(100% + var(--e-1));
+  z-index: 30;
+  min-width: 200px;
+  padding: var(--e-1);
+  background: var(--superficie);
+  border: 1px solid var(--borda);
+  border-radius: var(--r-2);
+  box-shadow: var(--sombra-3);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  animation: subir var(--mov-rapido) var(--mov-curva);
+}
+/* Perto do rodape, abre para cima em vez de sair da tela. */
+.menu-lista--acima { top: auto; bottom: calc(100% + var(--e-1)); }
+
+.menu-item {
+  display: block;
+  width: 100%;
+  padding: var(--e-2) var(--e-3);
+  background: none;
+  border: none;
+  border-radius: var(--r-1);
+  text-align: left;
+  font-size: var(--t-pequeno);
+  color: var(--texto);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.menu-item:hover { background: var(--superficie-3); }
+.menu-item--perigo { color: var(--critico); }
+.menu-item--perigo:hover { background: var(--critico-fundo); }
+.menu-item--separado { margin-top: var(--e-1); border-top: 1px solid var(--borda); padding-top: var(--e-2); }
+
+/* ---------------------------------------------------------------------------
    14. MODAL
    ------------------------------------------------------------------------ */
 
