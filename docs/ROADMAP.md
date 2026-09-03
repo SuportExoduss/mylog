@@ -1,0 +1,1061 @@
+# MYLOG — ROADMAP MESTRE
+
+**Plataforma de checklist, ocorrências, solicitação de veículo e manutenção preventiva para frotas corporativas**
+
+Versão 3.0 — 03 de setembro de 2026
+Substitui integralmente a versão 2.0 de 01/09/2026.
+
+---
+
+## Tese do MyLog
+
+O MyLog substitui o uso operacional do PROLOG dentro da empresa. O navegador é o
+centro de supervisão e controle; o aplicativo de campo é o posto de execução de
+checklist, evidência e solicitação; o motor central conecta veículos, usuários,
+solicitações, ocorrências, preventivas e histórico.
+
+| Camada | Quem usa | Objetivo |
+|---|---|---|
+| Web / Painel | Equipe da frota | Configurar, cadastrar usuários e cargos, acompanhar a frota, aprovar solicitações, tratar ocorrências e preventivas. |
+| Aplicativo de campo | Colaboradores | Solicitar veículo, executar checklist de saída e retorno, registrar evidências. |
+| Backend / Motor | Sistema | Regras, permissões, sincronização, histórico e relatórios. |
+| Storage | Sistema | Fotos, documentos e evidências, fora do banco. |
+
+---
+
+## 1. Objetivo do documento
+
+Este é o documento único do MyLog. Não existe roadmap paralelo, anexo ou
+versão complementar: toda decisão de produto vive aqui, e o que não está aqui
+não está combinado.
+
+A implementação pode ser quebrada em tarefas menores, mas a lógica de domínio,
+os estados e as permissões devem permanecer alinhados a esta versão.
+
+### O que a versão 3.0 mudou
+
+A versão 2.0 desenhou uma plataforma de inspeção genérica, com muitos graus de
+liberdade. O uso real é mais estreito e mais rígido:
+
+> A plataforma faz checklist de automóvel, guarda tudo que foi feito, mostra o
+> que precisa ser consertado e quem vai usar cada carro.
+
+Cinco mudanças estruturais decorrem disso:
+
+| # | Mudança | Por quê |
+|---|---|---|
+| 1 | **Sai o vínculo usuário-veículo** | Os carros trocam de mão o tempo todo. Não existe condutor principal nem lista de condutores. |
+| 2 | **Saem os cinco papéis de acesso** | Dois níveis bastam: **Frota** e **Colaborador**. |
+| 3 | **Ticket vira Solicitação de veículo** | Não é chamado de suporte: é reserva de carro com janela de horário, aprovação e devolução. |
+| 4 | **Toda pergunta de checklist vira foto + OK/Ocorrência** | Saem número, texto, seleção, sim/não e o checklist adaptativo. |
+| 5 | **O checklist roda duas vezes** | SAÍDA na retirada e RETORNO na devolução, com o mesmo modelo. |
+
+---
+
+## 2. Visão do produto
+
+O MyLog tem dois produtos integrados, não duas telas:
+
+**Painel web.** Controle operacional e administrativo da frota. É onde ficam
+usuários, cargos, veículos, modelos de checklist, solicitações, ocorrências,
+preventivas, indicadores e relatórios.
+
+**Aplicativo de campo.** Estação de trabalho do colaborador. Otimizado para
+executar checklist com poucos toques, funcionar sem internet e capturar
+evidência com contexto.
+
+**Motor central.** Aplica regras, identifica pendências, controla permissões e
+preserva o histórico das decisões.
+
+> **Princípio.** O usuário do aplicativo não administra o sistema. Ele executa
+> tarefas liberadas pela Frota. A Frota define quem entra, o que cada pessoa
+> pode fazer e quais checklists estão disponíveis para cada cargo.
+
+---
+
+## 3. Modelo de acesso
+
+O MyLog tem **dois níveis de acesso**, e apenas dois:
+
+| Nível | Onde entra | O que faz |
+|---|---|---|
+| **Frota** | Painel web e aplicativo | Cadastra usuários e cargos, cadastra veículos, cria e publica checklists, aprova solicitações, trata ocorrências, libera veículo bloqueado, consulta auditoria. |
+| **Colaborador** | Somente aplicativo | Solicita veículo, executa os checklists liberados para o seu cargo, devolve o veículo. |
+
+No cadastro isso é uma marcação única: **acessa o painel? sim/não**.
+
+### Cargo não é permissão
+
+**Cargo** é a função da pessoa na empresa — RH, Técnico de campo, Motorista,
+Vendedor, Analista — cadastrado livremente pela Frota. Ele **não concede
+permissão de sistema**. Serve para duas coisas:
+
+1. identificar quem é a pessoa no cadastro;
+2. decidir **quais checklists aparecem** para ela no aplicativo.
+
+Se o cargo do colaborador não estiver liberado num modelo de checklist, aquele
+checklist **nem aparece** na tela dele.
+
+### Como alguém chega a um veículo
+
+Não existe trava por veículo dentro do sistema. Quem opera carro tem cargo
+compatível, e o controle real é físico: só mexe na frota quem tem acesso ao
+galpão, e existe uma equipe de frota para isso.
+
+**O sistema registra; ele não guarda a chave.** Essa é uma decisão consciente:
+duplicar em software um controle que já existe no mundo físico só produziria
+atrito e cadastro desatualizado.
+
+---
+
+## 4. Fluxo macro do MyLog
+
+```
+Frota cadastra cargo  →  Frota cadastra usuário com senha inicial
+      →  colaborador troca a senha no primeiro acesso (fica ATIVO)
+      →  colaborador solicita veículo com janela de horário e motivo
+      →  Frota aprova
+      →  colaborador retira o carro e executa o CHECKLIST DE SAÍDA
+      →  usa o veículo dentro da janela
+      →  devolve e executa o CHECKLIST DE RETORNO
+      →  se passou do prazo, descreve o motivo antes de encerrar
+      →  ocorrências abertas nos checklists caem na fila da Frota
+      →  crítica bloqueia o veículo até a Frota liberar com motivo
+```
+
+---
+
+## 5. Arquitetura de alto nível
+
+| Componente | Função | Decisão |
+|---|---|---|
+| Aplicativo de campo | Execução de checklist | **PWA instalável**, offline-first, fila local de sincronização, câmera, assinatura. |
+| Web | Supervisão e configuração | Painel responsivo, foco em leitura rápida e ação prioritária. |
+| API/Backend | Regras e segurança | Centraliza autenticação, autorização, estados, auditoria. |
+| Banco | Dados estruturados | PostgreSQL em produção; SQLite em desenvolvimento, com esquema portável. |
+| Object Storage | Arquivos | Fotos e documentos; cada objeto com referência e vínculo à entidade. |
+| Worker/Jobs | Processos assíncronos | Relatórios, processamento de imagem, lembretes de preventiva. |
+| PDF/Relatórios | Saída documental | Relatório operacional, executivo e dossiê de evidências. |
+
+### Por que PWA e não app nativo
+
+O risco concentrado da fase de campo não é a linguagem: é a **fila de fotos
+offline**. Um app nativo colocaria uma stack nova exatamente em cima do trecho
+mais arriscado do projeto. O PWA usa o mesmo stack já dominado, e a API
+permanece agnóstica de cliente — trocar por Kotlin depois não mexe no backend.
+
+### O motor de checklist é um arquivo só
+
+O julgamento de conformidade é **um único arquivo**, importado pelo servidor e
+servido ao navegador. Não há cópia. Duas implementações divergiriam, e a
+divergência apareceria da pior forma possível: *"aprovado no pátio, reprovado no
+painel horas depois"*.
+
+Consequência: esse arquivo não pode importar nada do Node, tocar o banco ou ler
+o relógio.
+
+### O servidor re-julga toda inspeção recebida
+
+O aplicativo calcula o resultado para mostrar ao colaborador na hora. Quando a
+inspeção chega ao servidor, ele **re-julga do zero**, com o mesmo motor e a
+versão do modelo que foi respondida. Qualquer resultado que venha no corpo da
+requisição é ignorado.
+
+Um aparelho no pátio é um cliente não confiável, e o resultado do checklist é o
+que bloqueia ou libera um caminhão.
+
+---
+
+## 6. Modelo mental de dados
+
+O domínio não é construído ao redor da tabela "checklist". O núcleo é a relação
+entre pessoa, cargo, ativo, inspeção, evidência, ocorrência, solicitação e
+manutenção.
+
+| Entidade | Representa | Relacionamentos essenciais |
+|---|---|---|
+| Empresa | Organização cliente | Possui usuários, cargos, veículos e políticas. |
+| **Cargo** | Função na empresa | Agrupa usuários e libera modelos de checklist. |
+| Usuário | Pessoa com credencial | Tem cargo, estado de acesso e a marcação de acesso ao painel. |
+| Veículo | Ativo inspecionado | Tem placa, modelo, tipo, status e KM atual. |
+| Modelo de checklist | Modelo de inspeção | Tem versões, perguntas e opções de problema. |
+| Inspeção | Execução de um modelo | Tem veículo, usuário, momento (SAÍDA/RETORNO), respostas e evidências. |
+| Ocorrência | Falha encontrada | Vincula pergunta, evidência, prioridade e tratamento. |
+| **Solicitação de veículo** | Reserva de carro | Tem solicitante, veículo, janela de horário, motivo e devolução. |
+| Preventiva | Próxima manutenção | Controlada por KM ou data, gera alerta. |
+| Evento de auditoria | Histórico imutável | Registra criação, alteração, bloqueio, liberação e fechamento. |
+
+> **Sai do modelo:** a entidade *Vínculo usuário-veículo* da v2.0.
+
+---
+
+## 7. Painel web — dashboard de supervisão
+
+Ao abrir, a Frota deve enxergar o que exige ação sem entrar em menus.
+
+| Card/Área | Informação | Ação rápida |
+|---|---|---|
+| Frota | Total por status | Filtrar e abrir veículo. |
+| Checklists | Hoje, saídas em aberto | Ver lista e detalhe. |
+| Ocorrências | Críticas, abertas, recorrentes | Abrir e atribuir. |
+| **Solicitações** | Pendentes de aprovação, em uso, atrasadas na devolução | Aprovar, recusar, ver detalhe. |
+| Preventivas | Vencidas, próximas, em dia | Abrir e reagendar. |
+| Usuários | Pendentes de primeiro acesso, bloqueados | Abrir cadastro. |
+| Alertas | Eventos de prioridade alta | Navegar direto para a origem. |
+
+Cada card e cada linha da fila de ação leva à tela que resolve aquele alerta.
+
+---
+
+## 8. Usuários, cargos e credenciais
+
+A Frota é responsável pela governança dos acessos. O colaborador não cria sua
+credencial.
+
+### 8.1 Cadastro de usuário
+
+O botão **+ Novo usuário** abre um popup com:
+
+| Campo | Regra |
+|---|---|
+| Nome completo | obrigatório |
+| CPF | obrigatório |
+| Email | obrigatório — é por ele que a pessoa entra e recebe senha nova |
+| Número de telefone | obrigatório |
+| Cargo | escolhido da lista de cargos cadastrados |
+| Acessa o painel? | sim/não — define Frota ou Colaborador |
+| Senha inicial | **gerada pelo sistema**: alfanumérica, mínimo 8 dígitos |
+
+A senha inicial **não é digitada** pela Frota. O sistema sorteia e mostra na
+tela para ser repassada. No **primeiro acesso ao aplicativo a troca de senha é
+obrigatória**, antes de qualquer outra tela.
+
+### 8.2 Cargos
+
+Ao lado de **+ Novo usuário**, o botão **Cargos** abre um popup que lista os
+cargos existentes e permite criar novos. É a mesma lista consumida pelo editor
+de checklist.
+
+### 8.3 Estados da credencial
+
+| Estado | Significado exato | Entra no aplicativo? |
+|---|---|---|
+| **Pendente** | Ainda não acessou e ainda não trocou a senha inicial | Só para trocar a senha |
+| **Ativo** | Já trocou a senha e está apto a usar | Sim |
+| **Bloqueado** | Acesso impedido por decisão corporativa | Não |
+| **Suspenso** | Acesso suspenso temporariamente | Não |
+| **Desativado** | Não aparece em lugar nenhum como se estivesse em uso; os dados permanecem guardados | Não |
+
+> **Mudou em relação à v2.0.** "Pendente" deixa de significar *aguardando
+> liberação do ADM* e passa a significar *ainda não fez o primeiro acesso*. A
+> ativação deixa de ser um ato da Frota e passa a ser consequência da troca de
+> senha pelo próprio colaborador.
+
+### 8.4 Ações do usuário
+
+Os botões soltos na linha saem. Na ponta direita, **três pontinhos** abrem:
+
+- **Editar**
+- **Mudar senha** — gera nova senha aleatória e envia para o email cadastrado; ao entrar com ela a troca é obrigatória, como no primeiro acesso
+- **Bloquear**
+- **Suspender**
+- **Desativar**
+- **Histórico completo do usuário**
+
+### 8.5 Histórico completo do usuário
+
+Tela dedicada com **tudo que o colaborador fez ou deixou de fazer**, com data e
+hora em cada linha:
+
+- checklists executados, com veículo, momento (saída/retorno) e resultado
+- ocorrências abertas
+- solicitações feitas, aprovadas, recusadas, devolvidas
+- devoluções fora do prazo, com o motivo que ele escreveu
+- ações da Frota sobre ele: bloqueio, suspensão, desativação, troca de senha
+
+O objetivo é ter em mãos o registro completo do colaborador.
+
+### 8.6 Regras de segurança
+
+- Nunca armazenar senha em texto puro.
+- Sessões e tokens devem permitir revogação imediata.
+- Perder o estado "Ativo" derruba as sessões abertas na requisição seguinte.
+- Alterações de cargo, acesso ao painel e estado de credencial geram evento de auditoria.
+- A empresa não pode ficar sem nenhum usuário de Frota ativo.
+
+---
+
+## 9. Frota — cadastro de veículos
+
+### 9.1 Cadastro
+
+| Campo | Observação |
+|---|---|
+| Placa | Identifica o ativo. **Imutável** após o cadastro. |
+| Marca, modelo, ano | Dados descritivos |
+| Tipo | Compactos leves · Pick-up · 4x4 · Motocicleta · Caminhões |
+| KM atual | Campo digitável **dentro de Editar** |
+| Status | Ver 9.3 |
+
+> **Não existe condutor principal** e **não existe área de Condutores**. Os
+> carros trocam de mão o tempo todo; registrar um dono fixo produziria cadastro
+> mentiroso em uma semana.
+
+### 9.2 Quilometragem
+
+O KM é campo digitável dentro de **Editar** — sem botão próprio e sem tela
+separada.
+
+Regras que permanecem:
+
+- o hodômetro **não anda para trás** sem justificativa escrita;
+- a correção vai para a auditoria;
+- o KM também é lido **na abertura de cada checklist** (ver 11.4).
+
+Um erro de digitação aqui (410000 no lugar de 41000) adiaria uma manutenção por
+370 mil km sem ninguém perceber.
+
+### 9.3 Status do veículo
+
+| Status | Significado |
+|---|---|
+| **Disponível** | Pode ser solicitado e operado |
+| **Com pendência** | Opera, mas tem ocorrência aberta |
+| **Bloqueado** | Não pode sair. Liberar exige motivo |
+| **Em manutenção** | Fora de operação por serviço |
+
+O filtro **Todos os status** lista exatamente essas quatro opções.
+
+> Sai o status *Restrito* da v2.0 — a operação não usava a diferença entre
+> restrito e bloqueado.
+
+**Estado crítico alterável.** Uma ocorrência de prioridade **crítica** bloqueia
+o veículo automaticamente. A Frota pode alterar esse estado manualmente — por
+exemplo, quando um diagnóstico técnico conclui que o problema não impede a
+operação. A alteração exige motivo e fica na auditoria.
+
+### 9.4 Ações do veículo
+
+Mesmo padrão: botões laterais saem, **três pontinhos** na ponta direita abrem
+Editar, Status e Histórico.
+
+---
+
+## 10. Solicitação de veículo
+
+### 10.1 O problema que resolve
+
+Quem não tem carro à disposição o tempo todo precisa de um jeito de pedir um.
+Sem isso, ou a pessoa fica sem meio de transporte, ou pega um carro sem
+registro nenhum.
+
+> **A v2.0 interpretou este módulo errado.** Ele não é abertura de chamado sobre
+> problema, dano, limpeza ou documentação. É **reserva de veículo**.
+
+### 10.2 Fluxo
+
+1. **Pedido.** O colaborador escolhe um veículo que não está em uso e informa:
+   - dia e janela de horário — por exemplo, sexta-feira das 13:00 às 18:00;
+   - motivo — por exemplo, reunião em outra cidade.
+2. **Antecedência.** O pedido é feito com **24 horas de antecedência**.
+3. **Aprovação.** A Frota aprova. Pode aprovar a qualquer momento depois que o
+   pedido foi feito, desde que o veículo esteja disponível na janela.
+4. **Retirada.** Com o pedido aprovado, o colaborador vai até o local, pega o
+   carro e executa o **checklist de SAÍDA**.
+5. **Uso.** O veículo fica associado a ele durante a janela aprovada.
+6. **Devolução.** Ele devolve até o prazo e executa o **checklist de RETORNO**.
+7. **Fora do prazo.** Se a devolução passar do horário pedido, antes de encerrar
+   o aplicativo mostra:
+
+   > *Notamos que passou do prazo de retorno. Descreva o motivo.*
+
+   E ele escreve — por exemplo: *"cheguei tarde, a base estava fechada e tive
+   que ir com o carro embora para não deixar no tempo"*. O texto fica no
+   registro da solicitação e no histórico do usuário.
+
+### 10.3 Estados da solicitação
+
+| Estado | Quando |
+|---|---|
+| Pendente | Pedido feito, aguardando a Frota |
+| Aprovada | Frota liberou; o veículo fica reservado na janela |
+| Recusada | Frota negou, com motivo |
+| Em uso | Checklist de saída concluído |
+| Devolvida | Checklist de retorno concluído dentro do prazo |
+| Devolvida com atraso | Checklist de retorno concluído fora do prazo, com motivo registrado |
+| Cancelada | Desistência antes da retirada |
+
+### 10.4 Regra de segurança
+
+O colaborador **pesquisa e seleciona** o veículo, mas não altera placa, modelo
+ou qualquer dado mestre. Esses dados pertencem ao cadastro administrado pela
+Frota, e a garantia é de permissão no servidor — não de botão escondido na tela.
+
+---
+
+## 11. Checklist
+
+### 11.1 O que o modelo é
+
+Toda pergunta é uma **verificação visual com dois desfechos: OK ou Ocorrência**.
+
+Saem da v2.0: os tipos de resposta sim/não, número, seleção, texto e data/hora,
+e o checklist adaptativo com itens condicionais.
+
+A **assinatura** deixa de ser um tipo de pergunta e vira uma configuração do
+checklist inteiro.
+
+### 11.2 Criação — primeira tela
+
+A Frota clica em **+ Novo checklist** e informa:
+
+| Campo | Exemplo / opções |
+|---|---|
+| Nome | Checklist padrão diário |
+| Tipo de veículo | Compactos leves · Pick-up · 4x4 · Motocicleta · Caminhões |
+| Cargos liberados | Todos, ou um/alguns cargos da lista |
+| Exigir assinatura digital ao finalizar? | botão deslizante sim/não |
+
+Dois botões ao final: **Cancelar** e **Criar rascunho**. Criado o rascunho, a
+tela cai direto na configuração das perguntas.
+
+### 11.3 Criação — cada pergunta
+
+| Campo | Opções |
+|---|---|
+| Título da pergunta | ex.: Lateral do carro |
+| Foto de exibição | imagem de exemplo mostrando como a foto deve ser tirada; é a mesma imagem que o colaborador vê na tela da pergunta |
+| Captura de fotos ao selecionar OK | **Obrigatório** (abre a câmera direto) · **Opcional** (pergunta se quer abrir a câmera, inserir foto ou seguir sem foto) · **Não capturar** (segue sozinho) |
+| Quantidade máxima de fotos | número digitável — ex.: 4 |
+
+#### Opções de problema para ocorrência
+
+Ainda na criação da pergunta monta-se a lista de problemas padrão daquela
+pergunta, para o colaborador não precisar escrever tudo toda vez. Cada opção:
+
+| Campo | Opções |
+|---|---|
+| Nome da opção | ex.: Lataria amassada |
+| Obrigatoriedade de fotos | Obrigatório · Opcional · Não capturar |
+| Quantidade máxima de fotos | número digitável |
+| Abrir ocorrência? | Sim · Não |
+| Se abrir ocorrência → prioridade | Baixa · Média · Alta · **Crítica** |
+
+Na outra extremidade do bloco, um botão para **criar mais uma opção**.
+
+> Exemplo, na pergunta "Lateral do carro": risco · amassado · furo · maçaneta
+> quebrada.
+
+### 11.4 Execução no aplicativo
+
+**Antes da primeira pergunta**, uma tela única pede a **quilometragem do
+hodômetro**. É a única entrada numérica do checklist, e é ela que mantém a
+preventiva por KM funcionando.
+
+Cada pergunta ocupa uma tela:
+
+```
+ ←                                                  seta de sair
+
+     checklist diário padrão: ABC1D23 (SAÍDA)       topo, letra pequena
+
+     ‹        pergunta 3 / 10        ›              setas: só já respondidas
+
+     +----------------------------------+
+     |                                  |
+     |        foto de exibição          |
+     |     (exemplo da pergunta)        |
+     |                                  |
+     +----------------------------------+
+
+     [   OCORRÊNCIA   ]     [     OK     ]
+         vermelho                verde
+        (esquerda)             (direita)
+```
+
+- **Topo, letra pequena:** modelo, placa e momento — SAÍDA ou RETORNO.
+- **Barra de contagem:** `pergunta 3/10`, com setas para os dois lados. As setas
+  **só navegam entre perguntas já respondidas**; não dá para pular adiante.
+- **Seta no topo esquerdo:** sai da execução do checklist.
+- **Meio da tela:** a foto de exibição configurada na pergunta.
+- **Dois botões:** **Ocorrência** em vermelho, à esquerda; **OK** em verde, à
+  direita.
+
+#### Caminho OK
+
+Abre a câmera conforme a configuração da pergunta. Depois da foto, três opções:
+
+| Opção | Efeito |
+|---|---|
+| Tirar novamente | apaga a foto e tira outra |
+| Adicionar + foto | tira mais uma para a mesma pergunta, até o máximo configurado |
+| Próximo | vai para a próxima pergunta |
+
+#### Caminho Ocorrência
+
+Abre a câmera. Depois da foto, as mesmas três opções. **Próximo** leva à seleção
+dos problemas padrão daquela pergunta, ou à opção **escrever relatório**, que
+troca a lista por um campo de texto livre para descrever o que houve.
+
+### 11.5 Saída e retorno
+
+O mesmo modelo roda **duas vezes** por solicitação: **SAÍDA** na retirada e
+**RETORNO** na devolução.
+
+Rodar o mesmo modelo nos dois momentos é o que permite comparar a mesma pergunta
+antes e depois. É assim que se prova dano novo, em vez de discutir.
+
+### 11.6 Versionamento
+
+Modelo publicado é **imutável**. Alterar o checklist cria a versão seguinte;
+publicar a nova arquiva a anterior.
+
+Cada inspeção aponta para a versão que foi respondida. Editar uma versão
+publicada reescreveria o significado de inspeções já feitas — uma pergunta
+removida faria uma inspeção antiga parecer incompleta.
+
+### 11.7 Encerramento
+
+Antes de concluir, o aplicativo mostra um resumo com:
+
+- perguntas conformes;
+- ocorrências abertas e sua prioridade;
+- fotos obrigatórias pendentes;
+- estado final previsto do veículo;
+- assinatura, quando o modelo exigir.
+
+---
+
+## 12. Ocorrências
+
+### 12.1 O que é
+
+Ocorrência responde **"o que deu errado"**. Nasce de uma pergunta de checklist
+respondida como Ocorrência, quando a opção de problema escolhida está marcada
+como *abrir ocorrência: sim*.
+
+### 12.2 Prioridade
+
+| Prioridade | Consequência padrão |
+|---|---|
+| Baixa | Entra na fila; veículo segue disponível |
+| Média | Entra na fila; veículo fica com pendência |
+| Alta | Fila prioritária; veículo fica com pendência |
+| **Crítica** | **Bloqueia o veículo** na abertura |
+
+A prioridade vem da opção de problema configurada no modelo (11.3), não é
+digitada na hora.
+
+Um veículo bloqueado por ocorrência crítica só é liberado pela Frota, com
+motivo, e a liberação vai para a auditoria.
+
+### 12.3 Estados
+
+Em aberto → Em tratamento → Resolvida → Encerrada
+
+> Sai o estado *Validada* da v2.0: a etapa de validação em separado não existe
+> na operação.
+
+### 12.4 Filtros
+
+- **Filtro de situação:** Em aberto · Em tratamento · Resolvida · Encerrada
+- **Filtro de prioridade:** Baixa · Média · Alta · Crítica
+
+> Sai o nível *Informativo* da v2.0.
+
+### 12.5 Ações
+
+Mesmo padrão: botões laterais saem, **três pontinhos** na ponta direita.
+
+---
+
+## 13. Evidências e armazenamento de imagens
+
+As imagens ficam em Object Storage; o banco guarda o vínculo e os metadados.
+
+| Metadado | Exemplo |
+|---|---|
+| empresa_id | emp_001 |
+| veiculo_id | vei_104 |
+| inspecao_id | ins_9831 |
+| pergunta_id | lateral_esquerda |
+| ocorrencia_id | oco_883 |
+| capturado_em | 2026-09-03 09:42 |
+| usuario_id | usr_77 |
+| tipo | image/jpeg |
+| caminho | empresa/vei_104/ins_9831/lateral_esquerda/001.jpg |
+
+Regras:
+
+- comprimir e redimensionar no aplicativo antes do upload;
+- não depender da URL como identificador lógico;
+- controlar acesso por empresa;
+- preservar a evidência original quando a política exigir;
+- manter miniaturas para relatório e visualização rápida;
+- **não armazenar imagem dentro de tabela do banco**.
+
+### Foto com contexto
+
+Para itens críticos, a política pode exigir que a foto seja capturada naquele
+momento e associada automaticamente a usuário, veículo, pergunta, inspeção e
+horário.
+
+| Informação | Uso |
+|---|---|
+| Data e hora | Quando a evidência foi capturada |
+| Usuário | Quem executou |
+| Veículo | Qual ativo |
+| Pergunta | Qual pergunta originou a foto |
+| GPS contextual | Onde a inspeção ocorreu, quando habilitado |
+| Hash do arquivo | Integridade e rastreabilidade |
+
+---
+
+## 14. Vistorias preventivas
+
+As preventivas são parte oficial do MyLog. A lógica é híbrida: veículos novos
+podem seguir periodicidade por quilometragem; veículos mais antigos, por data.
+O cadastro da preventiva determina o método.
+
+| Método | Uso | Exemplo |
+|---|---|---|
+| Por KM | Veículos novos, operação por uso | Próxima em +10.000 km |
+| Por data | Veículos antigos, periodicidade temporal | Próxima em 20/10/2026 |
+
+### 14.1 Ciclo
+
+1. A Frota cadastra ou ativa a preventiva do veículo.
+2. Define o método: KM ou data.
+3. Define o alvo e a janela de alerta.
+4. Ao executar, registra data, KM, serviço e responsável.
+5. **Na conclusão, o sistema exige definir a próxima** — por KM ou por data.
+6. O sistema calcula o vencimento e passa a monitorar.
+
+Concluir e agendar a próxima são o mesmo ato. Não existe "concluir e decidir
+depois": é assim que uma frota perde a agenda de manutenção.
+
+**Cada ciclo é um registro.** Concluir não reescreve a preventiva existente:
+ela vira "realizada" e nasce a próxima. O histórico de manutenção do veículo
+fica legível, com KM, data, serviço e responsável de cada execução.
+
+### 14.2 Reagendamento
+
+| Caso | Ação |
+|---|---|
+| Próxima por KM | Informar KM-alvo e alerta antecipado |
+| Próxima por data | Informar data-alvo e alerta antecipado |
+| Mudança excepcional | A Frota altera **com motivo**, e vai para a auditoria |
+| Manutenção atrasada | Status "Vencida" permanece até o registro de conclusão |
+
+### 14.3 Estados e sinais no painel
+
+| Estado | Visual | Ação |
+|---|---|---|
+| Em dia | verde | Nenhuma |
+| Próxima | amarelo | Exibir quanto falta |
+| Muito próxima | laranja | Destacar na fila |
+| Vencida | vermelho | Fixar no painel até resolver |
+| Realizada | concluído | Registrar histórico e próxima regra |
+
+O status é **calculado** a partir de KM e data, nunca digitado. A regra é
+determinística e explicável: a tela consegue dizer *por que* está amarelo.
+
+- `muito próxima` = dentro da janela de alerta configurada
+- `próxima` = dentro de três vezes essa janela
+
+---
+
+## 15. Motor de alertas
+
+| Regra | Ação |
+|---|---|
+| Preventiva por data | Hoje ≥ vencimento → VENCIDA |
+| Preventiva por KM | KM atual ≥ KM alvo → VENCIDA |
+| Janela de alerta | Faltam N dias/km → MUITO PRÓXIMA |
+| Ocorrência crítica | Bloqueia o veículo |
+| Solicitação pendente | Aguardando aprovação da Frota |
+| Devolução atrasada | Janela vencida com veículo em uso → alerta vermelho |
+| Usuário pendente | Cadastro criado sem primeiro acesso |
+
+---
+
+## 16. Comparação antes × depois
+
+O histórico do veículo permite comparar a condição anterior com a atual.
+
+Com o checklist rodando em SAÍDA e RETORNO sobre o **mesmo modelo**, a
+comparação deixa de ser um recurso extra e passa a ser consequência natural do
+fluxo: a mesma pergunta tem duas fotos, tiradas com horas de diferença, pela
+mesma pessoa, no mesmo veículo.
+
+- última resposta do mesmo item visível na inspeção atual;
+- indicação de "problema já existente" quando houver histórico correspondente;
+- indicação de "possível problema novo" quando o item anterior estava conforme;
+- foto de antes e depois anexáveis ao relatório.
+
+---
+
+## 17. Entidades separadas
+
+Para evitar confusão de conceitos, o MyLog mantém entidades distintas:
+
+| Objeto | Pergunta que responde |
+|---|---|
+| Ocorrência | O que deu errado? |
+| Solicitação de veículo | Quem precisa de um carro, quando e por quê? |
+| Ordem de serviço | Qual intervenção de manutenção foi executada? |
+
+Uma ocorrência pode gerar uma ordem de serviço. Uma solicitação nunca vira
+ocorrência: são fluxos diferentes que apenas compartilham o veículo.
+
+---
+
+## 18. Estados e transições
+
+| Objeto | Estados |
+|---|---|
+| Usuário | Pendente → Ativo → Bloqueado/Suspenso → Ativo ou Desativado |
+| Inspeção | Em execução → Sincronizando → Finalizada |
+| Ocorrência | Em aberto → Em tratamento → Resolvida → Encerrada |
+| Solicitação | Pendente → Aprovada → Em uso → Devolvida / Devolvida com atraso; ou Recusada / Cancelada |
+| Preventiva | Em dia → Próxima → Muito próxima → Vencida → Realizada |
+| Veículo | Disponível → Com pendência → Bloqueado → Em manutenção → Disponível |
+
+---
+
+## 19. Offline e sincronização
+
+O checklist precisa funcionar sem internet.
+
+| Situação | Comportamento |
+|---|---|
+| Sem conexão | O checklist continua normalmente |
+| Foto capturada | Arquivo vai para a fila local |
+| Internet voltou | Sincronização retoma automaticamente |
+| Upload parcial | O sistema registra progresso por arquivo |
+| Reenvio da fila | **Idempotente**: devolve a inspeção existente em vez de duplicar |
+| Falha de sincronização | Exibe o item pendente e permite nova tentativa |
+
+A identificação de cada inspeção é gerada **no aparelho**, o que torna o reenvio
+seguro mesmo quando a resposta do servidor se perdeu no caminho.
+
+---
+
+## 20. Segurança e isolamento por empresa
+
+- Arquitetura multi-tenant: cada registro pertence a uma empresa.
+- Autorização no servidor para toda operação sensível.
+- Links de mídia privados ou temporários.
+- Auditoria para mudança de credencial, cargo, prioridade, bloqueio e fechamento.
+- Política de retenção de fotos e documentos configurável por empresa.
+- Backup do banco e estratégia de recuperação **testada com restauração**, não apenas com cópia, antes do lançamento.
+
+### Auditoria
+
+A trilha de auditoria é **somente inserção**: nenhuma rota atualiza ou apaga
+evento. Se um dia for preciso corrigir um registro, será migração revisada, não
+funcionalidade de tela.
+
+Os registros de checklist são prova em acidente e em processo trabalhista. É
+isso que sustenta a regra.
+
+---
+
+## 21. Padrões de interface
+
+Valem para todas as telas de lista:
+
+1. **Sem botões soltos na linha.** Toda ação vai para um menu de três pontos na
+   ponta direita. Botão visível em cada linha polui a leitura, e a tabela existe
+   para ser lida antes de ser clicada.
+2. **O filtro lista o que existe.** Se um estado pode acontecer, ele aparece no
+   filtro.
+3. **Placa, KM, CPF e horário em fonte monoespaçada.**
+4. **Vermelho à esquerda, verde à direita** nos botões de decisão do checklist.
+5. **Cor saturada é sinal, não decoração.** Verde, âmbar, laranja e vermelho são
+   reservados a gravidade; o cromo é neutro e a cor de marca não encosta em
+   nenhuma faixa de status.
+
+---
+
+## 22. MVP — o que precisa existir antes de substituir o PROLOG
+
+| Pilar | Obrigatório no MVP |
+|---|---|
+| Identidade | Login, troca de senha no primeiro acesso, bloqueio, cargos |
+| Veículos | Cadastro, placa, modelo, tipo, status e KM |
+| Checklist | Modelos versionados por cargo e tipo de veículo, execução com foto, saída e retorno, offline |
+| Ocorrências | Prioridade, evidência, fluxo de tratamento, bloqueio por crítica |
+| Solicitações | Pedido com janela, aprovação, retirada, devolução e atraso justificado |
+| Preventivas | KM/data, próxima regra e alerta no painel |
+| Painel | Frota, checklists, solicitações, ocorrências e preventivas |
+| Relatórios | PDF completo e executivo |
+| Auditoria | Histórico de eventos críticos e histórico por usuário |
+| Storage | Fotos e documentos privados, vinculados ao domínio |
+
+---
+
+## 23. Fases de desenvolvimento
+
+| Fase | Entrega | Situação |
+|---|---|---|
+| F0 — Descoberta | Mapear o PROLOG real em uso | pendente |
+| F1 — Fundação | Repo, banco, auth, tenant, auditoria | **feita** |
+| F2 — Web ADM | Usuários, veículos, painel, editor de checklist | **feita** — a rever pela v3.0 |
+| F3 — Aplicativo de campo | Login, checklist, evidências, offline | **feita** — a rever pela v3.0 |
+| F4 — Regras | Prioridade, bloqueio, ocorrências | **parcial** |
+| F5 — Preventivas | Agenda por KM/data, reagendamento, alertas | **feita** |
+| F6 — Relatórios | PDFs, filtros e dossiês | pendente |
+| F7 — Piloto | Rodar em paralelo com o PROLOG | pendente |
+| F8 — Migração | Migrar cadastros e histórico útil | pendente |
+| F9 — Substituição | Homologar e retirar o PROLOG | pendente |
+| F10 — Evolução | OCR, detecção visual, analytics | futuro |
+
+### O que a v3.0 obriga a revisar
+
+| Área | Ação |
+|---|---|
+| Vínculos usuário-veículo | **remover** — tabela, rotas, tela e testes |
+| Papéis de acesso | **substituir** os cinco por Frota/Colaborador |
+| Tickets | **reescrever** como Solicitação de veículo |
+| Motor de checklist | **simplificar** — sai tipo de resposta e condicional; entra foto de exibição, opções de problema e execução em duas passagens |
+| Usuários | **acrescentar** CPF, telefone, cargo, senha gerada, histórico completo |
+| Listas | **trocar** botões por menu de três pontos |
+| Preventivas, auditoria, design system | mantidos |
+
+---
+
+## 24. F0 — Descoberta do PROLOG em uso
+
+Antes de codificar fluxos específicos, o primeiro trabalho prático é a
+engenharia reversa do ambiente real. O objetivo é descobrir tudo o que o PROLOG
+faz hoje e classificar cada item como *obrigatório*, *melhorável*,
+*desnecessário* ou *novo no MyLog*.
+
+| Levantamento | Perguntas |
+|---|---|
+| Usuários | Quem entra? Quem aprova? Quais cargos existem? |
+| Veículos | Quais campos existem? Há implementos? |
+| Checklists | Quais modelos? Qual frequência? Quais perguntas críticas? |
+| Relatórios | Quais PDFs são realmente utilizados? |
+| Ocorrências | Como a empresa trata problemas hoje? |
+| Solicitações | Como se pede um carro hoje? Quem autoriza? |
+| Preventivas | Como calculam vencimento? Quem recebe alerta? |
+| Exceções | O que acontece quando o veículo quebra ou sai da frota? |
+| Integrações | Existem ERP, email, WhatsApp, BI ou APIs envolvidas? |
+
+---
+
+## 25. Critérios de aceite do MVP
+
+| Critério | Aceito quando |
+|---|---|
+| Login | Usuário não autorizado não consegue entrar |
+| Primeiro acesso | A troca de senha é obrigatória e só depois o usuário fica Ativo |
+| Checklist | É possível completar sem internet e sincronizar depois |
+| Evidência | Cada foto abre no relatório associada à pergunta, veículo e inspeção |
+| Prioridade | Uma ocorrência crítica bloqueia o veículo |
+| Liberação | Só a Frota libera veículo bloqueado, e o motivo fica registrado |
+| Solicitação | O colaborador pede carro com janela e motivo; a Frota aprova; a retirada exige checklist de saída |
+| Atraso | Devolução fora do prazo exige motivo escrito antes de encerrar |
+| Saída e retorno | O mesmo modelo roda duas vezes e as respostas são comparáveis |
+| Cargo | Checklist não liberado para o cargo não aparece no aplicativo |
+| Preventiva | Ao concluir, é obrigatório escolher a próxima por KM ou data |
+| Auditoria | Alterações críticas deixam rastro de quem, quando e o que mudou |
+| Histórico | O histórico do usuário mostra tudo que ele fez, com data e hora |
+| Multi-tenant | Uma empresa jamais acessa dados de outra |
+
+---
+
+## 26. QA e testes
+
+| Área | Testes mínimos |
+|---|---|
+| Auth | Primeiro acesso, troca de senha, bloqueio, sessão expirada, revogação |
+| Permissões | Frota e Colaborador |
+| Cargo | Checklist visível e invisível conforme o cargo |
+| Checklist | Foto obrigatória, opcional e ausente; limite de fotos; navegação entre respondidas; saída e retorno |
+| Offline | Modo avião, queda durante upload, retomada, duplicidade |
+| Mídia | Compressão, upload, acesso privado, relatório |
+| Ocorrência | Prioridade, bloqueio por crítica, liberação com motivo |
+| Solicitação | Janela, aprovação, retirada, devolução no prazo e com atraso |
+| Preventiva | KM, data, vencida, reagendamento, troca de método |
+| Relatórios | Fotos, paginação, PDFs grandes |
+| Auditoria | Eventos aparecem e não são apagados |
+| Performance | Painel com volume e sincronização concorrente |
+
+---
+
+## 27. Relatórios
+
+| Relatório | Conteúdo |
+|---|---|
+| Checklist completo | Todas as perguntas, respostas, evidências, usuário, veículo, momento e horário |
+| Comparativo saída × retorno | As duas passagens lado a lado, pergunta a pergunta |
+| Executivo | Resumo do resultado e principais problemas |
+| Dossiê de evidências | Fotos, contexto, assinaturas e histórico |
+| Preventivas | Realizadas, próximas, vencidas e histórico por veículo |
+| Solicitações | Pedidos, aprovações, devoluções e atrasos |
+| Frota | Status, ocorrências e indicadores |
+| Auditoria | Alterações críticas de cadastro e operação |
+| Histórico do usuário | Tudo que um colaborador fez, com data e hora |
+
+---
+
+## 28. Métricas do produto
+
+| Indicador | Objetivo |
+|---|---|
+| % checklists concluídos sem ajuda | Medir simplicidade do aplicativo |
+| Tempo médio de checklist | Reduzir atrito sem comprometer qualidade |
+| % inspeções com evidência quando exigida | Medir conformidade |
+| Tempo médio de resolução de ocorrência | Medir eficiência operacional |
+| % preventivas realizadas no prazo | Medir disciplina de manutenção |
+| % devoluções no prazo | Medir aderência ao processo de solicitação |
+| Falhas recorrentes por veículo | Identificar problemas sistêmicos |
+| Taxa de sincronização sem intervenção | Medir qualidade do offline |
+
+---
+
+## 29. Roadmap de evolução
+
+| Etapa | Funcionalidades futuras |
+|---|---|
+| V1.1 | Mais relatórios, filtros, exportações, melhorias de UX |
+| V1.2 | QR Code do veículo, comparador visual antes/depois |
+| V1.3 | Notificação externa de solicitação e devolução atrasada |
+| V2 | IA assistiva para classificação de evidências e resumo operacional |
+| V2+ | Detecção visual assistida, analytics preditivo e integrações |
+
+---
+
+## 30. O que NÃO fazer
+
+- Não construir telemetria ou rastreamento 24h como parte do núcleo.
+- Não colocar IA antes de haver dados confiáveis e processo estável.
+- Não transformar cada funcionalidade em configuração infinita.
+- Não permitir que histórico operacional seja apagado.
+- Não armazenar imagem dentro de tabela do banco.
+- Não permitir que o aplicativo altere cadastro mestre de veículo.
+- Não fazer bloqueio automático sem regra clara e auditável.
+- Não duplicar em software um controle que já existe no mundo físico.
+
+---
+
+## 31. Definição de sucesso
+
+> **O MyLog substitui o PROLOG quando** a equipe consegue executar as mesmas
+> operações críticas ou melhores; a Frota controla usuários, cargos e veículos
+> pela web; colaboradores solicitam carro e executam checklist de saída e
+> retorno pelo aplicativo, mesmo sem internet; ocorrências têm rastreabilidade;
+> preventivas geram alertas; evidências chegam aos relatórios; e o histórico é
+> confiável o bastante para ser usado como registro operacional e como prova.
+
+---
+
+## 32. Decisões técnicas
+
+| Decisão | Escolha |
+|---|---|
+| Frontend web | Vanilla JS com design system próprio, sem framework |
+| Aplicativo de campo | PWA instalável, offline-first |
+| Backend | Node sem dependências externas; API stateless com regras centralizadas |
+| Banco | PostgreSQL em produção; SQLite portável em desenvolvimento |
+| Auth | Token opaco revogável; o banco guarda apenas o HMAC |
+| Storage | S3-compatible; Cloudflare R2 como opção |
+| PDF | Geração assíncrona; impressão do próprio painel como caminho inicial |
+| Observabilidade | Logs estruturados, métricas e alertas |
+| Versionamento | Modelos de checklist e alterações críticas com histórico |
+
+O detalhamento de cada escolha, com o motivo e o custo aceito, está em
+`docs/DECISOES.md`. A identidade visual e as regras de interface estão em
+`docs/DESIGN.md`.
+
+---
+
+## 33. Apêndice — estrutura lógica do veículo
+
+| Campo | Descrição |
+|---|---|
+| vehicle_id | Identificador interno |
+| tenant_id | Empresa proprietária |
+| plate | Placa — imutável |
+| brand, model, year | Marca, modelo, ano |
+| type | Compacto leve, pick-up, 4x4, motocicleta, caminhão |
+| current_km | Quilometragem atual |
+| status | Disponível, com pendência, bloqueado, em manutenção |
+| status_reason | Motivo do status atual |
+| created_at / updated_at | Controle temporal |
+
+> Sai o campo `assigned_user_id` da v2.0.
+
+---
+
+## 34. Apêndice — estrutura lógica do usuário
+
+| Campo | Descrição |
+|---|---|
+| user_id | Identificador |
+| tenant_id | Empresa |
+| full_name | Nome completo |
+| cpf | CPF |
+| email | Email — identificador de login |
+| phone | Telefone |
+| role_id | Cargo |
+| panel_access | Acessa o painel: Frota (sim) ou Colaborador (não) |
+| status | Pendente, ativo, bloqueado, suspenso, desativado |
+| must_change_password | Verdadeiro até a primeira troca |
+| created_at / updated_at | Controle temporal |
+
+---
+
+## 35. Apêndice — estrutura lógica da solicitação
+
+| Campo | Descrição |
+|---|---|
+| request_id | Número da solicitação |
+| requester_id | Quem pediu |
+| vehicle_id | Veículo escolhido |
+| window_start / window_end | Janela de horário pedida |
+| reason | Motivo do pedido |
+| status | Pendente, aprovada, recusada, em uso, devolvida, devolvida com atraso, cancelada |
+| approved_by / approved_at | Quem aprovou e quando |
+| checkout_inspection_id | Inspeção de saída |
+| checkin_inspection_id | Inspeção de retorno |
+| returned_at | Devolução efetiva |
+| late_reason | Motivo escrito quando houve atraso |
+
+---
+
+## 36. Apêndice — estrutura lógica da preventiva
+
+| Campo | Descrição |
+|---|---|
+| preventive_id | Identificador |
+| vehicle_id | Veículo |
+| mode | KM ou DATA |
+| last_service_km / last_service_date | Última execução |
+| next_target_km / next_target_date | Próximo alvo |
+| alert_before_km / alert_before_days | Antecedência de alerta |
+| status | Em dia, próxima, muito próxima, vencida, realizada |
+| completed_by / completed_at | Responsável e data |
+| notes | Serviço executado |
+
+---
+
+## 37. Em aberto
+
+Pontos que ainda dependem de decisão da operação:
+
+1. **Antecedência de 24 h** — é trava rígida, com o sistema recusando pedido
+   feito com menos de 24 h, ou orientação, aceitando e marcando como urgente?
+2. **Conflito de janela** — dois pedidos para o mesmo carro com horários
+   sobrepostos: o sistema recusa o segundo automaticamente ou deixa a Frota
+   decidir?
+3. **Login por CPF** — hoje é por email. Digitar email de luva, em pátio, sob
+   sol, é pior que digitar CPF. Vale trocar?
+4. **Retirada sem solicitação** — a equipe da frota precisa fazer checklist sem
+   pedido prévio? Se sim, é uma execução avulsa, fora do ciclo de solicitação.
+5. **Quem recebe a notificação** de pedido novo e de devolução atrasada.
+6. **Exportação do histórico do PROLOG** — bloqueia a F8. Precisa ser respondido
+   pela empresa, não pela engenharia.

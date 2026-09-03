@@ -227,3 +227,19 @@ frota inteira responder um checklist escolhido ao acaso. Encontrado por teste.
   justificar. O caminho ja esta modelado como `empresa/veiculo/inspecao/item/arquivo`.
 - **Exportacao do historico do PROLOG.** Bloqueia a F8. Precisa ser respondido
   pela empresa, nao pela engenharia.
+
+## D20 — O roadmap e' um documento so, com fonte em Markdown
+
+**Escolha:** `docs/ROADMAP.md` e' a fonte de verdade; o `.docx` ao lado e'
+gerado a partir dele. Nao existe roadmap paralelo, anexo nem "v3 complementar".
+
+**Por que:** a v2.0 vivia num `.docx` solto no Downloads. Quando as regras
+mudaram, a tentacao foi escrever um documento novo com as diferencas — e ai
+passam a existir dois textos que so fazem sentido lidos juntos, o que sempre
+termina com alguem implementando a versao errada.
+
+Markdown como fonte tambem torna a mudanca de regra **diferenciavel no git**:
+da para ver exatamente qual frase do produto mudou, e quando.
+
+**Como atualizar:** editar `docs/ROADMAP.md`, regerar o `.docx` e copiar para
+onde o time le. A v2.0 original esta preservada em `docs/historico/`.
