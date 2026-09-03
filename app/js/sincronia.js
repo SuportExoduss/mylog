@@ -37,6 +37,52 @@ export async function iniciar() {
   sincronizar()
 }
 
+function blobParaBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const leitor = new FileReader()
+    leitor.onload = () => resolve(String(leitor.result).split(',')[1])
+    leitor.onerror = () => reject(leitor.error)
+    leitor.readAsDataURL(blob)
+  })
+}
+
+// Devolve quantas fotos ficaram para tras.
+async function enviarFotos(clienteUuid, inspecaoId) {
+  if (!inspecaoId) return 0
+  const pendentes = await fotos.daInspecao(clienteUuid)
+  let restantes = 0
+
+  for (const foto of pendentes) {
+    try {
+      const resposta = await fetch(`/api/inspecoes/${inspecaoId}/evidencias`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({
+          cliente_id: foto.id,
+          pergunta_id: foto.pergunta_id,
+          tipo_mime: foto.blob.type || 'image/jpeg',
+          capturado_em: foto.capturado_em,
+          conteudo: await blobParaBase64(foto.blob),
+        }),
+      })
+      if (resposta.ok) {
+        // Confirmada no servidor: sai da cota do aparelho.
+        await fotos.remover(foto.id)
+      } else if (resposta.status >= 400 && resposta.status < 500) {
+        // Recusa por regra nao melhora tentando de novo; a foto so ocuparia
+        // espaco para sempre.
+        await fotos.remover(foto.id)
+      } else {
+        restantes += 1
+      }
+    } catch {
+      restantes += 1
+    }
+  }
+  return restantes
+}
+
 async function enviarUma(item) {
   const resposta = await fetch('/api/inspecoes', {
     method: 'POST',
@@ -58,15 +104,20 @@ async function enviarUma(item) {
   const dados = await resposta.json().catch(() => ({}))
 
   if (resposta.ok) {
+    const inspecaoId = dados.inspecao?.id
+    // As fotos sobem DEPOIS, uma a uma. Se alguma falhar, a inspecao ja esta
+    // gravada e a foto continua no aparelho para a proxima tentativa — nunca
+    // se perde evidencia por causa de um upload interrompido.
+    const restantes = await enviarFotos(item.cliente_uuid, inspecaoId)
+
     await fila.marcar(item.cliente_uuid, {
-      estado: 'enviada',
-      inspecao_id: dados.inspecao?.id,
+      estado: restantes === 0 ? 'enviada' : 'pendente',
+      inspecao_id: inspecaoId,
       resultado_servidor: dados.resumo?.resultado,
       estado_veiculo: dados.resumo?.estado_veiculo_previsto,
-      erro: null,
+      fotos_pendentes: restantes,
+      erro: restantes === 0 ? null : `${restantes} foto(s) ainda no aparelho.`,
     })
-    // Fotos ja enviadas nao precisam ocupar a cota do aparelho.
-    for (const foto of await fotos.daInspecao(item.cliente_uuid)) await fotos.remover(foto.id)
     return { ok: true, dados }
   }
 
@@ -101,6 +152,17 @@ export async function sincronizar() {
     const pendentes = (await fila.pendentes()).filter((i) => i.estado === 'pendente')
     for (const item of pendentes) {
       try {
+        // Ja aceita pelo servidor: falta so terminar de subir as fotos.
+        if (item.inspecao_id) {
+          const restantes = await enviarFotos(item.cliente_uuid, item.inspecao_id)
+          await fila.marcar(item.cliente_uuid, {
+            estado: restantes === 0 ? 'enviada' : 'pendente',
+            fotos_pendentes: restantes,
+            erro: restantes === 0 ? null : `${restantes} foto(s) ainda no aparelho.`,
+          })
+          if (restantes === 0) enviadas += 1
+          continue
+        }
         const r = await enviarUma(item)
         if (r.ok) enviadas += 1
         // Falha de rede no meio da fila: para e tenta tudo de novo depois.

@@ -84,6 +84,10 @@ export async function telaPainel(raiz, contexto) {
     cabecalhoTela({
       titulo: `Bom dia, ${contexto.usuario.nome.split(' ')[0]}`,
       descricao: 'Panorama da frota e o que exige acao agora.',
+      acoes: [elemento('a', {
+        classe: 'botao botao--suave', href: '/relatorio/frota', target: '_blank',
+        texto: 'Relatorio da frota',
+      })],
     }),
     elemento('div', { classe: 'grade' }, cards),
     elemento('section', { classe: 'secao' }, [

@@ -147,6 +147,15 @@ export async function telaSolicitacoes(raiz, contexto) {
           } })
           acoes.push({ rotulo: 'Recusar', perigo: true, aoClick: () => recusar(s, recarregar) })
         }
+        // O comparativo so faz sentido depois da saida; e' o documento que
+        // prova dano novo em vez de discutir.
+        if (ehFrota && s.inspecao_saida) {
+          acoes.push({
+            rotulo: s.inspecao_retorno ? 'Comparativo saida x retorno' : 'Relatorio da saida',
+            separar: true,
+            aoClick: () => window.open(`/relatorio/solicitacao/${s.id}`, '_blank'),
+          })
+        }
         if (['pendente', 'aprovada'].includes(s.status)) {
           acoes.push({ rotulo: 'Cancelar', perigo: true, separar: true, aoClick: async () => {
             try {

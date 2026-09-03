@@ -322,3 +322,53 @@ empresa. O padrao avisa e deixa passar.
 tarde — exatamente o caso em que a pessoa mais precisa do carro. Comecar
 avisando deixa a Frota decidir caso a caso; virar trava e' mudar um booleano
 quando a operacao pedir.
+
+## D28 — Relatorio e' HTML de impressao, nao PDF de biblioteca
+
+**Escolha:** as rotas `/relatorio/*` devolvem HTML com `@media print` e um botao
+"Imprimir ou salvar em PDF". Nenhuma dependencia de geracao.
+
+**Por que:** o navegador ja sabe paginar, quebrar bloco e exportar PDF. Uma
+biblioteca entregaria o mesmo arquivo em troca de manutencao, tamanho e mais
+uma superficie para atualizar. E o CSS de impressao ja existia no design system.
+
+**Nao fecha porta:** se um dia for preciso PDF sem gente na frente (envio
+automatico por email), o mesmo HTML alimenta um navegador headless.
+
+**Cuidado que isso obriga:** o HTML e' montado por concatenacao, entao TODO texto
+vindo do banco passa por escape. A descricao de uma ocorrencia e' escrita por
+motorista; um `<` solto quebraria a pagina e um `<script>` viraria execucao no
+navegador de quem imprime. Coberto por teste.
+
+## D29 — A foto sobe depois da inspecao, uma por requisicao
+
+**Escolha:** `POST /api/inspecoes/:id/evidencias`, uma imagem por chamada, em
+base64, com `cliente_id` gerado no aparelho.
+
+**Por que:** duas razoes que puxam para o mesmo lado.
+Primeira, o corpo da inspecao continua pequeno — a fila offline reenvia JSON
+leve, e nao um pacote de vários MB que falha inteiro no meio.
+Segunda, cada foto tem sua propria vida de tentativa: uma falha no upload da
+quarta foto nao invalida um checklist que ja esta gravado e ja bloqueou (ou
+liberou) o veiculo.
+
+**Idempotencia:** o `cliente_id` faz o reenvio devolver a evidencia existente.
+Sem isso, uma resposta perdida no caminho duplicaria a foto no storage a cada
+tentativa.
+
+**Descarte no aparelho:** foto confirmada sai da cota do navegador. Recusada por
+regra (4xx) tambem sai — repetir nao melhoraria, e ela ocuparia espaco para
+sempre.
+
+## D30 — A imagem nunca e' publica
+
+**Escolha:** `/api/evidencias/:id` passa por sessao e por tenant como qualquer
+outro dado, e o arquivo e' lido do disco pelo servidor.
+
+**Por que:** evidencia de checklist e' prova em acidente e em processo
+trabalhista. Um link direto ao storage, mesmo com nome sorteado, vira acesso
+permanente para quem o copiar. O custo e' o servidor intermediar o download —
+aceitavel para o volume de uma frota.
+
+**O caminho ja esta pronto para S3/R2:** `empresa/veiculo/inspecao/pergunta/arquivo`,
+derivado no servidor e nunca recebido do cliente.

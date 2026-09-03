@@ -191,10 +191,13 @@ CREATE TABLE IF NOT EXISTS evidencias (
   bytes         INTEGER,
   gps_lat       REAL,
   gps_lon       REAL,
+  -- id gerado no aparelho: reenvio da mesma foto nao duplica no storage.
+  cliente_id    TEXT,
   capturado_em  TEXT NOT NULL,
   criado_em     TEXT NOT NULL
 );
-CREATE INDEX IF NOT EXISTS ix_evid_inspecao ON evidencias(inspecao_id);
+CREATE INDEX IF NOT EXISTS ix_evid_inspecao ON evidencias(inspecao_id, pergunta_id);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_evid_cliente ON evidencias(empresa_id, inspecao_id, cliente_id);
 
 -- --------------------------------------------------------------- ocorrencias
 CREATE TABLE IF NOT EXISTS ocorrencias (

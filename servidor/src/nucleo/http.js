@@ -17,7 +17,9 @@ export const erro = {
   conflito: (m) => new ErroHttp(409, 'conflito', m),
 }
 
-const LIMITE_CORPO = 2 * 1024 * 1024 // 2 MB para JSON; upload de midia tem rota propria
+// Uma foto comprimida do app fica em ~300 KB; em base64, ~400 KB. O teto
+// generoso cobre aparelho sem OffscreenCanvas, que envia o original.
+const LIMITE_CORPO = 6 * 1024 * 1024
 
 export function lerCorpo(req) {
   return new Promise((resolve, reject) => {

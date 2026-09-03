@@ -15,6 +15,8 @@ import { registrarRotasPreventivas } from './rotas/preventivas.js'
 import { registrarRotasOcorrencias, registrarRotasAuditoria } from './rotas/ocorrencias.js'
 import { registrarRotasSolicitacoes } from './rotas/solicitacoes.js'
 import { registrarRotasInspecoes } from './rotas/inspecoes.js'
+import { registrarRotasEvidencias } from './rotas/evidencias.js'
+import { registrarRotasRelatorios } from './rotas/relatorios.js'
 
 avisarSegredoFraco()
 abrirBanco()
@@ -30,6 +32,8 @@ registrarRotasSolicitacoes(rotas)
 registrarRotasOcorrencias(rotas)
 registrarRotasAuditoria(rotas)
 registrarRotasInspecoes(rotas)
+registrarRotasEvidencias(rotas)
+registrarRotasRelatorios(rotas)
 
 // ----------------------------------------------------------- arquivos web
 
@@ -91,7 +95,11 @@ function servirArquivo(destino, raiz, res) {
 const servidor = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`)
 
-  if (!url.pathname.startsWith('/api/')) {
+  // /relatorio/* devolve HTML, mas passa pelo roteador (precisa de sessao e
+  // de consulta ao banco) — nao e' arquivo estatico.
+  const ehRota = url.pathname.startsWith('/api/') || url.pathname.startsWith('/relatorio/')
+
+  if (!ehRota) {
     if (req.method !== 'GET' && req.method !== 'HEAD') { res.writeHead(405).end(); return }
     servirEstatico(url.pathname, res)
     return
@@ -121,6 +129,8 @@ const servidor = http.createServer(async (req, res) => {
     for (const manipulador of encontrado.rota.manipuladores) {
       resultado = await manipulador(ctx)
     }
+    // Rotas que servem binario (imagem, PDF) escrevem a resposta elas mesmas.
+    if (res.headersSent || res.writableEnded) return
     responder(res, 200, resultado ?? { ok: true })
   } catch (falha) {
     if (falha instanceof ErroHttp) {
