@@ -4,7 +4,7 @@
 // inspecao vai para a fila local e a tela ja segue. O envio acontece depois,
 // sozinho, e pode falhar quantas vezes precisar.
 
-import { fila, contexto } from './armazem.js'
+import { fila, contexto, fotos } from './armazem.js'
 
 const ouvintes = new Set()
 let enviando = false
@@ -44,8 +44,9 @@ async function enviarUma(item) {
     credentials: 'same-origin',
     body: JSON.stringify({
       cliente_uuid: item.cliente_uuid,
-      veiculo_id: item.veiculo_id,
+      solicitacao_id: item.solicitacao_id,
       template_id: item.template_id,
+      momento: item.momento,
       respostas: item.respostas,
       km_informado: item.km_informado,
       assinatura: item.assinatura,
@@ -59,11 +60,13 @@ async function enviarUma(item) {
   if (resposta.ok) {
     await fila.marcar(item.cliente_uuid, {
       estado: 'enviada',
-      inspecao_id: dados.inspecao_id,
-      resultado_servidor: dados.resultado,
-      estado_veiculo: dados.estado_veiculo,
+      inspecao_id: dados.inspecao?.id,
+      resultado_servidor: dados.resumo?.resultado,
+      estado_veiculo: dados.resumo?.estado_veiculo_previsto,
       erro: null,
     })
+    // Fotos ja enviadas nao precisam ocupar a cota do aparelho.
+    for (const foto of await fotos.daInspecao(item.cliente_uuid)) await fotos.remover(foto.id)
     return { ok: true, dados }
   }
 

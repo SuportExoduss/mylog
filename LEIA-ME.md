@@ -73,41 +73,35 @@ docs/
 
 | Fase | Situacao |
 |---|---|
-| F1 — Fundacao | **feita** — banco multi-tenant, auth, RBAC, auditoria, esqueleto web |
-| F2 — Web ADM | **feita** — usuarios, credenciais, veiculos, vinculos, dashboard e editor de checklist versionado |
-| F3 — Aplicativo de campo | **parcial** — PWA com login, checklist adaptativo, evidencias, assinatura, fila offline e sincronizacao idempotente. Falta upload das fotos ao servidor e teste em aparelho real |
-| F4 — Regras | **feita** — inspecao gera nao conformidade, aplica criticidade e muda o estado do veiculo conforme a politica da empresa |
-| F5 — Preventivas | **feita** — KM/data, ciclo de conclusao, reagendamento e alertas no painel |
-| F6 — Relatorios | nao iniciada |
+| F0 — Descoberta do PROLOG | pendente — depende da empresa |
+| F1 — Fundacao | **feita** — banco multi-tenant, auth, dois niveis, auditoria |
+| F2 — Web ADM | **feita** — usuarios, cargos, frota, solicitacoes, ocorrencias, checklists, auditoria |
+| F3 — Aplicativo de campo | **feita** — PWA offline com checklist de foto, saida e retorno |
+| F4 — Regras | **feita** — prioridade, bloqueio por critica, ocorrencias |
+| F5 — Preventivas | **feita** — KM/data, ciclo de conclusao, alertas |
+| F6 — Relatorios | pendente |
+| F7 — Piloto | pendente |
 
 ## Regras que o sistema ja garante
 
-- Cadastro nasce **pendente**: existir no banco nao da acesso. Liberar e' ato
-  explicito do ADM e fica na auditoria.
-- Bloquear um usuario **derruba a sessao dele na hora**, web e Android.
-- Trocar o papel de alguem tambem encerra as sessoes abertas.
-- Um ADM nao consegue bloquear a si mesmo, nem deixar a empresa sem administrador.
-- O papel `colaborador` nao alcanca dado mestre de veiculo nem o painel.
-- Placa nao pode ser trocada; hodometro nao anda para tras sem justificativa.
-- Liberar veiculo bloqueado exige motivo.
-- Status de preventiva e' **calculado** a partir de KM/data, nunca digitado.
-- Toda empresa so enxerga os proprios dados (coberto por teste).
-- Versao publicada de checklist e imutavel; editar cria a versao seguinte.
-- Concluir uma preventiva obriga a definir a proxima, por KM ou por data.
-- Colaborador sem veiculo proprio abre ticket escolhendo o veiculo por
-  modelo/placa, sem tocar no cadastro mestre.
-- Ticket so vai a "resolvido" com a solucao descrita; "fechado" e terminal.
-- Ocorrencia tem duas saidas distintas: "resolvida" e quem executou, "validada"
-  e a supervisao conferindo — e quem executou nao valida a propria solucao.
-- O aplicativo julga a inspecao offline com o MESMO motor do servidor, mas quem
-  decide e o servidor: um envio que afirma "aprovado" respondendo falha critica
-  volta reprovado e bloqueia o veiculo.
-- Reenvio da fila offline nunca duplica inspecao (idempotente por cliente_uuid).
-- Checklist so fecha com todos os itens aplicaveis respondidos e todas as fotos
-  obrigatorias anexadas — conferido no aparelho e de novo no servidor.
-- KM informado no checklist nunca faz o hodometro andar para tras.
-- Encerrar a ultima ocorrencia critica nao desbloqueia o veiculo sozinho:
-  liberar veiculo continua sendo decisao explicita, com motivo.
+- Cadastro nasce **pendente** com senha gerada; vira **ativo** quando o proprio
+  colaborador troca a senha. A Frota nao ativa ninguem.
+- Enquanto a senha inicial nao for trocada, a sessao existe mas nao abre mais nada.
+- Bloquear alguem derruba a sessao dele na requisicao seguinte.
+- A empresa nao fica sem ninguem na equipe da frota.
+- CPF passa por validacao de digito verificador; email e identidade global.
+- Placa nao muda; hodometro nao anda para tras sem justificativa.
+- Duas reservas do mesmo veiculo nao se sobrepoem — conferido no pedido **e** na
+  aprovacao.
+- Devolucao fora do prazo exige motivo escrito antes de encerrar.
+- Checklist so publica com estrutura completa; versao publicada e imutavel.
+- Cargo nao liberado no modelo faz o checklist nem aparecer no aplicativo.
+- Ocorrencia de prioridade **critica** bloqueia o veiculo; so a Frota libera,
+  com motivo.
+- O servidor **re-julga** toda inspecao recebida: o resultado que o aplicativo
+  mandou e ignorado.
+- Reenvio da fila offline nao duplica inspecao.
+- Toda empresa so enxerga os proprios dados.
 
 ## Producao — pendente antes de qualquer piloto
 
