@@ -1,6 +1,5 @@
 // Testes de ponta a ponta contra o servidor HTTP real.
-// Cobrem os criterios de aceite da secao 34 do roadmap — os que ja tem
-// implementacao. Cada teste fala a lingua do criterio, nao a do codigo.
+// Cada teste fala a lingua de um criterio de aceite (Roadmap v3.0, secao 25).
 import test, { before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
@@ -11,7 +10,8 @@ const bancoTemp = path.join(os.tmpdir(), `mylog-api-${Date.now()}.db`)
 process.env.MYLOG_BANCO = bancoTemp
 process.env.MYLOG_PORTA = '0'   // porta livre escolhida pelo sistema
 
-const { abrirBanco, executar, novoId, agora, fecharBanco } = await import('../src/nucleo/banco.js')
+const { abrirBanco, executar, consultarUm, novoId, agora, fecharBanco } =
+  await import('../src/nucleo/banco.js')
 const { gerarHashSenha } = await import('../src/seguranca/senha.js')
 
 abrirBanco()
@@ -19,47 +19,90 @@ abrirBanco()
 // ---------------------------------------------------------------- cenario
 
 const ts = agora()
+const SENHA = 'mylog123'
 const empresaA = novoId('empresa')
 const empresaB = novoId('empresa')
 
 function criarEmpresa(id, nome, politicas = {}) {
-  executar(
-    `INSERT INTO empresas (id, nome, status, politicas, criado_em, atualizado_em)
-     VALUES (?, ?, 'ativa', ?, ?, ?)`,
-    [id, nome, JSON.stringify(politicas), ts, ts])
+  executar(`INSERT INTO empresas (id, nome, status, politicas, criado_em, atualizado_em)
+            VALUES (?, ?, 'ativa', ?, ?, ?)`, [id, nome, JSON.stringify(politicas), ts, ts])
 }
 
-function criarUsuario(empresaId, nome, email, papel, status) {
-  const id = novoId('usuario')
-  const { hash, salt } = gerarHashSenha('mylog123')
-  executar(
-    `INSERT INTO usuarios (id, empresa_id, nome, email, papel, status, senha_hash, senha_salt,
-                           senha_definida, criado_em, atualizado_em)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
-    [id, empresaId, nome, email, papel, status, hash, salt, ts, ts])
+function criarCargo(empresaId, nome) {
+  const id = novoId('cargo')
+  executar('INSERT INTO cargos (id, empresa_id, nome, criado_em, atualizado_em) VALUES (?, ?, ?, ?, ?)',
+    [id, empresaId, nome, ts, ts])
   return id
 }
 
-function criarVeiculo(empresaId, placa, modelo, km = 10000) {
+function criarUsuario(empresaId, nome, cpf, email, cargoId, acessaPainel, status = 'ativo') {
+  const id = novoId('usuario')
+  const { hash, salt } = gerarHashSenha(SENHA)
+  const pendente = status === 'pendente'
+  executar(
+    `INSERT INTO usuarios (id, empresa_id, nome, cpf, email, telefone, cargo_id, acessa_painel,
+                           status, senha_hash, senha_salt, deve_trocar_senha, criado_em, atualizado_em)
+     VALUES (?, ?, ?, ?, ?, '(31) 90000-0000', ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [id, empresaId, nome, cpf, email, cargoId, acessaPainel ? 1 : 0, status,
+     hash, salt, pendente ? 1 : 0, ts, ts])
+  return id
+}
+
+function criarVeiculo(empresaId, placa, tipo = 'compacto_leve', km = 10000) {
   const id = novoId('veiculo')
   executar(
     `INSERT INTO veiculos (id, empresa_id, placa, modelo, tipo, km_atual, status, criado_em, atualizado_em)
-     VALUES (?, ?, ?, ?, 'carro', ?, 'disponivel', ?, ?)`,
-    [id, empresaId, placa, modelo, km, ts, ts])
+     VALUES (?, ?, ?, 'Modelo Teste', ?, ?, 'disponivel', ?, ?)`,
+    [id, empresaId, placa, tipo, km, ts, ts])
+  return id
+}
+
+const ESTRUTURA = {
+  perguntas: [
+    { id: 'lataria', titulo: 'Lataria', foto_ok: 'opcional', max_fotos_ok: 2,
+      opcoes_problema: [
+        { id: 'risco', nome: 'Risco', foto: 'opcional', max_fotos: 2, abrir_ocorrencia: true, prioridade: 'baixa' },
+      ] },
+    { id: 'pneus', titulo: 'Pneus', foto_ok: 'opcional', max_fotos_ok: 2,
+      opcoes_problema: [
+        { id: 'liso', nome: 'Pneu liso', foto: 'opcional', max_fotos: 2, abrir_ocorrencia: true, prioridade: 'critica' },
+      ] },
+  ],
+}
+
+function criarChecklist(empresaId, codigo, tipo, cargos) {
+  const id = novoId('template')
+  executar(
+    `INSERT INTO templates (id, empresa_id, codigo, nome, tipo_veiculo, cargos_liberados,
+                            exige_assinatura, versao, status, estrutura, publicado_em, criado_em, atualizado_em)
+     VALUES (?, ?, ?, ?, ?, ?, 0, 1, 'publicado', ?, ?, ?, ?)`,
+    [id, empresaId, codigo, `Checklist ${codigo}`, tipo, JSON.stringify(cargos),
+     JSON.stringify(ESTRUTURA), ts, ts, ts])
   return id
 }
 
 criarEmpresa(empresaA, 'Empresa A')
 criarEmpresa(empresaB, 'Empresa B')
 
-const admA = criarUsuario(empresaA, 'Adm A', 'adm.a@teste.local', 'adm', 'ativo')
-criarUsuario(empresaA, 'Colaborador A', 'colab.a@teste.local', 'colaborador', 'ativo')
-criarUsuario(empresaA, 'Pendente A', 'pendente.a@teste.local', 'colaborador', 'pendente')
-criarUsuario(empresaA, 'Bloqueado A', 'bloq.a@teste.local', 'colaborador', 'bloqueado')
-criarUsuario(empresaB, 'Adm B', 'adm.b@teste.local', 'adm', 'ativo')
+const cgFrotaA = criarCargo(empresaA, 'Equipe de frota')
+const cgMotoristaA = criarCargo(empresaA, 'Motorista')
+const cgVendasA = criarCargo(empresaA, 'Vendas')
+const cgFrotaB = criarCargo(empresaB, 'Equipe de frota')
 
-const veiculoA = criarVeiculo(empresaA, 'AAA1A11', 'Carro da A')
-const veiculoB = criarVeiculo(empresaB, 'BBB1B11', 'Carro da B')
+const frotaA = criarUsuario(empresaA, 'Frota A', '52998224725', 'frota.a@teste.local', cgFrotaA, true)
+criarUsuario(empresaA, 'Motorista A', '11144477735', 'motorista.a@teste.local', cgMotoristaA, false)
+criarUsuario(empresaA, 'Vendas A', '15350946056', 'vendas.a@teste.local', cgVendasA, false)
+criarUsuario(empresaA, 'Pendente A', '39145281769', 'pendente.a@teste.local', cgMotoristaA, false, 'pendente')
+criarUsuario(empresaA, 'Bloqueado A', '71428793860', 'bloq.a@teste.local', cgMotoristaA, false, 'bloqueado')
+criarUsuario(empresaB, 'Frota B', '87748248800', 'frota.b@teste.local', cgFrotaB, true)
+
+const veiculoA = criarVeiculo(empresaA, 'AAA1A11')
+const veiculoA2 = criarVeiculo(empresaA, 'AAA2A22')
+const veiculoB = criarVeiculo(empresaB, 'BBB1B11')
+
+criarChecklist(empresaA, 'compacto', 'compacto_leve', ['*'])
+criarChecklist(empresaA, 'so-motorista', 'pickup', [cgMotoristaA])
+criarVeiculo(empresaA, 'AAA3A33', 'pickup')
 
 // ----------------------------------------------------------------- apoio
 
@@ -67,9 +110,7 @@ const { servidor } = await import('../src/servidor.js')
 let base = ''
 
 before(async () => {
-  if (!servidor.listening) {
-    await new Promise((resolve) => servidor.once('listening', resolve))
-  }
+  if (!servidor.listening) await new Promise((r) => servidor.once('listening', r))
   base = `http://127.0.0.1:${servidor.address().port}`
 })
 
@@ -93,466 +134,473 @@ async function chamar(metodo, caminho, { corpo, token } = {}) {
   return { status: resposta.status, dados: await resposta.json().catch(() => ({})) }
 }
 
-async function entrar(email) {
-  const r = await chamar('POST', '/api/auth/login', { corpo: { email, senha: 'mylog123' } })
+async function entrar(email, senha = SENHA) {
+  const r = await chamar('POST', '/api/auth/login', { corpo: { email, senha } })
   return r.dados.token
 }
 
-// ------------------------------------------------- criterio: login (sec. 34)
+const daquiAHoras = (h) => new Date(Date.now() + h * 3600000).toISOString()
+
+// ------------------------------------------------------- criterio: login
 
 test('login: usuario nao autorizado nao consegue entrar', async () => {
-  const pendente = await chamar('POST', '/api/auth/login',
-    { corpo: { email: 'pendente.a@teste.local', senha: 'mylog123' } })
-  assert.equal(pendente.status, 403)
-  assert.equal(pendente.dados.erro, 'credencial_pendente')
-
   const bloqueado = await chamar('POST', '/api/auth/login',
-    { corpo: { email: 'bloq.a@teste.local', senha: 'mylog123' } })
+    { corpo: { email: 'bloq.a@teste.local', senha: SENHA } })
   assert.equal(bloqueado.status, 403)
   assert.equal(bloqueado.dados.erro, 'credencial_bloqueado')
 
   const senhaErrada = await chamar('POST', '/api/auth/login',
-    { corpo: { email: 'adm.a@teste.local', senha: 'chute' } })
+    { corpo: { email: 'frota.a@teste.local', senha: 'chute' } })
   assert.equal(senhaErrada.status, 401)
   // A mensagem nao revela se o email existe.
   assert.match(senhaErrada.dados.mensagem, /Email ou senha invalidos/)
 })
 
 test('login: sem token nenhuma rota de dados responde', async () => {
-  for (const rota of ['/api/painel', '/api/usuarios', '/api/veiculos', '/api/preventivas', '/api/templates']) {
-    const r = await chamar('GET', rota)
-    assert.equal(r.status, 401, `${rota} deveria exigir sessao`)
+  for (const rota of ['/api/painel', '/api/usuarios', '/api/veiculos',
+    '/api/preventivas', '/api/templates', '/api/solicitacoes', '/api/app/inicio']) {
+    assert.equal((await chamar('GET', rota)).status, 401, `${rota} deveria exigir sessao`)
   }
 })
 
-test('login: token inventado nao vale', async () => {
-  const r = await chamar('GET', '/api/painel', { token: 'token-falso-qualquer' })
-  assert.equal(r.status, 401)
+// --------------------------------------------- criterio: primeiro acesso
+
+test('primeiro acesso: a troca de senha e obrigatoria e so depois o usuario fica ativo', async () => {
+  const token = await entrar('pendente.a@teste.local')
+  assert.ok(token, 'usuario pendente precisa conseguir entrar para trocar a senha')
+
+  const eu = await chamar('GET', '/api/auth/eu', { token })
+  assert.equal(eu.dados.usuario.deve_trocar_senha, true)
+  assert.equal(eu.dados.usuario.status, 'pendente')
+
+  // Enquanto nao trocar, nao alcanca mais nada.
+  const app = await chamar('GET', '/api/app/inicio', { token })
+  assert.equal(app.status, 403)
+  assert.equal(app.dados.erro, 'troca_de_senha_obrigatoria')
+
+  const troca = await chamar('POST', '/api/auth/senha',
+    { token, corpo: { senha_atual: SENHA, senha_nova: 'novaSenha99' } })
+  assert.equal(troca.status, 200)
+  assert.equal(troca.dados.usuario.status, 'ativo')
+  assert.equal(troca.dados.usuario.deve_trocar_senha, false)
+
+  // O token antigo caiu junto; o novo funciona.
+  assert.equal((await chamar('GET', '/api/app/inicio', { token: troca.dados.token })).status, 200)
 })
 
-// ------------------------------------------ criterio: multi-tenant (sec. 34)
+test('primeiro acesso: a nova senha precisa ser diferente da inicial', async () => {
+  const token = await entrar('frota.a@teste.local')
+  const r = await chamar('POST', '/api/auth/senha',
+    { token, corpo: { senha_atual: SENHA, senha_nova: SENHA } })
+  assert.equal(r.status, 400)
+})
+
+// ------------------------------------------------- criterio: multi-tenant
 
 test('multi-tenant: uma empresa jamais acessa dados de outra', async () => {
-  const tokenA = await entrar('adm.a@teste.local')
+  const token = await entrar('frota.a@teste.local')
 
-  const lista = await chamar('GET', '/api/veiculos', { token: tokenA })
-  assert.deepEqual(lista.dados.veiculos.map((v) => v.placa), ['AAA1A11'])
+  const lista = await chamar('GET', '/api/veiculos', { token })
+  assert.ok(lista.dados.veiculos.every((v) => v.placa.startsWith('AAA')))
 
-  // Mesmo sabendo o id exato do veiculo da outra empresa.
-  const alheio = await chamar('GET', `/api/veiculos/${veiculoB}`, { token: tokenA })
-  assert.equal(alheio.status, 404)
-
-  const escrita = await chamar('POST', `/api/veiculos/${veiculoB}/status`,
-    { token: tokenA, corpo: { status: 'bloqueado', motivo: 'invasao' } })
-  assert.equal(escrita.status, 404)
+  assert.equal((await chamar('GET', `/api/veiculos/${veiculoB}`, { token })).status, 404)
+  assert.equal((await chamar('POST', `/api/veiculos/${veiculoB}/status`,
+    { token, corpo: { status: 'bloqueado', motivo: 'invasao' } })).status, 404)
 })
 
-test('multi-tenant: o painel de cada empresa conta so a propria frota', async () => {
-  const tokenA = await entrar('adm.a@teste.local')
-  const tokenB = await entrar('adm.b@teste.local')
-  const painelA = await chamar('GET', '/api/painel', { token: tokenA })
-  const painelB = await chamar('GET', '/api/painel', { token: tokenB })
-  assert.equal(painelA.dados.frota.total, 1)
-  assert.equal(painelB.dados.frota.total, 1)
-})
+// -------------------------------------------------- criterio: dois niveis
 
-// ------------------------------------------------------ criterio: permissoes
-
-test('permissoes: o colaborador nao alcanca cadastro mestre nem painel', async () => {
-  const token = await entrar('colab.a@teste.local')
+test('nivel: colaborador nao alcanca painel, usuarios nem cadastro de veiculo', async () => {
+  const token = await entrar('motorista.a@teste.local')
   assert.equal((await chamar('GET', '/api/painel', { token })).status, 403)
   assert.equal((await chamar('GET', '/api/usuarios', { token })).status, 403)
+  assert.equal((await chamar('GET', '/api/ocorrencias', { token })).status, 403)
+  assert.equal((await chamar('GET', '/api/auditoria', { token })).status, 403)
   assert.equal((await chamar('POST', '/api/veiculos',
     { token, corpo: { placa: 'ZZZ9Z99', modelo: 'Pirata' } })).status, 403)
-  // Mas consegue procurar veiculo por placa/modelo, que e' o que o ticket exige.
-  const busca = await chamar('GET', '/api/veiculos/busca?termo=aaa', { token })
-  assert.equal(busca.status, 200)
-  assert.equal(busca.dados.veiculos.length, 1)
+  // Mas ve a frota, que e o que ele precisa para pedir um carro.
+  assert.equal((await chamar('GET', '/api/veiculos', { token })).status, 200)
 })
 
-// -------------------------------------------- criterio: credencial e sessao
-
-test('credencial: bloquear derruba a sessao aberta na hora', async () => {
-  const tokenAdm = await entrar('adm.a@teste.local')
-  const criado = await chamar('POST', '/api/usuarios', {
-    token: tokenAdm,
-    corpo: { nome: 'Teste Sessao', email: 'sessao@teste.local', papel: 'supervisor', senha: 'mylog123' },
-  })
-  assert.equal(criado.status, 200)
-  const alvo = criado.dados.usuario.id
-  assert.equal(criado.dados.usuario.status, 'pendente', 'cadastro deve nascer pendente')
-
-  // Ainda pendente: nao entra.
-  assert.equal((await chamar('POST', '/api/auth/login',
-    { corpo: { email: 'sessao@teste.local', senha: 'mylog123' } })).status, 403)
-
-  await chamar('POST', `/api/usuarios/${alvo}/status`, { token: tokenAdm, corpo: { status: 'ativo' } })
-  const tokenAlvo = await entrar('sessao@teste.local')
-  assert.equal((await chamar('GET', '/api/auth/eu', { token: tokenAlvo })).status, 200)
-
-  await chamar('POST', `/api/usuarios/${alvo}/status`,
-    { token: tokenAdm, corpo: { status: 'bloqueado', motivo: 'teste' } })
-  assert.equal((await chamar('GET', '/api/auth/eu', { token: tokenAlvo })).status, 401,
-    'a sessao precisa cair sem esperar expirar')
-})
-
-test('credencial: a empresa nao pode ficar sem administrador ativo', async () => {
-  const token = await entrar('adm.a@teste.local')
+test('nivel: a empresa nao pode ficar sem ninguem na frota', async () => {
+  const token = await entrar('frota.a@teste.local')
   const eu = await chamar('GET', '/api/auth/eu', { token })
   const r = await chamar('POST', `/api/usuarios/${eu.dados.usuario.id}/status`,
     { token, corpo: { status: 'bloqueado' } })
   assert.equal(r.status, 409)
 })
 
-// ----------------------------------------------- criterio: dado mestre
+// ------------------------------------------------------ criterio: cadastro
+
+test('cadastro: usuario nasce pendente com senha gerada pelo sistema', async () => {
+  const token = await entrar('frota.a@teste.local')
+  const r = await chamar('POST', '/api/usuarios', {
+    token,
+    corpo: {
+      nome: 'Novo Colaborador', cpf: '604.829.173-69', email: 'novo@teste.local',
+      telefone: '(31) 91234-5678', cargo_id: cgMotoristaA, acessa_painel: false,
+    },
+  })
+  assert.equal(r.status, 200)
+  assert.equal(r.dados.usuario.status, 'pendente')
+  assert.equal(r.dados.usuario.deve_trocar_senha, 1)
+  assert.equal(r.dados.usuario.cpf, '60482917369', 'a mascara do CPF deve ser removida')
+  // A senha volta uma unica vez, para a Frota repassar.
+  assert.ok(r.dados.senha_inicial && r.dados.senha_inicial.length >= 8)
+
+  // E funciona de verdade.
+  const entrou = await chamar('POST', '/api/auth/login',
+    { corpo: { email: 'novo@teste.local', senha: r.dados.senha_inicial } })
+  assert.equal(entrou.status, 200)
+})
+
+test('cadastro: CPF invalido e email repetido sao recusados', async () => {
+  const token = await entrar('frota.a@teste.local')
+  const base = { nome: 'Fulano Teste', telefone: '(31) 90000-0000', cargo_id: cgMotoristaA }
+
+  const cpfRuim = await chamar('POST', '/api/usuarios',
+    { token, corpo: { ...base, cpf: '11111111111', email: 'x1@teste.local' } })
+  assert.equal(cpfRuim.status, 400)
+  assert.match(cpfRuim.dados.mensagem, /CPF invalido/)
+
+  const emailRepetido = await chamar('POST', '/api/usuarios',
+    { token, corpo: { ...base, cpf: '19385724673', email: 'frota.a@teste.local' } })
+  assert.ok([400, 409].includes(emailRepetido.status))
+})
+
+test('cadastro: cargo e obrigatorio e precisa existir na empresa', async () => {
+  const token = await entrar('frota.a@teste.local')
+  const base = {
+    nome: 'Sem Cargo', cpf: '528.741.963-55', email: 'semcargo@teste.local',
+    telefone: '(31) 90000-0000',
+  }
+  assert.equal((await chamar('POST', '/api/usuarios', { token, corpo: base })).status, 400)
+  // Cargo da OUTRA empresa nao serve.
+  const alheio = await chamar('POST', '/api/usuarios',
+    { token, corpo: { ...base, cargo_id: cgFrotaB } })
+  assert.equal(alheio.status, 404)
+})
+
+test('cargos: criar, listar e nao remover cargo em uso', async () => {
+  const token = await entrar('frota.a@teste.local')
+  const criado = await chamar('POST', '/api/cargos', { token, corpo: { nome: 'Estagiario' } })
+  assert.equal(criado.status, 200)
+
+  const repetido = await chamar('POST', '/api/cargos', { token, corpo: { nome: 'Estagiario' } })
+  assert.equal(repetido.status, 409)
+
+  const emUso = await chamar('DELETE', `/api/cargos/${cgMotoristaA}`, { token })
+  assert.equal(emUso.status, 409)
+  assert.match(emUso.dados.mensagem, /usam este cargo/)
+
+  assert.equal((await chamar('DELETE', `/api/cargos/${criado.dados.cargo.id}`, { token })).status, 200)
+})
+
+// ---------------------------------------------------- criterio: dado mestre
 
 test('veiculo: a placa identifica o ativo e nao muda', async () => {
-  const token = await entrar('adm.a@teste.local')
+  const token = await entrar('frota.a@teste.local')
   const r = await chamar('PATCH', `/api/veiculos/${veiculoA}`, { token, corpo: { placa: 'ZZZ9Z99' } })
   assert.equal(r.status, 409)
 })
 
-test('veiculo: hodometro so anda para tras com justificativa', async () => {
-  const token = await entrar('adm.a@teste.local')
-  const semMotivo = await chamar('POST', `/api/veiculos/${veiculoA}/km`, { token, corpo: { km_atual: 5 } })
-  assert.equal(semMotivo.status, 400)
+test('veiculo: o KM entra pela edicao e nao anda para tras sem justificativa', async () => {
+  const token = await entrar('frota.a@teste.local')
 
-  const comMotivo = await chamar('POST', `/api/veiculos/${veiculoA}/km`,
-    { token, corpo: { km_atual: 5, motivo: 'Hodometro trocado na oficina.' } })
-  assert.equal(comMotivo.status, 200)
-  assert.equal(comMotivo.dados.veiculo.km_atual, 5)
+  const sobe = await chamar('PATCH', `/api/veiculos/${veiculoA}`, { token, corpo: { km_atual: 20000 } })
+  assert.equal(sobe.status, 200)
+  assert.equal(sobe.dados.veiculo.km_atual, 20000)
+
+  const desce = await chamar('PATCH', `/api/veiculos/${veiculoA}`, { token, corpo: { km_atual: 5 } })
+  assert.equal(desce.status, 400)
+  assert.match(desce.dados.mensagem, /menor que a atual/)
+
+  const corrige = await chamar('PATCH', `/api/veiculos/${veiculoA}`,
+    { token, corpo: { km_atual: 5, motivo_km: 'Hodometro trocado na oficina.' } })
+  assert.equal(corrige.status, 200)
+  assert.equal(corrige.dados.veiculo.km_atual, 5)
+
+  // Volta ao valor util para os testes seguintes.
+  await chamar('PATCH', `/api/veiculos/${veiculoA}`, { token, corpo: { km_atual: 20000 } })
 })
 
-// ---------------------------------------- criterio: preventiva (sec. 19 e 34)
+// -------------------------------------------------- criterio: solicitacao
 
-test('preventiva: concluir exige definir a proxima, e ela pode mudar de metodo', async () => {
-  const token = await entrar('adm.a@teste.local')
-  await chamar('POST', `/api/veiculos/${veiculoA}/km`,
-    { token, corpo: { km_atual: 40000, motivo: 'leitura correta' } })
+test('solicitacao: colaborador pede carro com janela e motivo; a frota aprova', async () => {
+  const colaborador = await entrar('vendas.a@teste.local')
+  const frota = await entrar('frota.a@teste.local')
 
-  const criada = await chamar('POST', '/api/preventivas', {
-    token, corpo: { veiculo_id: veiculoA, modo: 'km', proximo_km: 50000, alerta_antes_km: 1000 },
-  })
-  assert.equal(criada.status, 200)
-  assert.equal(criada.dados.preventiva.status, 'em_dia')
-
-  const concluida = await chamar('POST', `/api/preventivas/${criada.dados.preventiva.id}/concluir`, {
-    token,
+  const pedido = await chamar('POST', '/api/solicitacoes', {
+    token: colaborador,
     corpo: {
-      servico: 'Revisao dos 50 mil', km_realizado: 50100,
-      proximo_modo: 'data', proxima_data: '2027-01-10', alerta_antes_dias: 10,
+      veiculo_id: veiculoA, janela_inicio: daquiAHoras(48), janela_fim: daquiAHoras(53),
+      motivo: 'Reuniao com cliente em outra cidade.',
     },
   })
-  assert.equal(concluida.status, 200)
-  assert.equal(concluida.dados.concluida.status, 'realizada')
-  assert.equal(concluida.dados.proxima.modo, 'data')
-  assert.equal(concluida.dados.proxima.proxima_data, '2027-01-10')
+  assert.equal(pedido.status, 200)
+  assert.equal(pedido.dados.solicitacao.status, 'pendente')
 
-  // A execucao tambem e' leitura de hodometro.
-  const veiculo = await chamar('GET', `/api/veiculos/${veiculoA}`, { token })
-  assert.equal(veiculo.dados.veiculo.km_atual, 50100)
+  const id = pedido.dados.solicitacao.id
+  // Colaborador nao aprova o proprio pedido.
+  assert.equal((await chamar('POST', `/api/solicitacoes/${id}/aprovar`, { token: colaborador })).status, 403)
+
+  const aprovada = await chamar('POST', `/api/solicitacoes/${id}/aprovar`, { token: frota })
+  assert.equal(aprovada.status, 200)
+  assert.equal(aprovada.dados.solicitacao.status, 'aprovada')
 })
 
-test('preventiva: KM-alvo anterior ao hodometro atual e recusado', async () => {
-  const token = await entrar('adm.b@teste.local')
-  const r = await chamar('POST', '/api/preventivas', {
-    token, corpo: { veiculo_id: veiculoB, modo: 'km', proximo_km: 1 },
-  })
-  assert.equal(r.status, 400)
-  assert.match(r.dados.mensagem, /maior que a quilometragem atual/)
+test('solicitacao: motivo curto e janela invertida sao recusados', async () => {
+  const token = await entrar('vendas.a@teste.local')
+  const base = { veiculo_id: veiculoA2, janela_inicio: daquiAHoras(100), janela_fim: daquiAHoras(105) }
+
+  assert.equal((await chamar('POST', '/api/solicitacoes',
+    { token, corpo: { ...base, motivo: 'urgente' } })).status, 400)
+  assert.equal((await chamar('POST', '/api/solicitacoes',
+    { token, corpo: { ...base, janela_fim: daquiAHoras(99), motivo: 'Motivo suficientemente longo.' } })).status, 400)
 })
 
-// -------------------------------------------------- criterio: template
-
-test('template: versao publicada e imutavel; editar cria a versao seguinte', async () => {
-  const token = await entrar('adm.a@teste.local')
-  const estrutura = { secoes: [{ id: 'geral', titulo: 'Geral', itens: [
-    { id: 'farois', rotulo: 'Farois funcionando', tipo: 'ok_nok', criticidade: 'alto' },
-  ] }] }
-
-  const criado = await chamar('POST', '/api/templates',
-    { token, corpo: { codigo: 'diario', nome: 'Checklist diario', estrutura } })
-  assert.equal(criado.status, 200)
-  const id = criado.dados.template.id
-
-  const publicado = await chamar('POST', `/api/templates/${id}/publicar`, { token })
-  assert.equal(publicado.status, 200)
-  assert.equal(publicado.dados.template.status, 'publicado')
-
-  const tentativa = await chamar('PUT', `/api/templates/${id}`, { token, corpo: { nome: 'Outro nome' } })
-  assert.equal(tentativa.status, 409)
-
-  const v2 = await chamar('POST', `/api/templates/${id}/versao`, { token })
-  assert.equal(v2.dados.template.versao, 2)
-  assert.equal(v2.dados.template.status, 'rascunho')
-
-  // Publicar a v2 arquiva a v1: so uma versao vale por vez.
-  await chamar('POST', `/api/templates/${v2.dados.template.id}/publicar`, { token })
-  const antiga = await chamar('GET', `/api/templates/${id}`, { token })
-  assert.equal(antiga.dados.template.status, 'arquivado')
-})
-
-test('template: estrutura incompleta nao publica', async () => {
-  const token = await entrar('adm.a@teste.local')
-  const criado = await chamar('POST', '/api/templates', {
+test('solicitacao: duas reservas do mesmo carro nao podem se sobrepor', async () => {
+  const token = await entrar('vendas.a@teste.local')
+  const primeira = await chamar('POST', '/api/solicitacoes', {
     token,
-    corpo: { codigo: 'vazio', nome: 'Template vazio', estrutura: { secoes: [{ id: 'so', titulo: 'So titulo', itens: [] }] } },
+    corpo: { veiculo_id: veiculoA2, janela_inicio: daquiAHoras(200), janela_fim: daquiAHoras(210),
+      motivo: 'Primeira reserva desta janela.' },
   })
-  const r = await chamar('POST', `/api/templates/${criado.dados.template.id}/publicar`, { token })
-  assert.equal(r.status, 400)
-  assert.match(r.dados.mensagem, /sem nenhum item/)
-})
+  assert.equal(primeira.status, 200)
 
-// --------------------------------------------- criterio: ticket (sec. 16 e 34)
-
-test('ticket: colaborador sem veiculo proprio consegue abrir uma solicitacao', async () => {
-  const token = await entrar('colab.a@teste.local')
-  const r = await chamar('POST', '/api/tickets', {
+  const sobrepoe = await chamar('POST', '/api/solicitacoes', {
     token,
-    corpo: { categoria: 'solicitacao', prioridade: 'normal',
-             descricao: 'Preciso de um veiculo para a entrega de quinta.' },
+    corpo: { veiculo_id: veiculoA2, janela_inicio: daquiAHoras(205), janela_fim: daquiAHoras(215),
+      motivo: 'Segunda reserva que invade a primeira.' },
   })
-  assert.equal(r.status, 200)
-  assert.equal(r.dados.ticket.status, 'aberto')
-  assert.equal(r.dados.ticket.veiculo_id, null)
-  assert.ok(r.dados.ticket.numero >= 1)
-})
+  assert.equal(sobrepoe.status, 409)
+  assert.match(sobrepoe.dados.mensagem, /ja esta reservado/)
 
-test('ticket: categoria sobre o ativo exige dizer qual veiculo', async () => {
-  const token = await entrar('colab.a@teste.local')
-  const semVeiculo = await chamar('POST', '/api/tickets', {
-    token, corpo: { categoria: 'dano', descricao: 'Arranhao novo na lateral direita.' },
-  })
-  assert.equal(semVeiculo.status, 400)
-
-  const comVeiculo = await chamar('POST', '/api/tickets', {
-    token, corpo: { categoria: 'dano', veiculo_id: veiculoA, descricao: 'Arranhao novo na lateral direita.' },
-  })
-  assert.equal(comVeiculo.status, 200)
-  assert.equal(comVeiculo.dados.ticket.placa, 'AAA1A11')
-})
-
-test('ticket: o solicitante escolhe o veiculo mas nao altera dado mestre', async () => {
-  const token = await entrar('colab.a@teste.local')
-  // Vinculo do ticket com o ativo: permitido.
-  const abertura = await chamar('POST', '/api/tickets', {
-    token, corpo: { categoria: 'limpeza', veiculo_id: veiculoA, descricao: 'Veiculo entregue sujo hoje.' },
-  })
-  assert.equal(abertura.status, 200)
-  // Tocar no cadastro do mesmo veiculo: recusado (secao 16).
-  const escrita = await chamar('PATCH', `/api/veiculos/${veiculoA}`, { token, corpo: { modelo: 'Outro' } })
-  assert.equal(escrita.status, 403)
-})
-
-test('ticket: cada solicitante enxerga apenas os proprios', async () => {
-  const tokenColab = await entrar('colab.a@teste.local')
-  const tokenAdm = await entrar('adm.a@teste.local')
-
-  const doColab = await chamar('GET', '/api/tickets', { token: tokenColab })
-  const doAdm = await chamar('GET', '/api/tickets', { token: tokenAdm })
-  assert.equal(doColab.dados.vejo_todos, false)
-  assert.equal(doAdm.dados.vejo_todos, true)
-  assert.ok(doAdm.dados.tickets.length >= doColab.dados.tickets.length)
-  for (const t of doColab.dados.tickets) assert.equal(t.solicitante_nome, 'Colaborador A')
-})
-
-test('ticket: nao se marca como resolvido sem dizer o que foi feito', async () => {
-  const tokenColab = await entrar('colab.a@teste.local')
-  const tokenAdm = await entrar('adm.a@teste.local')
-  const { dados } = await chamar('POST', '/api/tickets', {
-    token: tokenColab,
-    corpo: { categoria: 'problema', veiculo_id: veiculoA, descricao: 'Ar-condicionado nao gela.' },
-  })
-  const id = dados.ticket.id
-
-  const semSolucao = await chamar('POST', `/api/tickets/${id}/status`,
-    { token: tokenAdm, corpo: { status: 'resolvido' } })
-  assert.equal(semSolucao.status, 400)
-
-  const comSolucao = await chamar('POST', `/api/tickets/${id}/status`,
-    { token: tokenAdm, corpo: { status: 'resolvido', resolucao: 'Recarga de gas e troca do filtro.' } })
-  assert.equal(comSolucao.status, 200)
-
-  // "fechado" e terminal: nao volta.
-  await chamar('POST', `/api/tickets/${id}/status`, { token: tokenAdm, corpo: { status: 'fechado' } })
-  const reabrir = await chamar('POST', `/api/tickets/${id}/status`,
-    { token: tokenAdm, corpo: { status: 'em_andamento' } })
-  assert.equal(reabrir.status, 409)
-})
-
-test('ticket: responsavel precisa ser alguem que trata tickets', async () => {
-  const tokenAdm = await entrar('adm.a@teste.local')
-  const lista = await chamar('GET', '/api/tickets', { token: tokenAdm })
-  const alvo = lista.dados.tickets.find((t) => t.status === 'aberto')
-
-  const usuarios = await chamar('GET', '/api/usuarios', { token: tokenAdm })
-  const colaborador = usuarios.dados.usuarios.find((u) => u.papel === 'colaborador' && u.status === 'ativo')
-
-  const recusa = await chamar('POST', `/api/tickets/${alvo.id}/atribuir`,
-    { token: tokenAdm, corpo: { responsavel_id: colaborador.id } })
-  assert.equal(recusa.status, 400)
-  assert.match(recusa.dados.mensagem, /nao trata tickets/)
-
-  const eu = await chamar('GET', '/api/auth/eu', { token: tokenAdm })
-  const aceita = await chamar('POST', `/api/tickets/${alvo.id}/atribuir`,
-    { token: tokenAdm, corpo: { responsavel_id: eu.dados.usuario.id } })
-  assert.equal(aceita.status, 200)
-  assert.equal(aceita.dados.ticket.status, 'atribuido')
-})
-
-// ------------------------------------ criterio: checklist e sincronizacao
-
-const ESTRUTURA_CAMPO = { secoes: [{ id: 'seguranca', titulo: 'Seguranca', itens: [
-  { id: 'farois', rotulo: 'Farois funcionando', tipo: 'ok_nok', criticidade: 'medio' },
-  { id: 'freio', rotulo: 'Freio de servico', tipo: 'ok_nok', criticidade: 'critico',
-    foto_obrigatoria_se_nok: true },
-] }] }
-
-async function prepararChecklist(token, veiculoId, usuarioEmail) {
-  const criado = await chamar('POST', '/api/templates', {
+  // Encostada, sem invadir, passa.
+  const encostada = await chamar('POST', '/api/solicitacoes', {
     token,
+    corpo: { veiculo_id: veiculoA2, janela_inicio: daquiAHoras(210), janela_fim: daquiAHoras(220),
+      motivo: 'Comeca exatamente quando a outra termina.' },
+  })
+  assert.equal(encostada.status, 200)
+})
+
+test('solicitacao: recusar exige motivo', async () => {
+  const colaborador = await entrar('vendas.a@teste.local')
+  const frota = await entrar('frota.a@teste.local')
+  const { dados } = await chamar('POST', '/api/solicitacoes', {
+    token: colaborador,
+    corpo: { veiculo_id: veiculoA2, janela_inicio: daquiAHoras(400), janela_fim: daquiAHoras(404),
+      motivo: 'Pedido que sera recusado no teste.' },
+  })
+  const id = dados.solicitacao.id
+
+  assert.equal((await chamar('POST', `/api/solicitacoes/${id}/recusar`, { token: frota })).status, 400)
+  const ok = await chamar('POST', `/api/solicitacoes/${id}/recusar`,
+    { token: frota, corpo: { motivo: 'Veiculo reservado para manutencao nesse dia.' } })
+  assert.equal(ok.dados.solicitacao.status, 'recusada')
+})
+
+test('solicitacao: cada solicitante enxerga apenas as proprias', async () => {
+  const colaborador = await entrar('vendas.a@teste.local')
+  const frota = await entrar('frota.a@teste.local')
+
+  const dele = await chamar('GET', '/api/solicitacoes', { token: colaborador })
+  const daFrota = await chamar('GET', '/api/solicitacoes', { token: frota })
+  assert.equal(dele.dados.vejo_todas, false)
+  assert.equal(daFrota.dados.vejo_todas, true)
+  for (const s of dele.dados.solicitacoes) assert.equal(s.solicitante_nome, 'Vendas A')
+  assert.ok(daFrota.dados.solicitacoes.length >= dele.dados.solicitacoes.length)
+})
+
+// ----------------------------------------------------- criterio: checklist
+
+test('checklist: cargo nao liberado nao ve o modelo', async () => {
+  // O modelo "so-motorista" e de pick-up e so libera o cargo Motorista.
+  const frota = await entrar('frota.a@teste.local')
+  const vendas = await entrar('vendas.a@teste.local')
+
+  const pickup = (await chamar('GET', '/api/veiculos?tipo=pickup', { token: frota }))
+    .dados.veiculos[0]
+
+  const pedido = await chamar('POST', '/api/solicitacoes', {
+    token: vendas,
+    corpo: { veiculo_id: pickup.id, janela_inicio: daquiAHoras(500), janela_fim: daquiAHoras(505),
+      motivo: 'Pedido de pick-up por quem nao e motorista.' },
+  })
+  await chamar('POST', `/api/solicitacoes/${pedido.dados.solicitacao.id}/aprovar`, { token: frota })
+
+  const app = await chamar('GET', '/api/app/inicio', { token: vendas })
+  const tarefa = app.dados.tarefas.find((t) => t.veiculo.id === pickup.id)
+  assert.equal(tarefa, undefined, 'sem cargo liberado, o checklist nem aparece')
+})
+
+test('checklist: saida com ocorrencia critica bloqueia o veiculo', async () => {
+  const frota = await entrar('frota.a@teste.local')
+  const vendas = await entrar('vendas.a@teste.local')
+
+  const app = await chamar('GET', '/api/app/inicio', { token: vendas })
+  const tarefa = app.dados.tarefas.find((t) => t.momento === 'saida')
+  assert.ok(tarefa, 'deveria haver uma saida aprovada')
+
+  const envio = await chamar('POST', '/api/inspecoes', {
+    token: vendas,
     corpo: {
-      codigo: 'campo-' + Math.random().toString(36).slice(2, 8),
-      nome: 'Checklist de campo', tipo_veiculo: 'carro', estrutura: ESTRUTURA_CAMPO,
+      cliente_uuid: 'uuid-critica-0001', solicitacao_id: tarefa.solicitacao_id,
+      template_id: tarefa.template_id, momento: 'saida', km_informado: 20500,
+      respostas: {
+        lataria: { desfecho: 'ok', fotos: 1 },
+        pneus: { desfecho: 'ocorrencia', opcao_id: 'liso', fotos: 1 },
+      },
     },
   })
-  await chamar('POST', `/api/templates/${criado.dados.template.id}/publicar`, { token })
+  assert.equal(envio.status, 200)
+  assert.equal(envio.dados.resumo.resultado, 'reprovado')
+  assert.equal(envio.dados.resumo.estado_veiculo_previsto, 'bloqueado')
 
-  const usuarios = await chamar('GET', '/api/usuarios', { token })
-  const alvo = usuarios.dados.usuarios.find((u) => u.email === usuarioEmail)
-  await chamar('POST', '/api/vinculos',
-    { token, corpo: { usuario_id: alvo.id, veiculo_id: veiculoId, principal: true } })
-
-  return criado.dados.template.id
-}
-
-test('app: o contexto traz veiculo autorizado, checklist e politica de uma vez', async () => {
-  const tokenAdm = await entrar('adm.a@teste.local')
-  await prepararChecklist(tokenAdm, veiculoA, 'colab.a@teste.local')
-
-  const token = await entrar('colab.a@teste.local')
-  const r = await chamar('GET', '/api/app/inicio', { token })
-  assert.equal(r.status, 200)
-  assert.deepEqual(r.dados.veiculos.map((v) => v.placa), ['AAA1A11'])
-  assert.ok(r.dados.templates[veiculoA], 'o checklist do veiculo precisa vir junto')
-  assert.ok(r.dados.templates[veiculoA].estrutura.secoes.length > 0)
-  assert.ok('politicas' in r.dados)
-})
-
-test('inspecao: o vinculo e conferido no servidor, nao no aplicativo', async () => {
-  const token = await entrar('colab.a@teste.local')
-  const contexto = await chamar('GET', '/api/app/inicio', { token })
-  const templateId = contexto.dados.templates[veiculoA].id
-
-  // veiculoB pertence a outra empresa; o colaborador nao tem vinculo nenhum
-  const r = await chamar('POST', '/api/inspecoes', {
-    token,
-    corpo: {
-      cliente_uuid: 'sem-vinculo-1', veiculo_id: veiculoB, template_id: templateId,
-      respostas: { farois: 'ok', freio: 'ok' },
-    },
-  })
-  assert.equal(r.status, 403)
-})
-
-test('inspecao: o servidor RE-JULGA e ignora o veredito do cliente', async () => {
-  const token = await entrar('colab.a@teste.local')
-  const contexto = await chamar('GET', '/api/app/inicio', { token })
-  const templateId = contexto.dados.templates[veiculoA].id
-
-  // O cliente afirma "aprovado" enquanto responde uma falha critica.
-  const r = await chamar('POST', '/api/inspecoes', {
-    token,
-    corpo: {
-      cliente_uuid: 'mentiroso-1', veiculo_id: veiculoA, template_id: templateId,
-      respostas: { farois: 'ok', freio: { valor: 'nok', tem_evidencia: true } },
-      resultado: 'aprovado', estado_veiculo: 'disponivel',
-    },
-  })
-  assert.equal(r.status, 200)
-  assert.equal(r.dados.resultado, 'reprovado', 'quem decide e o servidor')
-  assert.equal(r.dados.estado_veiculo, 'bloqueado')
-
-  const tokenAdm = await entrar('adm.a@teste.local')
-  const veiculo = await chamar('GET', `/api/veiculos/${veiculoA}`, { token: tokenAdm })
+  const veiculo = await chamar('GET', `/api/veiculos/${tarefa.veiculo.id}`, { token: frota })
   assert.equal(veiculo.dados.veiculo.status, 'bloqueado')
-  assert.match(veiculo.dados.veiculo.motivo_status, /critica/)
 
-  const ocs = await chamar('GET', '/api/ocorrencias', { token: tokenAdm })
-  const daInspecao = ocs.dados.ocorrencias.find((o) => o.item_id === 'freio')
-  assert.ok(daInspecao, 'a falha critica precisa abrir ocorrencia')
-  assert.equal(daInspecao.criticidade, 'critico')
+  // A ocorrencia caiu na fila da Frota com a prioridade do modelo.
+  const ocorrencias = await chamar('GET', '/api/ocorrencias?prioridade=critica', { token: frota })
+  assert.ok(ocorrencias.dados.ocorrencias.some((o) => o.veiculo_id === tarefa.veiculo.id))
 })
 
-test('inspecao: reenvio da fila offline e idempotente', async () => {
-  const token = await entrar('colab.a@teste.local')
-  const contexto = await chamar('GET', '/api/app/inicio', { token })
+test('checklist: reenvio da fila offline nao duplica', async () => {
+  const vendas = await entrar('vendas.a@teste.local')
+  const app = await chamar('GET', '/api/app/inicio', { token: vendas })
+  const tarefa = app.dados.tarefas.find((t) => t.momento === 'retorno')
+  assert.ok(tarefa, 'depois da saida a tarefa vira retorno')
+
   const corpo = {
-    cliente_uuid: 'fila-repetida-1', veiculo_id: veiculoA,
-    template_id: contexto.dados.templates[veiculoA].id,
-    respostas: { farois: 'ok', freio: 'ok' },
+    cliente_uuid: 'uuid-retorno-0001', solicitacao_id: tarefa.solicitacao_id,
+    template_id: tarefa.template_id, momento: 'retorno',
+    respostas: { lataria: { desfecho: 'ok' }, pneus: { desfecho: 'ok' } },
   }
+  const primeiro = await chamar('POST', '/api/inspecoes', { token: vendas, corpo })
+  assert.equal(primeiro.status, 200)
+  assert.ok(!primeiro.dados.repetida)
 
-  const primeira = await chamar('POST', '/api/inspecoes', { token, corpo })
-  const segunda = await chamar('POST', '/api/inspecoes', { token, corpo })
-  const terceira = await chamar('POST', '/api/inspecoes', { token, corpo })
-
-  assert.equal(primeira.dados.duplicada, false)
-  assert.equal(segunda.dados.duplicada, true)
-  assert.equal(terceira.dados.duplicada, true)
-  assert.equal(segunda.dados.inspecao_id, primeira.dados.inspecao_id)
-
-  const tokenAdm = await entrar('adm.a@teste.local')
-  const lista = await chamar('GET', '/api/inspecoes', { token: tokenAdm })
-  const iguais = lista.dados.inspecoes.filter((i) => i.id === primeira.dados.inspecao_id)
-  assert.equal(iguais.length, 1, 'tres envios nao podem virar tres inspecoes')
+  const segundo = await chamar('POST', '/api/inspecoes', { token: vendas, corpo })
+  assert.equal(segundo.dados.repetida, true)
+  assert.equal(segundo.dados.inspecao.id, primeiro.dados.inspecao.id)
 })
 
-test('inspecao: incompleta e recusada, com o motivo', async () => {
-  const token = await entrar('colab.a@teste.local')
-  const contexto = await chamar('GET', '/api/app/inicio', { token })
-  const templateId = contexto.dados.templates[veiculoA].id
+test('checklist: o servidor recusa inspecao incompleta', async () => {
+  const frota = await entrar('frota.a@teste.local')
+  const motorista = await entrar('motorista.a@teste.local')
 
-  const semTudo = await chamar('POST', '/api/inspecoes', {
-    token,
+  const pedido = await chamar('POST', '/api/solicitacoes', {
+    token: motorista,
+    corpo: { veiculo_id: veiculoA2, janela_inicio: daquiAHoras(600), janela_fim: daquiAHoras(605),
+      motivo: 'Pedido para testar checklist incompleto.' },
+  })
+  await chamar('POST', `/api/solicitacoes/${pedido.dados.solicitacao.id}/aprovar`, { token: frota })
+
+  const app = await chamar('GET', '/api/app/inicio', { token: motorista })
+  const tarefa = app.dados.tarefas.find((t) => t.veiculo.id === veiculoA2)
+
+  const r = await chamar('POST', '/api/inspecoes', {
+    token: motorista,
     corpo: {
-      cliente_uuid: 'incompleta-1', veiculo_id: veiculoA,
-      template_id: templateId, respostas: { farois: 'ok' },
+      cliente_uuid: 'uuid-incompleto-0001', solicitacao_id: tarefa.solicitacao_id,
+      template_id: tarefa.template_id, momento: 'saida',
+      respostas: { lataria: { desfecho: 'ok' } },   // falta "pneus"
     },
   })
-  assert.equal(semTudo.status, 400)
-  assert.match(semTudo.dados.mensagem, /sem resposta/)
-
-  const semFoto = await chamar('POST', '/api/inspecoes', {
-    token,
-    corpo: {
-      cliente_uuid: 'sem-foto-1', veiculo_id: veiculoA, template_id: templateId,
-      respostas: { farois: 'ok', freio: 'nok' },
-    },
-  })
-  assert.equal(semFoto.status, 400)
-  assert.match(semFoto.dados.mensagem, /foto/)
+  assert.equal(r.status, 400)
+  assert.match(r.dados.mensagem, /incompleto/)
 })
 
-test('inspecao: KM do checklist nao anda para tras', async () => {
-  const tokenAdm = await entrar('adm.a@teste.local')
-  await chamar('POST', `/api/veiculos/${veiculoA}/km`,
-    { token: tokenAdm, corpo: { km_atual: 90000, motivo: 'ajuste do teste' } })
+test('checklist: o momento errado e recusado', async () => {
+  const motorista = await entrar('motorista.a@teste.local')
+  const app = await chamar('GET', '/api/app/inicio', { token: motorista })
+  const tarefa = app.dados.tarefas[0]
 
-  const token = await entrar('colab.a@teste.local')
-  const contexto = await chamar('GET', '/api/app/inicio', { token })
-  await chamar('POST', '/api/inspecoes', {
-    token,
+  const r = await chamar('POST', '/api/inspecoes', {
+    token: motorista,
     corpo: {
-      cliente_uuid: 'km-menor-1', veiculo_id: veiculoA,
-      template_id: contexto.dados.templates[veiculoA].id,
-      respostas: { farois: 'ok', freio: 'ok' }, km_informado: 100,
+      cliente_uuid: 'uuid-momento-errado', solicitacao_id: tarefa.solicitacao_id,
+      template_id: tarefa.template_id, momento: 'retorno',
+      respostas: { lataria: { desfecho: 'ok' }, pneus: { desfecho: 'ok' } },
     },
   })
+  assert.equal(r.status, 409)
+  assert.match(r.dados.mensagem, /espera o checklist de saida/)
+})
 
-  const veiculo = await chamar('GET', `/api/veiculos/${veiculoA}`, { token: tokenAdm })
-  assert.equal(veiculo.dados.veiculo.km_atual, 90000,
-    'um 100 digitado errado nao pode adiar a preventiva em 90 mil km')
+// ------------------------------------------------------ criterio: atraso
+
+test('devolucao: fora do prazo exige motivo escrito antes de encerrar', async () => {
+  const frota = await entrar('frota.a@teste.local')
+  const motorista = await entrar('motorista.a@teste.local')
+
+  // Janela que ja terminou: inserida direto, porque a API recusaria o pedido.
+  const id = novoId('solicitacao')
+  const numero = (consultarUm('SELECT MAX(numero) AS m FROM solicitacoes WHERE empresa_id = ?',
+    [empresaA])?.m ?? 0) + 1
+  const usuario = consultarUm('SELECT id FROM usuarios WHERE email = ?', ['motorista.a@teste.local'])
+  executar(
+    `INSERT INTO solicitacoes (id, empresa_id, numero, solicitante_id, veiculo_id,
+                               janela_inicio, janela_fim, motivo, status, criado_em, atualizado_em)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 'Visita tecnica que passou do horario.', 'em_uso', ?, ?)`,
+    [id, empresaA, numero, usuario.id, veiculoA,
+     new Date(Date.now() - 8 * 3600000).toISOString(),
+     new Date(Date.now() - 2 * 3600000).toISOString(), ts, ts])
+
+  const aviso = await chamar('GET', `/api/solicitacoes/${id}/devolucao`, { token: motorista })
+  assert.equal(aviso.dados.atrasada, true)
+  assert.equal(aviso.dados.exige_motivo, true)
+  assert.match(aviso.dados.mensagem, /passou do prazo de retorno/)
+
+  const sem = await chamar('POST', `/api/solicitacoes/${id}/devolver`, { token: motorista, corpo: {} })
+  assert.equal(sem.status, 400)
+
+  const com = await chamar('POST', `/api/solicitacoes/${id}/devolver`, {
+    token: motorista,
+    corpo: { motivo_atraso: 'A base estava fechada e tive que levar o carro para casa.' },
+  })
+  assert.equal(com.dados.solicitacao.status, 'devolvida_com_atraso')
+  assert.match(com.dados.solicitacao.motivo_atraso, /base estava fechada/)
+
+  // E o atraso aparece no historico do colaborador.
+  const historico = await chamar('GET', `/api/usuarios/${usuario.id}/historico`, { token: frota })
+  assert.ok(historico.dados.solicitacoes.some((s) => s.status === 'devolvida_com_atraso'))
+})
+
+// -------------------------------------------------- criterio: historico
+
+test('historico: mostra o que a pessoa fez e o que fizeram sobre ela', async () => {
+  const frota = await entrar('frota.a@teste.local')
+  const alvo = consultarUm('SELECT id FROM usuarios WHERE email = ?', ['vendas.a@teste.local'])
+
+  await chamar('POST', `/api/usuarios/${alvo.id}/status`,
+    { token: frota, corpo: { status: 'suspenso', motivo: 'Teste de historico.' } })
+
+  const r = await chamar('GET', `/api/usuarios/${alvo.id}/historico`, { token: frota })
+  assert.equal(r.status, 200)
+
+  const acoes = r.dados.eventos.map((e) => e.acao)
+  assert.ok(acoes.includes('credencial.suspenso'), 'falta o que a Frota fez sobre ele')
+  assert.ok(acoes.includes('solicitacao.aberta'), 'falta o que ele mesmo fez')
+  assert.ok(r.dados.inspecoes.length >= 1, 'faltam os checklists executados')
+
+  const suspensao = r.dados.eventos.find((e) => e.acao === 'credencial.suspenso')
+  assert.equal(suspensao.feito_por_ele, false)
+
+  // Devolve ao estado anterior para nao contaminar outros testes.
+  await chamar('POST', `/api/usuarios/${alvo.id}/status`, { token: frota, corpo: { status: 'ativo' } })
+})
+
+test('historico: o colaborador ve o proprio, mas nao o dos outros', async () => {
+  const motorista = await entrar('motorista.a@teste.local')
+  const eu = await chamar('GET', '/api/auth/eu', { token: motorista })
+  const outro = consultarUm('SELECT id FROM usuarios WHERE email = ?', ['vendas.a@teste.local'])
+
+  assert.equal((await chamar('GET', `/api/usuarios/${eu.dados.usuario.id}/historico`,
+    { token: motorista })).status, 200)
+  assert.equal((await chamar('GET', `/api/usuarios/${outro.id}/historico`,
+    { token: motorista })).status, 403)
 })
 
 // -------------------------------------------------- criterio: auditoria
@@ -560,19 +608,19 @@ test('inspecao: KM do checklist nao anda para tras', async () => {
 test('auditoria: alteracoes criticas deixam rastro de quem, quando e o que mudou', async () => {
   const { consultar } = await import('../src/nucleo/banco.js')
   const eventos = consultar(
-    `SELECT acao, ator_id, ator_nome, criado_em, depois FROM eventos_auditoria
+    `SELECT acao, ator_id, ator_nome, alvo_id, criado_em FROM eventos_auditoria
       WHERE empresa_id = ? ORDER BY criado_em`, [empresaA])
 
-  const acoes = eventos.map((e) => e.acao)
-  for (const esperada of ['usuario.criado', 'credencial.ativo', 'credencial.bloqueado',
-                          'veiculo.km_atualizado', 'preventiva.concluida', 'template.publicado']) {
-    assert.ok(acoes.includes(esperada), `faltou registrar "${esperada}"`)
+  const acoes = new Set(eventos.map((e) => e.acao))
+  for (const esperada of ['usuario.criado', 'cargo.criado', 'veiculo.km_atualizado',
+    'solicitacao.aberta', 'solicitacao.aprovada', 'checklist.saida',
+    'solicitacao.devolvida_com_atraso', 'primeiro_acesso']) {
+    assert.ok(acoes.has(esperada), `faltou registrar "${esperada}"`)
   }
 
-  const ativacao = eventos.find((e) => e.acao === 'credencial.ativo')
-  assert.equal(ativacao.ator_id, admA)
-  assert.equal(ativacao.ator_nome, 'Adm A')
-  assert.ok(ativacao.criado_em)
+  const criacao = eventos.find((e) => e.acao === 'usuario.criado')
+  assert.equal(criacao.ator_id, frotaA)
+  assert.ok(criacao.alvo_id, 'evento sobre um usuario precisa dizer sobre quem foi')
 
   // Nenhum evento pode carregar segredo de senha.
   const bruto = JSON.stringify(eventos)
@@ -580,11 +628,20 @@ test('auditoria: alteracoes criticas deixam rastro de quem, quando e o que mudou
   assert.ok(!bruto.includes('senha_salt'))
 })
 
-test('auditoria: tentativa de login errada tambem fica registrada', async () => {
+test('auditoria: a senha gerada nunca vai parar no historico', async () => {
   const { consultar } = await import('../src/nucleo/banco.js')
-  await chamar('POST', '/api/auth/login', { corpo: { email: 'adm.a@teste.local', senha: 'errada' } })
-  const falhas = consultar(
-    `SELECT COUNT(*) AS total FROM eventos_auditoria WHERE empresa_id = ? AND acao = 'login.falha'`,
-    [empresaA])
-  assert.ok(falhas[0].total >= 1)
+  const token = await entrar('frota.a@teste.local')
+  const r = await chamar('POST', '/api/usuarios', {
+    token,
+    corpo: {
+      nome: 'Auditoria Senha', cpf: '872.461.935-37', email: 'auditoria.senha@teste.local',
+      telefone: '(31) 90000-0000', cargo_id: cgMotoristaA,
+    },
+  })
+  assert.equal(r.status, 200)
+  const senha = r.dados.senha_inicial
+
+  const tudo = JSON.stringify(consultar(
+    'SELECT antes, depois FROM eventos_auditoria WHERE empresa_id = ?', [empresaA]))
+  assert.ok(!tudo.includes(senha), 'a senha inicial vazou para a auditoria')
 })

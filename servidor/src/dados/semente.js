@@ -1,5 +1,5 @@
-// Dados de desenvolvimento. Recria um cenario minimo para ver o painel com vida.
-// Uso: npm run semear   (apaga e recria o banco de desenvolvimento)
+// Dados de desenvolvimento (Roadmap v3.0).
+// Uso: npm run semear  — apaga e recria o banco de desenvolvimento.
 import fs from 'node:fs'
 import { config } from '../nucleo/config.js'
 import { abrirBanco, executar, novoId, agora, fecharBanco } from '../nucleo/banco.js'
@@ -17,65 +17,179 @@ for (const sufixo of ['', '-wal', '-shm']) {
 
 abrirBanco()
 const ts = agora()
+const SENHA = 'mylog123'
 
 const empresaId = novoId('empresa')
 executar(
   `INSERT INTO empresas (id, nome, documento, status, politicas, criado_em, atualizado_em)
    VALUES (?, ?, ?, 'ativa', ?, ?, ?)`,
   [empresaId, 'Transportadora Exemplo Ltda', '00.000.000/0001-00',
-   JSON.stringify({ bloqueio_por_critico: true, retencao_fotos_dias: 730 }), ts, ts],
+   JSON.stringify({
+     bloqueio_por_critica: true,
+     retencao_fotos_dias: 730,
+     antecedencia_horas: 24,
+     antecedencia_rigida: false,
+   }), ts, ts],
 )
 
-function criarUsuario(nome, email, papel, status, senha) {
+// ------------------------------------------------------------------ cargos
+function criarCargo(nome) {
+  const id = novoId('cargo')
+  executar('INSERT INTO cargos (id, empresa_id, nome, criado_em, atualizado_em) VALUES (?, ?, ?, ?, ?)',
+    [id, empresaId, nome, ts, ts])
+  return id
+}
+
+const cgFrota = criarCargo('Equipe de frota')
+const cgMotorista = criarCargo('Motorista')
+const cgTecnico = criarCargo('Tecnico de campo')
+const cgVendas = criarCargo('Consultor de vendas')
+criarCargo('Recursos humanos')
+
+// ---------------------------------------------------------------- usuarios
+// A senha da semente e' fixa e ja trocada, para nao travar o desenvolvimento
+// na tela de primeiro acesso a cada "npm run semear". Em producao a senha e'
+// gerada e a troca e' obrigatoria (roadmap 8.1).
+function criarUsuario(nome, cpf, email, telefone, cargoId, acessaPainel, status = 'ativo') {
   const id = novoId('usuario')
-  const { hash, salt } = gerarHashSenha(senha)
+  const { hash, salt } = gerarHashSenha(SENHA)
+  const pendente = status === 'pendente'
   executar(
-    `INSERT INTO usuarios (id, empresa_id, nome, email, papel, status, senha_hash, senha_salt,
-                           senha_definida, ativado_em, criado_em, atualizado_em)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)`,
-    [id, empresaId, nome, email, papel, status, hash, salt,
-     status === 'ativo' ? ts : null, ts, ts],
+    `INSERT INTO usuarios (id, empresa_id, nome, cpf, email, telefone, cargo_id, acessa_painel,
+                           status, senha_hash, senha_salt, deve_trocar_senha,
+                           primeiro_acesso_em, criado_em, atualizado_em)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [id, empresaId, nome, cpf, email, telefone, cargoId, acessaPainel ? 1 : 0,
+     status, hash, salt, pendente ? 1 : 0, pendente ? null : ts, ts, ts],
   )
   return id
 }
 
-const admId = criarUsuario('Andre Roberth', 'adm@mylog.local', 'adm', 'ativo', 'mylog123')
-const supId = criarUsuario('Marina Lopes', 'supervisao@mylog.local', 'supervisor', 'ativo', 'mylog123')
-const colaId = criarUsuario('Carlos Nunes', 'carlos@mylog.local', 'colaborador', 'ativo', 'mylog123')
-const ritaId = criarUsuario('Rita Alves', 'rita@mylog.local', 'colaborador', 'pendente', 'mylog123')
-const joaoId = criarUsuario('Joao Pires', 'joao@mylog.local', 'manutencao', 'ativo', 'mylog123')
-criarUsuario('Bruno Dias', 'bruno@mylog.local', 'colaborador', 'bloqueado', 'mylog123')
+// CPFs validos gerados para desenvolvimento — passam no digito verificador.
+const admId = criarUsuario('Andre Roberth', '52998224725', 'adm@mylog.local', '(31) 90000-0001', cgFrota, true)
+criarUsuario('Marina Lopes', '11144477735', 'marina@mylog.local', '(31) 90000-0002', cgFrota, true)
+const carlosId = criarUsuario('Carlos Nunes', '15350946056', 'carlos@mylog.local', '(31) 90000-0003', cgMotorista, false)
+const ritaId = criarUsuario('Rita Alves', '39145281769', 'rita@mylog.local', '(31) 90000-0004', cgVendas, false)
+criarUsuario('Joao Pires', '71428793860', 'joao@mylog.local', '(31) 90000-0005', cgTecnico, false, 'pendente')
+criarUsuario('Bruno Dias', '87748248800', 'bruno@mylog.local', '(31) 90000-0006', cgMotorista, false, 'bloqueado')
 
-function criarVeiculo(placa, marca, modelo, ano, tipo, km, status, motivo) {
+// ---------------------------------------------------------------- veiculos
+function criarVeiculo(placa, marca, modelo, ano, tipo, km, status = 'disponivel', motivo = null) {
   const id = novoId('veiculo')
   executar(
     `INSERT INTO veiculos (id, empresa_id, placa, marca, modelo, ano, tipo, km_atual,
                            status, motivo_status, criado_em, atualizado_em)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [id, empresaId, placa, marca, modelo, ano, tipo, km, status, motivo || null, ts, ts],
+    [id, empresaId, placa, marca, modelo, ano, tipo, km, status, motivo, ts, ts],
   )
   return id
 }
 
-const v1 = criarVeiculo('ABC1D23', 'Fiat', 'Strada', 2023, 'carro', 41200, 'disponivel')
-const v2 = criarVeiculo('DEF2G45', 'Volkswagen', 'Constellation 24.280', 2019, 'caminhao', 318400, 'disponivel')
-const v3 = criarVeiculo('GHI3J67', 'Renault', 'Master', 2021, 'van', 96700, 'com_pendencia')
-const v4 = criarVeiculo('JKL4M89', 'Mercedes-Benz', 'Accelo 1016', 2016, 'caminhao', 452300, 'bloqueado',
-  'Freio de servico com folga reprovado no checklist de 30/08.')
+const v1 = criarVeiculo('ABC1D23', 'Fiat', 'Strada', 2023, 'pickup', 41200)
+const v2 = criarVeiculo('DEF2G45', 'Volkswagen', 'Constellation 24.280', 2019, 'caminhao', 318400)
+const v3 = criarVeiculo('GHI3J67', 'Renault', 'Kwid', 2021, 'compacto_leve', 96700)
+const v4 = criarVeiculo('JKL4M89', 'Mercedes-Benz', 'Accelo 1016', 2016, 'caminhao', 452300,
+  'bloqueado', 'Freio de servico com folga reprovado no checklist de 30/08.')
+const v5 = criarVeiculo('MNO5P12', 'Toyota', 'Hilux', 2022, 'quatro_x_quatro', 78900)
 
-function vincular(usuarioId, veiculoId, principal) {
-  executar(
-    `INSERT INTO vinculos (id, empresa_id, usuario_id, veiculo_id, principal, criado_em, criado_por)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    [novoId('vinculo'), empresaId, usuarioId, veiculoId, principal ? 1 : 0, ts, admId],
-  )
-  if (principal) executar('UPDATE veiculos SET usuario_principal = ? WHERE id = ?', [usuarioId, veiculoId])
+// -------------------------------------------------------------- checklist
+// Modelo de partida. Nao pretende ser o definitivo da empresa — isso so sai da
+// F0, mapeando o PROLOG real. Serve para exercitar o motor: tem foto
+// obrigatoria, opcao que abre ocorrencia critica e opcao que so registra.
+const ESTRUTURA = {
+  perguntas: [
+    {
+      id: 'lateral_esquerda',
+      titulo: 'Lateral esquerda',
+      foto_exibicao: null,
+      foto_ok: 'obrigatorio',
+      max_fotos_ok: 4,
+      opcoes_problema: [
+        { id: 'risco', nome: 'Risco na pintura', foto: 'obrigatorio', max_fotos: 3, abrir_ocorrencia: true, prioridade: 'baixa' },
+        { id: 'amassado', nome: 'Lataria amassada', foto: 'obrigatorio', max_fotos: 3, abrir_ocorrencia: true, prioridade: 'media' },
+        { id: 'furo', nome: 'Furo ou perfuracao', foto: 'obrigatorio', max_fotos: 3, abrir_ocorrencia: true, prioridade: 'alta' },
+        { id: 'macaneta', nome: 'Macaneta quebrada', foto: 'obrigatorio', max_fotos: 2, abrir_ocorrencia: true, prioridade: 'media' },
+      ],
+    },
+    {
+      id: 'lateral_direita',
+      titulo: 'Lateral direita',
+      foto_exibicao: null,
+      foto_ok: 'obrigatorio',
+      max_fotos_ok: 4,
+      opcoes_problema: [
+        { id: 'risco', nome: 'Risco na pintura', foto: 'obrigatorio', max_fotos: 3, abrir_ocorrencia: true, prioridade: 'baixa' },
+        { id: 'amassado', nome: 'Lataria amassada', foto: 'obrigatorio', max_fotos: 3, abrir_ocorrencia: true, prioridade: 'media' },
+      ],
+    },
+    {
+      id: 'pneus',
+      titulo: 'Pneus e rodagem',
+      foto_exibicao: null,
+      foto_ok: 'obrigatorio',
+      max_fotos_ok: 4,
+      opcoes_problema: [
+        { id: 'desgaste', nome: 'Desgaste visivel na banda', foto: 'obrigatorio', max_fotos: 4, abrir_ocorrencia: true, prioridade: 'media' },
+        { id: 'liso', nome: 'Pneu liso', foto: 'obrigatorio', max_fotos: 4, abrir_ocorrencia: true, prioridade: 'critica' },
+        { id: 'calibragem', nome: 'Precisa calibrar', foto: 'opcional', max_fotos: 1, abrir_ocorrencia: false },
+      ],
+    },
+    {
+      id: 'freios',
+      titulo: 'Freio de servico',
+      foto_exibicao: null,
+      foto_ok: 'nao_capturar',
+      max_fotos_ok: 1,
+      opcoes_problema: [
+        { id: 'folga', nome: 'Folga excessiva no pedal', foto: 'opcional', max_fotos: 2, abrir_ocorrencia: true, prioridade: 'critica' },
+        { id: 'ruido', nome: 'Ruido ao frear', foto: 'nao_capturar', max_fotos: 1, abrir_ocorrencia: true, prioridade: 'alta' },
+      ],
+    },
+    {
+      id: 'iluminacao',
+      titulo: 'Farois, lanternas e setas',
+      foto_exibicao: null,
+      foto_ok: 'opcional',
+      max_fotos_ok: 2,
+      opcoes_problema: [
+        { id: 'farol_queimado', nome: 'Farol queimado', foto: 'obrigatorio', max_fotos: 2, abrir_ocorrencia: true, prioridade: 'alta' },
+        { id: 'seta', nome: 'Seta com defeito', foto: 'obrigatorio', max_fotos: 2, abrir_ocorrencia: true, prioridade: 'media' },
+      ],
+    },
+    {
+      id: 'interior',
+      titulo: 'Interior e limpeza',
+      foto_exibicao: null,
+      foto_ok: 'opcional',
+      max_fotos_ok: 3,
+      opcoes_problema: [
+        { id: 'sujeira', nome: 'Veiculo sujo', foto: 'obrigatorio', max_fotos: 3, abrir_ocorrencia: true, prioridade: 'baixa' },
+        { id: 'estofado', nome: 'Estofado danificado', foto: 'obrigatorio', max_fotos: 3, abrir_ocorrencia: true, prioridade: 'media' },
+      ],
+    },
+  ],
 }
 
-vincular(colaId, v1, true)
-vincular(colaId, v3, false)
-vincular(supId, v2, true)
+function criarChecklist(codigo, nome, tipo, cargos, exigeAssinatura) {
+  const id = novoId('template')
+  executar(
+    `INSERT INTO templates (id, empresa_id, codigo, nome, tipo_veiculo, cargos_liberados,
+                            exige_assinatura, versao, status, estrutura,
+                            publicado_em, criado_em, atualizado_em)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 1, 'publicado', ?, ?, ?, ?)`,
+    [id, empresaId, codigo, nome, tipo, JSON.stringify(cargos), exigeAssinatura ? 1 : 0,
+     JSON.stringify(ESTRUTURA), ts, ts, ts],
+  )
+  return id
+}
 
+criarChecklist('diario-pickup', 'Checklist diario — pick-up', 'pickup', ['*'], true)
+criarChecklist('diario-compacto', 'Checklist diario — compacto leve', 'compacto_leve', ['*'], false)
+criarChecklist('diario-caminhao', 'Checklist diario — caminhao', 'caminhao',
+  [cgFrota, cgMotorista], true)
+criarChecklist('diario-4x4', 'Checklist diario — 4x4', 'quatro_x_quatro', ['*'], false)
+
+// ------------------------------------------------------------ preventivas
 function criarPreventiva(veiculoId, modo, dados) {
   executar(
     `INSERT INTO preventivas (id, empresa_id, veiculo_id, modo, ultimo_servico_km, ultimo_servico_data,
@@ -91,152 +205,45 @@ function criarPreventiva(veiculoId, modo, dados) {
 
 const emDias = (n) => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10)
 
-// Veiculo novo: periodicidade por KM. Ainda longe do alvo.
 criarPreventiva(v1, 'km', { ultimoKm: 31000, proximoKm: 51000, alertaKm: 1000 })
-// Caminhao rodando muito: alvo ja ultrapassado -> deve aparecer VENCIDA no painel.
-criarPreventiva(v2, 'km', { ultimoKm: 300000, proximoKm: 315000, alertaKm: 2000 })
-// Veiculo mais antigo: periodicidade por data, dentro da janela de alerta.
+criarPreventiva(v2, 'km', { ultimoKm: 300000, proximoKm: 315000, alertaKm: 2000 })  // vencida
 criarPreventiva(v3, 'data', { ultimaData: emDias(-170), proximaData: emDias(5), alertaDias: 7 })
-// Veiculo antigo com preventiva atrasada.
-criarPreventiva(v4, 'data', { ultimaData: emDias(-400), proximaData: emDias(-35), alertaDias: 10 })
+criarPreventiva(v4, 'data', { ultimaData: emDias(-400), proximaData: emDias(-35), alertaDias: 10 }) // vencida
+criarPreventiva(v5, 'km', { ultimoKm: 68000, proximoKm: 88000, alertaKm: 1000 })
 
-// ------------------------------------------------------------- template
-// Checklist de partida. Nao pretende ser o modelo definitivo da empresa — isso
-// so sai da F0, mapeando o PROLOG real. Serve para exercitar o motor: tem item
-// condicional, limite numerico, foto obrigatoria em item critico e selecao com
-// criticidade por opcao.
-const ESTRUTURA_DIARIO = {
-  secoes: [
-    {
-      id: 'documentacao',
-      titulo: 'Documentacao e identificacao',
-      itens: [
-        { id: 'crlv_presente', rotulo: 'CRLV do veiculo esta no porta-luvas?',
-          tipo: 'sim_nao', valor_conforme: 'sim', criticidade: 'alto' },
-        { id: 'km_partida', rotulo: 'Quilometragem do hodometro', tipo: 'numero', unidade: 'km' },
-      ],
-    },
-    {
-      id: 'seguranca',
-      titulo: 'Itens de seguranca',
-      itens: [
-        { id: 'extintor_presente', rotulo: 'Extintor presente e no prazo?',
-          tipo: 'sim_nao', valor_conforme: 'sim', criticidade: 'critico',
-          foto_obrigatoria_se_nok: true },
-        { id: 'extintor_validade', rotulo: 'Data de validade do extintor', tipo: 'datahora',
-          condicao: { item_id: 'extintor_presente', operador: 'igual', valor: 'sim' } },
-        { id: 'triangulo_macaco', rotulo: 'Triangulo, macaco e chave de roda',
-          tipo: 'ok_nok', criticidade: 'medio' },
-        { id: 'cintos', rotulo: 'Cintos de seguranca', tipo: 'ok_nok', criticidade: 'critico',
-          foto_obrigatoria_se_nok: true },
-      ],
-    },
-    {
-      id: 'pneus',
-      titulo: 'Pneus e rodagem',
-      itens: [
-        { id: 'pneu_de_condicao', rotulo: 'Condicao do pneu dianteiro esquerdo', tipo: 'selecao',
-          opcoes: [
-            { valor: 'normal', rotulo: 'Normal', conforme: true },
-            { valor: 'atencao', rotulo: 'Desgaste visivel', conforme: false, criticidade: 'medio' },
-            { valor: 'critico', rotulo: 'Liso ou danificado', conforme: false, criticidade: 'critico' },
-          ],
-          foto_obrigatoria_se_nok: true },
-        { id: 'pneu_de_pressao', rotulo: 'Pressao do pneu dianteiro esquerdo (PSI)',
-          tipo: 'numero', minimo: 28, maximo: 36, unidade: 'PSI', criticidade: 'medio' },
-        { id: 'estepe', rotulo: 'Estepe em condicao de uso', tipo: 'ok_nok', criticidade: 'baixo' },
-      ],
-    },
-    {
-      id: 'motor',
-      titulo: 'Motor e fluidos',
-      itens: [
-        { id: 'oleo_nivel', rotulo: 'Nivel de oleo do motor', tipo: 'ok_nok', criticidade: 'alto' },
-        { id: 'oleo_obs', rotulo: 'O que foi observado no oleo?', tipo: 'texto',
-          condicao: { item_id: 'oleo_nivel', operador: 'nao_conforme' } },
-        { id: 'agua_radiador', rotulo: 'Nivel da agua do radiador', tipo: 'ok_nok', criticidade: 'alto' },
-        { id: 'vazamentos', rotulo: 'Ha vazamento visivel sob o veiculo?',
-          tipo: 'sim_nao', valor_conforme: 'nao', criticidade: 'alto', foto_obrigatoria_se_nok: true },
-      ],
-    },
-    {
-      id: 'freios_luzes',
-      titulo: 'Freios e iluminacao',
-      itens: [
-        { id: 'freio_servico', rotulo: 'Freio de servico', tipo: 'ok_nok', criticidade: 'critico',
-          foto_obrigatoria_se_nok: true },
-        { id: 'freio_estacionamento', rotulo: 'Freio de estacionamento', tipo: 'ok_nok', criticidade: 'alto' },
-        { id: 'farois', rotulo: 'Farois alto e baixo', tipo: 'ok_nok', criticidade: 'alto' },
-        { id: 'lanternas_setas', rotulo: 'Lanternas e setas', tipo: 'ok_nok', criticidade: 'medio' },
-      ],
-    },
-    {
-      id: 'encerramento',
-      titulo: 'Encerramento',
-      itens: [
-        { id: 'observacoes', rotulo: 'Observacoes gerais', tipo: 'texto', obrigatorio: false },
-        { id: 'assinatura_condutor', rotulo: 'Assinatura do condutor', tipo: 'assinatura' },
-      ],
-    },
-  ],
-}
-
-const templateId = novoId('template')
-executar(
-  `INSERT INTO templates (id, empresa_id, codigo, nome, tipo_veiculo, versao, status, estrutura,
-                          publicado_em, criado_em, atualizado_em)
-   VALUES (?, ?, 'diario-leve', 'Checklist diario — veiculo leve', 'carro', 1, 'publicado', ?, ?, ?, ?)`,
-  [templateId, empresaId, JSON.stringify(ESTRUTURA_DIARIO), ts, ts, ts],
-)
-
-// ---------------------------------------------------------------- tickets
-// Inclui o caso central da secao 16: colaborador sem veiculo proprio pedindo
-// para usar um carro identificado por modelo + placa.
-function criarTicket(numero, solicitante, veiculo, categoria, prioridade, descricao, status, horasAtras) {
-  const criado = new Date(Date.now() - horasAtras * 3600000).toISOString()
-  const prazo = new Date(new Date(criado).getTime() + (prioridade === 'alta' ? 8 : 72) * 3600000).toISOString()
+// ---------------------------------------------------------- solicitacoes
+function criarSolicitacao(numero, solicitante, veiculo, inicioHoras, duracaoHoras, motivo, status) {
+  const inicio = new Date(Date.now() + inicioHoras * 3600000).toISOString()
+  const fim = new Date(Date.now() + (inicioHoras + duracaoHoras) * 3600000).toISOString()
   executar(
-    `INSERT INTO tickets (id, empresa_id, numero, solicitante_id, veiculo_id, categoria,
-                          prioridade, descricao, status, prazo_em, criado_em)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [novoId('ticket'), empresaId, numero, solicitante, veiculo, categoria,
-     prioridade, descricao, status, prazo, criado],
+    `INSERT INTO solicitacoes (id, empresa_id, numero, solicitante_id, veiculo_id,
+                               janela_inicio, janela_fim, motivo, status,
+                               aprovada_por, aprovada_em, criado_em, atualizado_em)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [novoId('solicitacao'), empresaId, numero, solicitante, veiculo, inicio, fim, motivo, status,
+     status === 'pendente' ? null : admId, status === 'pendente' ? null : ts, ts, ts],
   )
 }
 
-criarTicket(1, ritaId, null, 'solicitacao', 'normal',
-  'Preciso de um veiculo para a entrega em Betim na quinta-feira de manha.', 'aberto', 6)
-criarTicket(2, colaId, v3, 'problema', 'alta',
-  'Ar-condicionado do Master parou de gelar. Cabine fica insuportavel a tarde.', 'em_andamento', 30)
-criarTicket(3, colaId, v1, 'dano', 'normal',
-  'Arranhao novo na lateral direita da Strada, notado ao retirar o veiculo hoje.', 'aberto', 2)
-
-// ----------------------------------------------------------- ocorrencias
-// Quando a F3 existir, estas nascerao de checklists reais. Por ora ilustram a
-// fila de tratamento e o veiculo bloqueado por falha critica.
-function criarOcorrencia(veiculo, itemId, descricao, criticidade, status, responsavel, diasAtras) {
-  const aberta = new Date(Date.now() - diasAtras * 86400000).toISOString()
-  executar(
-    `INSERT INTO nao_conformidades (id, empresa_id, veiculo_id, item_id, descricao,
-                                    criticidade, status, responsavel_id, aberta_em)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [novoId('nao_conformidade'), empresaId, veiculo, itemId, descricao,
-     criticidade, status, responsavel, aberta],
-  )
-}
-
-criarOcorrencia(v4, 'freio_servico',
-  'Freio de servico com folga excessiva no pedal.', 'critico', 'em_tratamento', joaoId, 3)
-criarOcorrencia(v3, 'pneu_de_condicao',
-  'Pneu dianteiro esquerdo com desgaste visivel na banda de rodagem.', 'medio', 'aberta', null, 8)
-criarOcorrencia(v1, 'estepe',
-  'Estepe sem pressao adequada.', 'baixo', 'resolvida', joaoId, 15)
+// Aguardando a Frota.
+criarSolicitacao(1, ritaId, v3, 30, 5,
+  'Reuniao com cliente em Betim na sexta a tarde.', 'pendente')
+// Aprovada, ainda nao retirada: o app mostra o checklist de SAIDA.
+criarSolicitacao(2, carlosId, v1, 2, 6,
+  'Entrega de material na obra do Barreiro.', 'aprovada')
+// Em uso e ja passou do prazo: o app vai pedir o motivo do atraso.
+criarSolicitacao(3, ritaId, v5, -8, 4,
+  'Visita tecnica em Sete Lagoas.', 'em_uso')
 
 console.log('Banco semeado em', config.bancoCaminho)
 console.log('')
-console.log('  ADM .......... adm@mylog.local        / mylog123')
-console.log('  Supervisao ... supervisao@mylog.local / mylog123')
-console.log('  Colaborador .. carlos@mylog.local     / mylog123')
-console.log('  Pendente ..... rita@mylog.local       (nao entra: aguarda liberacao)')
-console.log('  Bloqueado .... bruno@mylog.local      (nao entra: acesso revogado)')
+console.log('  FROTA (painel web + app)')
+console.log('    adm@mylog.local        / mylog123   Andre Roberth')
+console.log('    marina@mylog.local     / mylog123   Marina Lopes')
+console.log('')
+console.log('  COLABORADOR (somente app)')
+console.log('    carlos@mylog.local     / mylog123   Motorista, tem saida aprovada')
+console.log('    rita@mylog.local       / mylog123   Vendas, tem retorno atrasado')
+console.log('    joao@mylog.local       / mylog123   PENDENTE: cai na troca de senha')
+console.log('    bruno@mylog.local      / mylog123   BLOQUEADO: nao entra')
 fecharBanco()

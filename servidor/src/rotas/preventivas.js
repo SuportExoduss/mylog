@@ -8,7 +8,7 @@ import { consultar, consultarUm, executar, novoId, agora, transacao } from '../n
 import { erro } from '../nucleo/http.js'
 import { registrarEvento } from '../nucleo/auditoria.js'
 import { exigirAutenticado } from '../seguranca/sessao.js'
-import { exigir } from '../seguranca/permissoes.js'
+import { exigirFrota } from '../seguranca/nivel.js'
 import { avaliarPreventiva, avaliarPreventivas, descreverFolga } from '../nucleo/preventivas.js'
 
 const MODOS = ['km', 'data']
@@ -57,8 +57,7 @@ function validarAlvo({ modo, proximo_km, proxima_data }, kmAtual) {
 export function registrarRotasPreventivas(rotas) {
   // ------------------------------------------------------------------ lista
   rotas.get('/api/preventivas', async (ctx) => {
-    const eu = exigirAutenticado(ctx)
-    exigir(eu, 'preventivas.ler')
+    const eu = exigirFrota(exigirAutenticado(ctx))
     avaliarPreventivas(eu.empresa_id)
 
     const status = ctx.query.get('status')
@@ -84,8 +83,7 @@ export function registrarRotasPreventivas(rotas) {
 
   // --------------------------------------------------------------- detalhe
   rotas.get('/api/preventivas/:id', async (ctx) => {
-    const eu = exigirAutenticado(ctx)
-    exigir(eu, 'preventivas.ler')
+    const eu = exigirFrota(exigirAutenticado(ctx))
     const preventiva = buscarNaEmpresa(eu.empresa_id, ctx.params.id)
     const historico = consultar(
       `SELECT p.*, u.nome AS concluida_por_nome FROM preventivas p
@@ -98,8 +96,7 @@ export function registrarRotasPreventivas(rotas) {
 
   // ------------------------------------------------------------------ criar
   rotas.post('/api/preventivas', async (ctx) => {
-    const eu = exigirAutenticado(ctx)
-    exigir(eu, 'preventivas.escrever')
+    const eu = exigirFrota(exigirAutenticado(ctx))
 
     const veiculo = consultarUm('SELECT * FROM veiculos WHERE id = ? AND empresa_id = ?',
       [String(ctx.corpo.veiculo_id || ''), eu.empresa_id])
@@ -139,8 +136,7 @@ export function registrarRotasPreventivas(rotas) {
   // ---------------------------------------------------------- reagendar
   // Secao 20: mudanca excepcional de alvo e' permitida, mas com motivo e rastro.
   rotas.patch('/api/preventivas/:id', async (ctx) => {
-    const eu = exigirAutenticado(ctx)
-    exigir(eu, 'preventivas.escrever')
+    const eu = exigirFrota(exigirAutenticado(ctx))
     const antes = buscarNaEmpresa(eu.empresa_id, ctx.params.id)
     if (antes.status === 'realizada') {
       throw erro.conflito('Preventiva concluida faz parte do historico e nao pode ser alterada.')
@@ -184,8 +180,7 @@ export function registrarRotasPreventivas(rotas) {
   // ciclo. Nao existe "concluir e decidir depois" — e' assim que uma frota
   // perde o controle da manutencao.
   rotas.post('/api/preventivas/:id/concluir', async (ctx) => {
-    const eu = exigirAutenticado(ctx)
-    exigir(eu, 'preventivas.escrever')
+    const eu = exigirFrota(exigirAutenticado(ctx))
     const atual = buscarNaEmpresa(eu.empresa_id, ctx.params.id)
     if (atual.status === 'realizada') throw erro.conflito('Esta preventiva ja foi concluida.')
 

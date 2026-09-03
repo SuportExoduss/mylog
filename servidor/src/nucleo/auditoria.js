@@ -2,14 +2,18 @@
 // apaga esta tabela. Se um dia isso for necessario, sera migracao, nao feature.
 import { executar, novoId, agora } from './banco.js'
 
-export function registrarEvento({ empresaId, ator, acao, entidade, entidadeId, antes, depois, ip }) {
+export function registrarEvento({ empresaId, ator, alvoId, acao, entidade, entidadeId, antes, depois, ip }) {
   executar(
     `INSERT INTO eventos_auditoria
-       (id, empresa_id, ator_id, ator_nome, acao, entidade, entidade_id, antes, depois, ip, criado_em)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (id, empresa_id, ator_id, ator_nome, alvo_id, acao, entidade, entidade_id,
+        antes, depois, ip, criado_em)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       novoId('evento'), empresaId,
       ator?.id || null, ator?.nome || null,
+      // alvo_id e' quem SOFREU a acao. Sem ele, o historico de um colaborador
+      // perderia tudo que a Frota fez sobre ele (roadmap 8.5).
+      alvoId || null,
       acao, entidade, entidadeId || null,
       antes ? JSON.stringify(antes) : null,
       depois ? JSON.stringify(depois) : null,

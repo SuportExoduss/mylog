@@ -1,244 +1,256 @@
-// Execucao de checklist e sincronizacao do aplicativo de campo (secoes 10, 28).
+// Execucao de checklist (roadmap 11).
 //
-// DUAS REGRAS INEGOCIAVEIS AQUI:
-//
-// 1. O servidor RE-JULGA a inspecao. O aplicativo calcula o resumo offline para
-//    mostrar ao motorista antes de finalizar, mas o veredito que vale e' o
-//    calculado aqui, com o mesmo motor e a versao do template que foi
-//    respondida. Um celular comprometido nao consegue aprovar um veiculo.
-//
-// 2. O vinculo usuario-veiculo e' verificado no servidor (secao 9). Nao basta
-//    o app ter mostrado o veiculo na tela.
+// O aplicativo julga a inspecao na hora para mostrar o resumo ao colaborador.
+// Quando ela chega aqui, o servidor RE-JULGA do zero, com o mesmo motor e a
+// versao do modelo que foi respondida. Qualquer resultado que venha no corpo e'
+// ignorado: um aparelho no patio e' cliente nao confiavel, e o resultado do
+// checklist e' o que bloqueia ou libera um caminhao.
 import { consultar, consultarUm, executar, novoId, agora, transacao } from '../nucleo/banco.js'
 import { erro } from '../nucleo/http.js'
 import { registrarEvento } from '../nucleo/auditoria.js'
 import { exigirAutenticado } from '../seguranca/sessao.js'
-import { exigir } from '../seguranca/permissoes.js'
-import { resumirInspecao, avaliarResposta, itensAplicaveis } from '../../../compartilhado/template.js'
+import { ehFrota } from '../seguranca/nivel.js'
+import { registrarKm } from './veiculos.js'
+import { avaliarInspecao, cargoLiberado, MOMENTOS } from '../../../compartilhado/template.js'
 
-const HOJE = () => agora().slice(0, 10)
-
-// Veiculos que este usuario pode inspecionar AGORA — vinculo ativo e dentro
-// da validade, no caso de autorizacao temporaria.
-function veiculosAutorizados(empresaId, usuarioId) {
-  const hoje = HOJE()
-  return consultar(
-    `SELECT ve.id, ve.placa, ve.marca, ve.modelo, ve.tipo, ve.km_atual, ve.status,
-            ve.motivo_status, v.principal
-       FROM vinculos v
-       JOIN veiculos ve ON ve.id = v.veiculo_id
-      WHERE v.empresa_id = ? AND v.usuario_id = ? AND v.revogado_em IS NULL
-        AND (v.valido_de IS NULL OR v.valido_de <= ?)
-        AND (v.valido_ate IS NULL OR v.valido_ate >= ?)
-      ORDER BY v.principal DESC, ve.placa`,
-    [empresaId, usuarioId, hoje, hoje],
-  )
+function politicas(empresaId) {
+  const linha = consultarUm('SELECT politicas FROM empresas WHERE id = ?', [empresaId])
+  try { return JSON.parse(linha?.politicas || '{}') } catch { return {} }
 }
 
-function templatePublicado(empresaId, tipoVeiculo) {
-  // Preferimos o template feito para o tipo do veiculo; se nao houver, cai no
-  // generico (sem tipo). Nunca devolve rascunho nem versao arquivada.
-  //
-  // O desempate e' por DATA DE PUBLICACAO, nao por numero de versao: "versao"
-  // so tem significado dentro de um mesmo codigo, entao comparar a v2 de um
-  // checklist com a v1 de outro escolheria ao acaso qual checklist a frota
-  // inteira responde.
-  return consultarUm(
-    `SELECT id, codigo, nome, versao, estrutura, tipo_veiculo FROM templates
-      WHERE empresa_id = ? AND status = 'publicado'
-        AND (tipo_veiculo = ? OR tipo_veiculo IS NULL)
-      ORDER BY CASE WHEN tipo_veiculo = ? THEN 0 ELSE 1 END, publicado_em DESC
-      LIMIT 1`,
-    [empresaId, tipoVeiculo, tipoVeiculo],
-  )
+// Modelo publicado que atende aquele tipo de veiculo e aquele cargo.
+// Desempate por data de publicacao: vence o mais recente.
+function checklistsDisponiveis(empresaId, tipoVeiculo, cargoId) {
+  return consultar(
+    `SELECT * FROM templates
+      WHERE empresa_id = ? AND status = 'publicado' AND tipo_veiculo = ?
+      ORDER BY publicado_em DESC`,
+    [empresaId, tipoVeiculo])
+    .map((t) => ({ ...t, cargos_liberados: JSON.parse(t.cargos_liberados) }))
+    .filter((t) => cargoLiberado(t.cargos_liberados, cargoId))
 }
 
 export function registrarRotasInspecoes(rotas) {
-  // ------------------------------------------------------- contexto do app
-  // Uma requisicao devolve tudo que o aplicativo precisa para funcionar o dia
-  // inteiro offline: veiculos, checklist e politica. Menos idas a rede numa
-  // conexao que pode nao existir depois.
+  // ------------------------------------------------------- inicio do app
+  // Uma requisicao devolve tudo que o aplicativo precisa para o dia inteiro
+  // offline: as solicitacoes ativas da pessoa, o veiculo de cada uma e o
+  // checklist que ela pode executar nele.
   rotas.get('/api/app/inicio', async (ctx) => {
     const eu = exigirAutenticado(ctx)
-    exigir(eu, 'inspecoes.executar')
+    const p = politicas(eu.empresa_id)
 
-    const veiculos = veiculosAutorizados(eu.empresa_id, eu.id)
-    const empresa = consultarUm('SELECT politicas FROM empresas WHERE id = ?', [eu.empresa_id])
-    const politicas = JSON.parse(empresa?.politicas || '{}')
-
-    // Um template por veiculo autorizado — tipos diferentes pedem checklists
-    // diferentes, e o app precisa dos dois antes de perder a rede.
-    const templates = {}
-    for (const veiculo of veiculos) {
-      const t = templatePublicado(eu.empresa_id, veiculo.tipo)
-      if (t) templates[veiculo.id] = { ...t, estrutura: JSON.parse(t.estrutura) }
-    }
-
-    const inspecoesHoje = consultar(
-      `SELECT veiculo_id, finalizada_em, resultado FROM inspecoes
-        WHERE empresa_id = ? AND usuario_id = ? AND substr(iniciada_em, 1, 10) = ?`,
-      [eu.empresa_id, eu.id, HOJE()])
-
-    const meusTickets = consultar(
-      `SELECT t.id, t.numero, t.categoria, t.status, t.descricao, t.criado_em, v.placa
-         FROM tickets t LEFT JOIN veiculos v ON v.id = t.veiculo_id
-        WHERE t.empresa_id = ? AND t.solicitante_id = ?
-          AND t.status NOT IN ('fechado')
-        ORDER BY t.criado_em DESC LIMIT 20`,
+    const solicitacoes = consultar(
+      `SELECT s.*, v.placa, v.modelo, v.marca, v.tipo, v.km_atual, v.status AS veiculo_status
+         FROM solicitacoes s JOIN veiculos v ON v.id = s.veiculo_id
+        WHERE s.empresa_id = ? AND s.solicitante_id = ?
+          AND s.status IN ('aprovada', 'em_uso')
+        ORDER BY s.janela_inicio`,
       [eu.empresa_id, eu.id])
 
+    const tarefas = []
+    const modelos = new Map()
+
+    for (const s of solicitacoes) {
+      const candidatos = checklistsDisponiveis(eu.empresa_id, s.tipo, eu.cargo_id)
+      if (!candidatos.length) continue
+      const modelo = candidatos[0]
+      modelos.set(modelo.id, {
+        id: modelo.id,
+        codigo: modelo.codigo,
+        nome: modelo.nome,
+        versao: modelo.versao,
+        exige_assinatura: Boolean(modelo.exige_assinatura),
+        estrutura: JSON.parse(modelo.estrutura),
+      })
+      // Aprovada -> falta a saida. Em uso -> falta o retorno (roadmap 11.5).
+      tarefas.push({
+        solicitacao_id: s.id,
+        numero: s.numero,
+        momento: s.status === 'aprovada' ? 'saida' : 'retorno',
+        janela_inicio: s.janela_inicio,
+        janela_fim: s.janela_fim,
+        motivo: s.motivo,
+        atrasada: s.status === 'em_uso' && s.janela_fim < agora(),
+        template_id: modelo.id,
+        veiculo: {
+          id: s.veiculo_id, placa: s.placa, marca: s.marca,
+          modelo: s.modelo, tipo: s.tipo, km_atual: s.km_atual,
+        },
+      })
+    }
+
     return {
-      usuario: { id: eu.id, nome: eu.nome, papel: eu.papel },
-      veiculos,
-      templates,
-      politicas,
-      inspecoes_hoje: inspecoesHoje,
-      tickets: meusTickets,
-      servidor_em: agora(),
+      usuario: { id: eu.id, nome: eu.nome, cargo_id: eu.cargo_id, cargo_nome: eu.cargo_nome },
+      tarefas,
+      modelos: [...modelos.values()],
+      politicas: { bloqueio_por_critica: p.bloqueio_por_critica !== false },
+      gerado_em: agora(),
     }
   })
 
-  // ------------------------------------------------------------- sincronizar
+  // ------------------------------------------------------------- enviar
   rotas.post('/api/inspecoes', async (ctx) => {
     const eu = exigirAutenticado(ctx)
-    exigir(eu, 'inspecoes.executar')
 
     const clienteUuid = String(ctx.corpo.cliente_uuid || '').trim()
-    if (!clienteUuid) throw erro.requisicao('Inspecao sem cliente_uuid: a fila offline exige um id proprio.')
+    if (clienteUuid.length < 8) {
+      throw erro.requisicao('cliente_uuid ausente: o aplicativo precisa gerar um id por inspecao.')
+    }
 
-    // Idempotencia: a fila offline reenvia o que nao teve confirmacao. Reenviar
-    // a mesma inspecao devolve a que ja existe, sem duplicar nada.
+    // Idempotencia: reenvio da fila offline devolve a inspecao existente em vez
+    // de duplicar. A resposta pode ter se perdido no caminho, a inspecao nao.
     const jaExiste = consultarUm(
-      'SELECT id, resultado, status FROM inspecoes WHERE empresa_id = ? AND cliente_uuid = ?',
+      'SELECT * FROM inspecoes WHERE empresa_id = ? AND cliente_uuid = ?',
       [eu.empresa_id, clienteUuid])
-    if (jaExiste) return { inspecao_id: jaExiste.id, resultado: jaExiste.resultado, duplicada: true }
+    if (jaExiste) return { inspecao: jaExiste, repetida: true }
 
-    const veiculoId = String(ctx.corpo.veiculo_id || '')
-    const autorizados = veiculosAutorizados(eu.empresa_id, eu.id)
-    const veiculo = autorizados.find((v) => v.id === veiculoId)
-    // Vinculo conferido no servidor, nao no aplicativo (secao 9).
-    if (!veiculo) {
-      throw erro.permissao('Voce nao esta autorizado a inspecionar este veiculo.')
+    const momento = String(ctx.corpo.momento || 'saida')
+    if (!MOMENTOS.includes(momento)) throw erro.requisicao('Momento invalido: use saida ou retorno.')
+
+    const solicitacao = consultarUm(
+      'SELECT * FROM solicitacoes WHERE id = ? AND empresa_id = ?',
+      [String(ctx.corpo.solicitacao_id || ''), eu.empresa_id])
+    if (!solicitacao) throw erro.naoEncontrado('Solicitacao nao encontrada.')
+
+    // A autorizacao e' reconferida aqui: nao basta o app ter mostrado a tarefa.
+    if (solicitacao.solicitante_id !== eu.id && !ehFrota(eu)) {
+      throw erro.permissao('Esta solicitacao pertence a outra pessoa.')
+    }
+    const esperado = solicitacao.status === 'aprovada' ? 'saida'
+      : solicitacao.status === 'em_uso' ? 'retorno' : null
+    if (esperado === null) {
+      throw erro.conflito(`Solicitacao ${solicitacao.status} nao aceita checklist.`)
+    }
+    if (momento !== esperado) {
+      throw erro.conflito(`Esta solicitacao espera o checklist de ${esperado}.`)
     }
 
-    const template = consultarUm(
-      'SELECT * FROM templates WHERE id = ? AND empresa_id = ?',
+    const veiculo = consultarUm('SELECT * FROM veiculos WHERE id = ? AND empresa_id = ?',
+      [solicitacao.veiculo_id, eu.empresa_id])
+
+    const modeloLinha = consultarUm('SELECT * FROM templates WHERE id = ? AND empresa_id = ?',
       [String(ctx.corpo.template_id || ''), eu.empresa_id])
-    if (!template) throw erro.naoEncontrado('Template da inspecao nao encontrado.')
+    if (!modeloLinha) throw erro.naoEncontrado('Checklist nao encontrado.')
 
-    const respostas = ctx.corpo.respostas || {}
-    if (typeof respostas !== 'object') throw erro.requisicao('Respostas invalidas.')
-
-    const estrutura = JSON.parse(template.estrutura)
-    const empresa = consultarUm('SELECT politicas FROM empresas WHERE id = ?', [eu.empresa_id])
-    const politicas = JSON.parse(empresa?.politicas || '{}')
-
-    // AQUI o servidor decide. O resumo que o app mostrou nao entra na conta.
-    const veredito = resumirInspecao(estrutura, respostas, politicas)
-    if (!veredito.pode_finalizar) {
-      throw erro.requisicao(
-        `Inspecao incompleta: ${veredito.pendencias.length} item(ns) sem resposta e `
-        + `${veredito.fotos_pendentes.length} foto(s) obrigatoria(s) faltando.`)
+    const estrutura = JSON.parse(modeloLinha.estrutura)
+    const cargos = JSON.parse(modeloLinha.cargos_liberados)
+    if (!ehFrota(eu) && !cargoLiberado(cargos, eu.cargo_id)) {
+      throw erro.permissao('Seu cargo nao esta liberado para este checklist.')
     }
 
-    const iniciadaEm = ctx.corpo.iniciada_em || agora()
-    const finalizadaEm = ctx.corpo.finalizada_em || agora()
-    const kmInformado = ctx.corpo.km_informado == null ? null : Math.trunc(Number(ctx.corpo.km_informado))
+    // Respostas vem como { pergunta_id: { desfecho, opcao_id, relatorio, fotos } }
+    const respostas = ctx.corpo.respostas && typeof ctx.corpo.respostas === 'object'
+      ? ctx.corpo.respostas : {}
+    const assinatura = String(ctx.corpo.assinatura || '') || null
+
+    // RE-JULGAMENTO. O que o app calculou nao entra na conta.
+    const juizo = avaliarInspecao(estrutura, respostas, {
+      politicas: politicas(eu.empresa_id),
+      exige_assinatura: Boolean(modeloLinha.exige_assinatura),
+      assinatura,
+    })
+    if (!juizo.pode_finalizar) {
+      throw erro.requisicao(
+        `Checklist incompleto: ${juizo.pendencias.map((p) => `${p.titulo} (${p.motivo})`).join('; ')}`)
+    }
+
     const id = novoId('inspecao')
     const ts = agora()
-
-    const aplicaveis = itensAplicaveis(estrutura, respostas)
-    const porId = new Map(aplicaveis.map((i) => [i.id, i]))
+    const km = ctx.corpo.km_informado
 
     transacao(() => {
       executar(
-        `INSERT INTO inspecoes (id, empresa_id, veiculo_id, usuario_id, template_id, status,
-                                km_informado, iniciada_em, finalizada_em, resultado, assinatura,
-                                cliente_uuid, criado_em)
-         VALUES (?, ?, ?, ?, ?, 'finalizada', ?, ?, ?, ?, ?, ?, ?)`,
-        [id, eu.empresa_id, veiculo.id, eu.id, template.id, kmInformado,
-         iniciadaEm, finalizadaEm, veredito.resultado,
-         ctx.corpo.assinatura || null, clienteUuid, ts],
-      )
+        `INSERT INTO inspecoes (id, empresa_id, veiculo_id, usuario_id, template_id, solicitacao_id,
+                                momento, status, km_informado, iniciada_em, finalizada_em,
+                                resultado, assinatura, cliente_uuid, criado_em)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'finalizada', ?, ?, ?, ?, ?, ?, ?)`,
+        [id, eu.empresa_id, veiculo.id, eu.id, modeloLinha.id, solicitacao.id,
+         momento, km ?? null, ctx.corpo.iniciada_em || ts, ts,
+         juizo.resultado, assinatura, clienteUuid, ts])
 
-      for (const [itemId, bruta] of Object.entries(respostas)) {
-        const item = porId.get(itemId)
-        if (!item) continue   // resposta de item escondido por condicao: descartada
-        const valor = bruta && typeof bruta === 'object' ? bruta.valor : bruta
-        const juizo = avaliarResposta(item, valor)
+      for (const [perguntaId, r] of Object.entries(respostas)) {
         executar(
-          `INSERT INTO respostas (id, empresa_id, inspecao_id, item_id, tipo, valor,
-                                  conforme, observacao, respondido_em)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [novoId('resposta'), eu.empresa_id, id, itemId, item.tipo,
-           valor == null ? null : String(valor),
-           juizo.conforme === null ? null : (juizo.conforme ? 1 : 0),
-           (bruta && typeof bruta === 'object' ? bruta.observacao : null) || null, ts],
-        )
+          `INSERT INTO respostas (id, empresa_id, inspecao_id, pergunta_id, desfecho,
+                                  opcao_id, relatorio, respondido_em)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          [novoId('resposta'), eu.empresa_id, id, perguntaId, r.desfecho,
+           r.opcao_id || null, r.relatorio || null, r.respondido_em || ts])
       }
 
-      // Cada nao conformidade vira ocorrencia rastreavel, com o item que a gerou.
-      for (const nc of veredito.nao_conformidades) {
+      // Cada ocorrencia julgada vira registro na fila da Frota.
+      for (const oc of juizo.ocorrencias) {
         executar(
-          `INSERT INTO nao_conformidades (id, empresa_id, inspecao_id, veiculo_id, item_id,
-                                          descricao, criticidade, status, aberta_em)
+          `INSERT INTO ocorrencias (id, empresa_id, inspecao_id, veiculo_id, pergunta_id,
+                                    descricao, prioridade, status, aberta_em)
            VALUES (?, ?, ?, ?, ?, ?, ?, 'aberta', ?)`,
-          [novoId('nao_conformidade'), eu.empresa_id, id, veiculo.id, nc.item_id,
-           `${nc.rotulo}: ${nc.valor}`, nc.criticidade, ts],
-        )
+          [novoId('ocorrencia'), eu.empresa_id, id, veiculo.id, oc.pergunta_id,
+           `${oc.titulo}: ${oc.descricao}`, oc.prioridade, ts])
       }
 
-      // O estado do veiculo segue a politica da empresa, nao a vontade do app.
-      if (veredito.estado_veiculo_previsto !== veiculo.status) {
+      // Estado do veiculo conforme a politica da empresa.
+      if (juizo.estado_veiculo_previsto !== 'disponivel') {
         executar('UPDATE veiculos SET status = ?, motivo_status = ?, atualizado_em = ? WHERE id = ?',
-          [veredito.estado_veiculo_previsto, veredito.motivo, ts, veiculo.id])
+          [juizo.estado_veiculo_previsto, juizo.motivo, ts, veiculo.id])
       }
-      // KM informado no checklist tambem alimenta a preventiva — mas nunca
-      // para tras, que seria erro de digitacao virando adiamento de manutencao.
-      if (kmInformado != null && kmInformado > Number(veiculo.km_atual)) {
-        executar('UPDATE veiculos SET km_atual = ?, atualizado_em = ? WHERE id = ?',
-          [kmInformado, ts, veiculo.id])
+
+      // Saida coloca a solicitacao em uso. O retorno e' fechado pela rota de
+      // devolucao, que e' quem sabe pedir o motivo do atraso.
+      if (momento === 'saida') {
+        executar(`UPDATE solicitacoes SET status = 'em_uso', inspecao_saida = ?, atualizado_em = ? WHERE id = ?`,
+          [id, ts, solicitacao.id])
+      } else {
+        executar('UPDATE solicitacoes SET inspecao_retorno = ?, atualizado_em = ? WHERE id = ?',
+          [id, ts, solicitacao.id])
       }
     })
 
+    // O hodometro do checklist e' leitura de KM como qualquer outra.
+    if (km !== undefined && km !== null && km !== '') {
+      try {
+        registrarKm(veiculo, km, { motivo: 'Leitura no checklist', ator: eu, ip: ctx.ip })
+      } catch (falha) {
+        // KM menor que o registrado nao derruba a inspecao: a inspecao ja
+        // aconteceu no mundo. Fica o registro de que o numero nao bateu.
+        registrarEvento({
+          empresaId: eu.empresa_id, ator: eu, acao: 'veiculo.km_recusado',
+          entidade: 'veiculo', entidadeId: veiculo.id,
+          depois: { informado: km, atual: veiculo.km_atual, inspecao: id }, ip: ctx.ip,
+        })
+      }
+    }
+
     registrarEvento({
-      empresaId: eu.empresa_id, ator: eu, acao: 'inspecao.finalizada',
+      empresaId: eu.empresa_id, ator: eu, alvoId: eu.id, acao: `checklist.${momento}`,
       entidade: 'inspecao', entidadeId: id,
       depois: {
-        placa: veiculo.placa, template: `${template.codigo} v${template.versao}`,
-        resultado: veredito.resultado, nao_conformidades: veredito.nao_conformidades.length,
-        estado_veiculo: veredito.estado_veiculo_previsto,
+        placa: veiculo.placa, resultado: juizo.resultado,
+        ocorrencias: juizo.ocorrencias.length, estado_veiculo: juizo.estado_veiculo_previsto,
       },
       ip: ctx.ip,
     })
 
     return {
-      inspecao_id: id,
-      resultado: veredito.resultado,
-      estado_veiculo: veredito.estado_veiculo_previsto,
-      nao_conformidades: veredito.nao_conformidades.length,
-      motivo: veredito.motivo,
-      duplicada: false,
+      inspecao: consultarUm('SELECT * FROM inspecoes WHERE id = ?', [id]),
+      resumo: juizo,
     }
   })
 
-  // ----------------------------------------------------------------- listar
+  // ------------------------------------------------------------ consulta
   rotas.get('/api/inspecoes', async (ctx) => {
     const eu = exigirAutenticado(ctx)
-    exigir(eu, 'inspecoes.ler')
-
     const veiculoId = ctx.query.get('veiculo_id')
-    let sql = `SELECT i.id, i.resultado, i.status, i.iniciada_em, i.finalizada_em, i.km_informado,
-                      v.placa, v.modelo, u.nome AS usuario_nome,
-                      t.codigo AS template_codigo, t.versao AS template_versao,
-                      (SELECT COUNT(*) FROM nao_conformidades n WHERE n.inspecao_id = i.id) AS ncs
+    const momento = ctx.query.get('momento')
+
+    let sql = `SELECT i.*, v.placa, v.modelo, u.nome AS usuario_nome, t.nome AS checklist
                  FROM inspecoes i
                  JOIN veiculos v ON v.id = i.veiculo_id
                  JOIN usuarios u ON u.id = i.usuario_id
                  JOIN templates t ON t.id = i.template_id
                 WHERE i.empresa_id = ?`
     const params = [eu.empresa_id]
+    if (!ehFrota(eu)) { sql += ' AND i.usuario_id = ?'; params.push(eu.id) }
     if (veiculoId) { sql += ' AND i.veiculo_id = ?'; params.push(veiculoId) }
+    if (momento && MOMENTOS.includes(momento)) { sql += ' AND i.momento = ?'; params.push(momento) }
     sql += ' ORDER BY i.iniciada_em DESC LIMIT 100'
 
     return { inspecoes: consultar(sql, params) }
@@ -246,24 +258,23 @@ export function registrarRotasInspecoes(rotas) {
 
   rotas.get('/api/inspecoes/:id', async (ctx) => {
     const eu = exigirAutenticado(ctx)
-    exigir(eu, 'inspecoes.ler')
     const inspecao = consultarUm(
       `SELECT i.*, v.placa, v.modelo, u.nome AS usuario_nome,
-              t.codigo AS template_codigo, t.versao AS template_versao, t.estrutura
+              t.nome AS checklist, t.versao AS checklist_versao, t.estrutura
          FROM inspecoes i
          JOIN veiculos v ON v.id = i.veiculo_id
          JOIN usuarios u ON u.id = i.usuario_id
          JOIN templates t ON t.id = i.template_id
         WHERE i.id = ? AND i.empresa_id = ?`,
       [ctx.params.id, eu.empresa_id])
-    if (!inspecao) throw erro.naoEncontrado('Inspecao nao encontrada nesta empresa.')
-
-    return {
-      inspecao: { ...inspecao, estrutura: JSON.parse(inspecao.estrutura) },
-      respostas: consultar(
-        'SELECT * FROM respostas WHERE inspecao_id = ? ORDER BY respondido_em', [inspecao.id]),
-      nao_conformidades: consultar(
-        'SELECT * FROM nao_conformidades WHERE inspecao_id = ? ORDER BY criticidade', [inspecao.id]),
+    if (!inspecao) throw erro.naoEncontrado('Inspecao nao encontrada.')
+    if (!ehFrota(eu) && inspecao.usuario_id !== eu.id) {
+      throw erro.permissao('Esta inspecao e de outra pessoa.')
     }
+
+    const respostas = consultar('SELECT * FROM respostas WHERE inspecao_id = ?', [inspecao.id])
+    const ocorrencias = consultar('SELECT * FROM ocorrencias WHERE inspecao_id = ?', [inspecao.id])
+    const { estrutura, ...resto } = inspecao
+    return { inspecao: resto, estrutura: JSON.parse(estrutura), respostas, ocorrencias }
   })
 }

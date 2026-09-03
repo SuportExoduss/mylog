@@ -60,9 +60,9 @@ export function agora() {
 }
 
 const PREFIXOS = {
-  empresa: 'emp', usuario: 'usr', sessao: 'ses', veiculo: 'vei', vinculo: 'vin',
+  empresa: 'emp', usuario: 'usr', cargo: 'cgo', sessao: 'ses', veiculo: 'vei',
   template: 'tpl', inspecao: 'ins', resposta: 'res', evidencia: 'evi',
-  nao_conformidade: 'ncf', ticket: 'tkt', preventiva: 'prv', evento: 'evt',
+  ocorrencia: 'oco', solicitacao: 'sol', preventiva: 'prv', evento: 'evt',
 }
 
 export function novoId(entidade) {

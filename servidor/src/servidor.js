@@ -12,8 +12,8 @@ import { registrarRotasVeiculos } from './rotas/veiculos.js'
 import { registrarRotasPainel } from './rotas/painel.js'
 import { registrarRotasTemplates } from './rotas/templates.js'
 import { registrarRotasPreventivas } from './rotas/preventivas.js'
-import { registrarRotasTickets } from './rotas/tickets.js'
 import { registrarRotasOcorrencias, registrarRotasAuditoria } from './rotas/ocorrencias.js'
+import { registrarRotasSolicitacoes } from './rotas/solicitacoes.js'
 import { registrarRotasInspecoes } from './rotas/inspecoes.js'
 
 avisarSegredoFraco()
@@ -26,7 +26,7 @@ registrarRotasUsuarios(rotas)
 registrarRotasVeiculos(rotas)
 registrarRotasTemplates(rotas)
 registrarRotasPreventivas(rotas)
-registrarRotasTickets(rotas)
+registrarRotasSolicitacoes(rotas)
 registrarRotasOcorrencias(rotas)
 registrarRotasAuditoria(rotas)
 registrarRotasInspecoes(rotas)

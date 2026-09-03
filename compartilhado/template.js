@@ -1,36 +1,37 @@
-// Motor de checklist configuravel (secoes 11, 12 e 13 do roadmap).
+// Motor de checklist do MyLog (roadmap 11).
 //
-// ATENCAO: este arquivo roda em DOIS lugares — no servidor (Node) e dentro do
-// aplicativo de campo (navegador, muitas vezes sem rede). Nao importe nada de
-// node:*, nao toque em banco, relogio de servidor ou variavel de ambiente.
-// A regra existe para que a inspecao julgada offline no celular chegue ao
-// servidor e seja julgada exatamente igual.
+// ESTE ARQUIVO E' UM SO, importado pelo servidor E servido ao navegador.
+// Nao existe copia. Duas implementacoes divergiriam, e a divergencia apareceria
+// da pior forma possivel: "aprovado no patio, reprovado no painel horas depois".
 //
-// Um template e' dado, nao codigo: a estrutura vive em JSON e este modulo
-// sabe (a) validar essa estrutura, (b) decidir se um item deve aparecer dada
-// as respostas ja dadas e (c) julgar se uma resposta e' conforme.
+// Por isso, aqui dentro NAO PODE haver:
+//   - import de node:*        (o navegador nao tem)
+//   - acesso a banco ou rede  (o app roda offline)
+//   - leitura de relogio      (o mesmo julgamento tem de dar o mesmo resultado
+//                              no aparelho as 6h e no servidor as 14h)
 //
-// Tudo aqui e' funcao pura. O Android vai executar a mesma logica offline,
-// entao ela nao pode depender de banco, relogio ou rede.
+// O modelo e' deliberadamente estreito: toda pergunta e' uma verificacao visual
+// com dois desfechos, OK ou Ocorrencia. Nao ha tipo de resposta, nao ha item
+// condicional. O que a v2.0 tinha de flexibilidade virou complexidade sem uso.
 
-export const TIPOS_ITEM = [
-  'ok_nok', 'sim_nao', 'numero', 'selecao', 'texto', 'foto', 'assinatura', 'datahora',
+export const DESFECHOS = ['ok', 'ocorrencia']
+
+export const MODOS_FOTO = ['obrigatorio', 'opcional', 'nao_capturar']
+
+export const PRIORIDADES = ['baixa', 'media', 'alta', 'critica']
+
+export const PESO_PRIORIDADE = { baixa: 1, media: 2, alta: 3, critica: 4 }
+
+export const TIPOS_VEICULO = [
+  'compacto_leve', 'pickup', 'quatro_x_quatro', 'motocicleta', 'caminhao',
 ]
 
-// Tipos que produzem juizo de conformidade. Os demais so registram.
-const TIPOS_AVALIAVEIS = new Set(['ok_nok', 'sim_nao', 'numero', 'selecao'])
-
-export const CRITICIDADES = ['informativo', 'baixo', 'medio', 'alto', 'critico']
-
-export const PESO_CRITICIDADE = {
-  informativo: 0, baixo: 1, medio: 2, alto: 3, critico: 4,
-}
-
-export const OPERADORES = ['igual', 'diferente', 'nao_conforme', 'conforme', 'maior', 'menor', 'preenchido']
+export const MOMENTOS = ['saida', 'retorno']
 
 const IDENTIFICADOR = /^[a-z0-9_]{2,40}$/
+const MAX_FOTOS_ABSOLUTO = 12
 
-// ------------------------------------------------------------- validacao
+// ---------------------------------------------------------------- validacao
 
 class ErroTemplate extends Error {}
 
@@ -38,94 +39,70 @@ function exigir(condicao, mensagem) {
   if (!condicao) throw new ErroTemplate(mensagem)
 }
 
-function validarItem(item, caminho, idsAnteriores) {
-  exigir(item && typeof item === 'object', `${caminho}: item invalido.`)
-  exigir(IDENTIFICADOR.test(item.id || ''),
-    `${caminho}: id "${item.id}" invalido. Use letras minusculas, numeros e _.`)
-  exigir(!idsAnteriores.has(item.id), `${caminho}: id "${item.id}" repetido no template.`)
-  exigir(typeof item.rotulo === 'string' && item.rotulo.trim().length >= 2,
-    `${caminho}: informe a pergunta do item.`)
-  exigir(TIPOS_ITEM.includes(item.tipo), `${caminho}: tipo "${item.tipo}" desconhecido.`)
+function validarOpcao(opcao, caminho, idsVistos) {
+  exigir(opcao && typeof opcao === 'object', `${caminho}: opcao invalida.`)
+  exigir(IDENTIFICADOR.test(opcao.id || ''),
+    `${caminho}: id "${opcao.id}" invalido. Use letras minusculas, numeros e _.`)
+  exigir(!idsVistos.has(opcao.id), `${caminho}: id de opcao "${opcao.id}" repetido na pergunta.`)
+  idsVistos.add(opcao.id)
 
-  if (item.criticidade !== undefined) {
-    exigir(CRITICIDADES.includes(item.criticidade),
-      `${caminho}: criticidade "${item.criticidade}" desconhecida.`)
+  exigir(typeof opcao.nome === 'string' && opcao.nome.trim().length >= 2,
+    `${caminho}: informe o nome da opcao.`)
+  exigir(MODOS_FOTO.includes(opcao.foto || 'opcional'),
+    `${caminho}: modo de foto "${opcao.foto}" desconhecido.`)
+
+  const max = opcao.max_fotos ?? 1
+  exigir(Number.isInteger(max) && max >= 1 && max <= MAX_FOTOS_ABSOLUTO,
+    `${caminho}: quantidade maxima de fotos deve ficar entre 1 e ${MAX_FOTOS_ABSOLUTO}.`)
+
+  if (opcao.abrir_ocorrencia) {
+    exigir(PRIORIDADES.includes(opcao.prioridade),
+      `${caminho}: opcao abre ocorrencia e precisa de prioridade (${PRIORIDADES.join(', ')}).`)
   }
+}
 
-  if (item.tipo === 'numero') {
-    const { minimo, maximo } = item
-    exigir(minimo === undefined || minimo === null || Number.isFinite(Number(minimo)),
-      `${caminho}: minimo precisa ser numero.`)
-    exigir(maximo === undefined || maximo === null || Number.isFinite(Number(maximo)),
-      `${caminho}: maximo precisa ser numero.`)
-    if (minimo != null && maximo != null) {
-      exigir(Number(minimo) <= Number(maximo), `${caminho}: minimo maior que o maximo.`)
-    }
-  }
+function validarPergunta(pergunta, caminho, idsVistos) {
+  exigir(pergunta && typeof pergunta === 'object', `${caminho}: pergunta invalida.`)
+  exigir(IDENTIFICADOR.test(pergunta.id || ''),
+    `${caminho}: id "${pergunta.id}" invalido. Use letras minusculas, numeros e _.`)
+  exigir(!idsVistos.has(pergunta.id), `${caminho}: id "${pergunta.id}" repetido no checklist.`)
+  idsVistos.add(pergunta.id)
 
-  if (item.tipo === 'selecao') {
-    exigir(Array.isArray(item.opcoes) && item.opcoes.length >= 2,
-      `${caminho}: item de selecao precisa de ao menos duas opcoes.`)
-    const vistos = new Set()
-    for (const opcao of item.opcoes) {
-      exigir(typeof opcao.valor === 'string' && opcao.valor.trim(),
-        `${caminho}: opcao sem valor.`)
-      exigir(!vistos.has(opcao.valor), `${caminho}: opcao "${opcao.valor}" repetida.`)
-      vistos.add(opcao.valor)
-      if (opcao.criticidade !== undefined) {
-        exigir(CRITICIDADES.includes(opcao.criticidade),
-          `${caminho}: criticidade da opcao "${opcao.valor}" desconhecida.`)
-      }
-    }
-  }
+  exigir(typeof pergunta.titulo === 'string' && pergunta.titulo.trim().length >= 2,
+    `${caminho}: informe o titulo da pergunta.`)
+  exigir(MODOS_FOTO.includes(pergunta.foto_ok || 'opcional'),
+    `${caminho}: modo de foto no OK "${pergunta.foto_ok}" desconhecido.`)
 
-  if (item.tipo === 'sim_nao') {
-    exigir(item.valor_conforme === undefined || ['sim', 'nao'].includes(item.valor_conforme),
-      `${caminho}: valor_conforme precisa ser "sim" ou "nao".`)
-  }
+  const max = pergunta.max_fotos_ok ?? 1
+  exigir(Number.isInteger(max) && max >= 1 && max <= MAX_FOTOS_ABSOLUTO,
+    `${caminho}: quantidade maxima de fotos deve ficar entre 1 e ${MAX_FOTOS_ABSOLUTO}.`)
 
-  if (item.condicao) {
-    const c = item.condicao
-    exigir(typeof c.item_id === 'string', `${caminho}: condicao sem item_id.`)
-    exigir(OPERADORES.includes(c.operador), `${caminho}: operador "${c.operador}" desconhecido.`)
-    // A condicao so pode olhar para tras: evita dependencia circular e permite
-    // avaliar a visibilidade na ordem em que o usuario responde.
-    exigir(idsAnteriores.has(c.item_id),
-      `${caminho}: a condicao aponta para "${c.item_id}", que nao aparece antes deste item.`)
-  }
+  // Sem opcoes de problema, responder "ocorrencia" deixaria o colaborador sem
+  // nada para escolher — e ele teria de escrever tudo na mao toda vez.
+  exigir(Array.isArray(pergunta.opcoes_problema) && pergunta.opcoes_problema.length >= 1,
+    `${caminho} ("${pergunta.titulo}"): precisa de ao menos uma opcao de problema.`)
 
-  idsAnteriores.add(item.id)
+  const idsOpcoes = new Set()
+  pergunta.opcoes_problema.forEach((o, i) => {
+    validarOpcao(o, `${caminho}, opcao ${i + 1}`, idsOpcoes)
+  })
 }
 
 export function validarEstrutura(estrutura) {
-  exigir(estrutura && typeof estrutura === 'object', 'Estrutura do template invalida.')
-  exigir(Array.isArray(estrutura.secoes) && estrutura.secoes.length > 0,
-    'O template precisa de ao menos uma secao.')
+  exigir(estrutura && typeof estrutura === 'object', 'Estrutura do checklist invalida.')
+  exigir(Array.isArray(estrutura.perguntas) && estrutura.perguntas.length > 0,
+    'O checklist precisa de ao menos uma pergunta.')
 
-  const idsItens = new Set()
-  const idsSecoes = new Set()
-  let totalItens = 0
+  const ids = new Set()
+  estrutura.perguntas.forEach((p, i) => validarPergunta(p, `Pergunta ${i + 1}`, ids))
 
-  estrutura.secoes.forEach((secao, i) => {
-    const caminho = `Secao ${i + 1}`
-    exigir(IDENTIFICADOR.test(secao.id || ''), `${caminho}: id "${secao.id}" invalido.`)
-    exigir(!idsSecoes.has(secao.id), `${caminho}: id de secao repetido.`)
-    idsSecoes.add(secao.id)
-    exigir(typeof secao.titulo === 'string' && secao.titulo.trim().length >= 2,
-      `${caminho}: informe o titulo da secao.`)
-    exigir(Array.isArray(secao.itens) && secao.itens.length > 0,
-      `${caminho} ("${secao.titulo}"): sem nenhum item.`)
+  const comOcorrencia = estrutura.perguntas.reduce(
+    (soma, p) => soma + p.opcoes_problema.filter((o) => o.abrir_ocorrencia).length, 0)
 
-    secao.itens.forEach((item, j) => {
-      validarItem(item, `${caminho}, item ${j + 1}`, idsItens)
-      totalItens += 1
-    })
-  })
-
-  return { secoes: estrutura.secoes.length, itens: totalItens }
+  return { perguntas: estrutura.perguntas.length, opcoes_que_abrem_ocorrencia: comOcorrencia }
 }
 
-// Devolve a mensagem de erro em vez de lancar — util para a API e para a tela.
+// Devolve a mensagem em vez de lancar — util para a API e para o editor.
 export function conferirEstrutura(estrutura) {
   try {
     return { valido: true, resumo: validarEstrutura(estrutura) }
@@ -135,182 +112,144 @@ export function conferirEstrutura(estrutura) {
   }
 }
 
-// ------------------------------------------------------------ conformidade
+// --------------------------------------------------------------- consultas
 
-// respostas: { [item_id]: { valor, conforme? } }
-export function avaliarResposta(item, valorBruto) {
-  if (!TIPOS_AVALIAVEIS.has(item.tipo)) {
-    return { conforme: null, criticidade: null }
-  }
-
-  const criticidadePadrao = item.criticidade || 'baixo'
-
-  if (item.tipo === 'ok_nok') {
-    const conforme = valorBruto === 'ok'
-    return { conforme, criticidade: conforme ? null : criticidadePadrao }
-  }
-
-  if (item.tipo === 'sim_nao') {
-    const esperado = item.valor_conforme || 'sim'
-    const conforme = valorBruto === esperado
-    return { conforme, criticidade: conforme ? null : criticidadePadrao }
-  }
-
-  if (item.tipo === 'numero') {
-    const numero = Number(valorBruto)
-    if (!Number.isFinite(numero)) return { conforme: false, criticidade: criticidadePadrao }
-    const abaixo = item.minimo != null && numero < Number(item.minimo)
-    const acima = item.maximo != null && numero > Number(item.maximo)
-    const conforme = !abaixo && !acima
-    return { conforme, criticidade: conforme ? null : criticidadePadrao }
-  }
-
-  // selecao: a opcao escolhida carrega a propria conformidade e criticidade.
-  const opcao = (item.opcoes || []).find((o) => o.valor === valorBruto)
-  if (!opcao) return { conforme: false, criticidade: criticidadePadrao }
-  const conforme = opcao.conforme !== false
-  return { conforme, criticidade: conforme ? null : (opcao.criticidade || criticidadePadrao) }
+export function perguntaPorId(estrutura, perguntaId) {
+  return estrutura.perguntas.find((p) => p.id === perguntaId) || null
 }
 
-// ------------------------------------------------------- checklist adaptativo
+export function opcaoPorId(pergunta, opcaoId) {
+  return (pergunta?.opcoes_problema || []).find((o) => o.id === opcaoId) || null
+}
 
-// Um item aparece quando nao tem condicao, ou quando a condicao bate contra
-// uma resposta ja dada. Se o item de referencia ainda nao foi respondido, o
-// item condicional fica escondido (secao 12).
-//
-// ATENCAO ao contrato: os operadores "conforme" e "nao_conforme" leem o campo
-// `conforme` da resposta, que NAO vem do cliente — quem o calcula e'
-// itensAplicaveis(), varrendo os itens em ordem. Chamar itemVisivel direto com
-// respostas cruas faz esses dois operadores nunca baterem. Use itensAplicaveis.
-export function itemVisivel(item, respostas) {
-  if (!item.condicao) return true
-  const { item_id, operador, valor } = item.condicao
-  const resposta = respostas[item_id]
-  if (resposta === undefined || resposta === null) return false
+// Um checklist so aparece para quem tem cargo liberado (roadmap 3).
+// ["*"] libera para todos.
+export function cargoLiberado(cargosLiberados, cargoId) {
+  if (!Array.isArray(cargosLiberados) || cargosLiberados.length === 0) return false
+  if (cargosLiberados.includes('*')) return true
+  return cargosLiberados.includes(cargoId)
+}
 
-  const bruto = typeof resposta === 'object' ? resposta.valor : resposta
-  const conforme = typeof resposta === 'object' ? resposta.conforme : undefined
+// ------------------------------------------------------- julgamento
 
-  switch (operador) {
-    case 'igual': return bruto === valor
-    case 'diferente': return bruto !== valor
-    case 'conforme': return conforme === true
-    case 'nao_conforme': return conforme === false
-    case 'maior': return Number(bruto) > Number(valor)
-    case 'menor': return Number(bruto) < Number(valor)
-    case 'preenchido': return bruto !== '' && bruto !== null && bruto !== undefined
-    default: return true
+// respostas: { [pergunta_id]: { desfecho, opcao_id?, relatorio?, fotos? } }
+// "fotos" e' a QUANTIDADE de evidencias anexadas aquela resposta.
+export function avaliarResposta(pergunta, resposta) {
+  const problemas = []
+
+  if (!resposta || !DESFECHOS.includes(resposta.desfecho)) {
+    return { respondida: false, conforme: null, prioridade: null, problemas: ['sem_resposta'] }
+  }
+
+  const fotos = Number(resposta.fotos || 0)
+
+  if (resposta.desfecho === 'ok') {
+    const modo = pergunta.foto_ok || 'opcional'
+    if (modo === 'obrigatorio' && fotos < 1) problemas.push('foto_obrigatoria')
+    if (fotos > (pergunta.max_fotos_ok ?? 1)) problemas.push('fotos_acima_do_limite')
+    return { respondida: true, conforme: true, prioridade: null, problemas }
+  }
+
+  // desfecho = ocorrencia
+  const opcao = opcaoPorId(pergunta, resposta.opcao_id)
+  const relatorio = String(resposta.relatorio || '').trim()
+
+  // Ou escolheu uma opcao padrao, ou escreveu o relatorio. Sem um dos dois,
+  // a ocorrencia chega ao painel dizendo apenas "algo errado".
+  if (!opcao && relatorio.length < 5) {
+    problemas.push('sem_opcao_nem_relatorio')
+    return { respondida: true, conforme: false, prioridade: 'baixa', problemas }
+  }
+
+  if (opcao) {
+    const modo = opcao.foto || 'opcional'
+    if (modo === 'obrigatorio' && fotos < 1) problemas.push('foto_obrigatoria')
+    if (fotos > (opcao.max_fotos ?? 1)) problemas.push('fotos_acima_do_limite')
+  }
+
+  return {
+    respondida: true,
+    conforme: false,
+    abre_ocorrencia: Boolean(opcao?.abrir_ocorrencia),
+    prioridade: opcao?.abrir_ocorrencia ? opcao.prioridade : null,
+    descricao: opcao ? opcao.nome : relatorio,
+    problemas,
   }
 }
 
-// Achata o template na lista de itens que valem para estas respostas.
-//
-// Varre em ordem e vai ENRIQUECENDO cada resposta com o juizo de conformidade
-// antes de avaliar o proximo item. E' isso que faz "mostrar so quando o item
-// anterior estiver nao conforme" funcionar a partir de respostas cruas — nem o
-// aplicativo nem o servidor precisam calcular conformidade por fora.
-//
-// A varredura em uma passada so e' suficiente porque a validacao garante que
-// uma condicao so aponta para item anterior.
-export function itensAplicaveis(estrutura, respostas = {}) {
-  const saida = []
-  const julgadas = {}
-
-  for (const secao of estrutura.secoes) {
-    for (const item of secao.itens) {
-      if (!itemVisivel(item, julgadas)) continue
-      saida.push({ ...item, secao_id: secao.id, secao_titulo: secao.titulo })
-
-      const bruta = respostas[item.id]
-      const valor = bruta && typeof bruta === 'object' ? bruta.valor : bruta
-      const respondido = valor !== undefined && valor !== null && valor !== ''
-      julgadas[item.id] = {
-        ...(bruta && typeof bruta === 'object' ? bruta : {}),
-        valor,
-        conforme: respondido ? avaliarResposta(item, valor).conforme : undefined,
-      }
-    }
-  }
-  return saida
-}
-
-// --------------------------------------------------------- resumo da inspecao
-
-// Percorre template + respostas e devolve o que a tela de resumo do Android
-// precisa mostrar ANTES de finalizar (secao 27), sem gravar nada.
-export function resumirInspecao(estrutura, respostas = {}, politicas = {}) {
-  const aplicaveis = itensAplicaveis(estrutura, respostas)
+// Percorre o checklist inteiro e devolve o que a tela de encerramento precisa
+// mostrar ANTES de finalizar (roadmap 11.7), sem gravar nada.
+export function avaliarInspecao(estrutura, respostas = {}, opcoes = {}) {
+  const politicas = opcoes.politicas || {}
+  const exigeAssinatura = Boolean(opcoes.exige_assinatura)
+  const temAssinatura = Boolean(opcoes.assinatura)
 
   const pendencias = []
-  const naoConformidades = []
-  const fotosPendentes = []
+  const ocorrencias = []
   let conformes = 0
 
-  for (const item of aplicaveis) {
-    const resposta = respostas[item.id]
-    const bruto = resposta && typeof resposta === 'object' ? resposta.valor : resposta
-    const respondido = bruto !== undefined && bruto !== null && bruto !== ''
+  for (const pergunta of estrutura.perguntas) {
+    const juizo = avaliarResposta(pergunta, respostas[pergunta.id])
 
-    if (!respondido) {
-      if (item.obrigatorio !== false) pendencias.push({ item_id: item.id, rotulo: item.rotulo })
+    if (!juizo.respondida) {
+      pendencias.push({ pergunta_id: pergunta.id, titulo: pergunta.titulo, motivo: 'sem_resposta' })
       continue
     }
-
-    const juizo = avaliarResposta(item, bruto)
-    if (juizo.conforme === true) conformes += 1
-    if (juizo.conforme === false) {
-      naoConformidades.push({
-        item_id: item.id,
-        rotulo: item.rotulo,
-        secao: item.secao_titulo,
-        criticidade: juizo.criticidade,
-        valor: bruto,
+    for (const problema of juizo.problemas) {
+      pendencias.push({ pergunta_id: pergunta.id, titulo: pergunta.titulo, motivo: problema })
+    }
+    if (juizo.conforme) { conformes += 1; continue }
+    if (juizo.abre_ocorrencia) {
+      ocorrencias.push({
+        pergunta_id: pergunta.id,
+        titulo: pergunta.titulo,
+        descricao: juizo.descricao,
+        prioridade: juizo.prioridade,
       })
-      // Item critico pode exigir evidencia na hora (secao 15).
-      const temFoto = resposta && typeof resposta === 'object' && resposta.tem_evidencia
-      if (item.foto_obrigatoria_se_nok && !temFoto) {
-        fotosPendentes.push({ item_id: item.id, rotulo: item.rotulo })
-      }
     }
   }
 
-  const maiorCriticidade = naoConformidades.reduce((maior, nc) => (
-    PESO_CRITICIDADE[nc.criticidade] > PESO_CRITICIDADE[maior] ? nc.criticidade : maior
-  ), 'informativo')
+  if (exigeAssinatura && !temAssinatura) {
+    pendencias.push({ pergunta_id: null, titulo: 'Assinatura', motivo: 'assinatura_obrigatoria' })
+  }
+
+  const maiorPrioridade = ocorrencias.reduce(
+    (maior, o) => (PESO_PRIORIDADE[o.prioridade] > PESO_PRIORIDADE[maior] ? o.prioridade : maior),
+    'baixa')
+
+  const temCritica = ocorrencias.some((o) => o.prioridade === 'critica')
 
   // A consequencia depende da politica da empresa, nunca de um "nao conforme"
-  // solto (secao 13). Um bloqueio precisa ser explicavel.
-  const bloqueiaPorCritico = politicas.bloqueio_por_critico !== false
-  const temCritico = naoConformidades.some((nc) => nc.criticidade === 'critico')
+  // solto. Um bloqueio precisa ser explicavel (roadmap 12.2).
+  const bloqueiaPorCritica = politicas.bloqueio_por_critica !== false
 
   let resultado = 'aprovado'
   let estadoVeiculo = 'disponivel'
   let motivo = null
 
-  if (naoConformidades.length > 0) {
+  if (ocorrencias.length > 0) {
     resultado = 'com_pendencia'
     estadoVeiculo = 'com_pendencia'
-    motivo = `${naoConformidades.length} nao conformidade(s), maior criticidade: ${maiorCriticidade}.`
+    motivo = `${ocorrencias.length} ocorrencia(s), maior prioridade: ${maiorPrioridade}.`
   }
-  if (temCritico) {
+  if (temCritica) {
     resultado = 'reprovado'
-    if (bloqueiaPorCritico) {
+    if (bloqueiaPorCritica) {
       estadoVeiculo = 'bloqueado'
-      motivo = 'Nao conformidade critica com bloqueio ativo na politica da empresa.'
+      motivo = 'Ocorrencia critica com bloqueio ativo na politica da empresa.'
     } else {
-      estadoVeiculo = 'restrito'
-      motivo = 'Nao conformidade critica; a politica da empresa nao bloqueia automaticamente.'
+      estadoVeiculo = 'com_pendencia'
+      motivo = 'Ocorrencia critica; a politica da empresa nao bloqueia automaticamente.'
     }
   }
 
   return {
-    total_aplicaveis: aplicaveis.length,
+    total_perguntas: estrutura.perguntas.length,
     conformes,
     pendencias,
-    fotos_pendentes: fotosPendentes,
-    nao_conformidades: naoConformidades,
-    maior_criticidade: naoConformidades.length ? maiorCriticidade : null,
-    pode_finalizar: pendencias.length === 0 && fotosPendentes.length === 0,
+    ocorrencias,
+    maior_prioridade: ocorrencias.length ? maiorPrioridade : null,
+    pode_finalizar: pendencias.length === 0,
     resultado,
     estado_veiculo_previsto: estadoVeiculo,
     motivo,

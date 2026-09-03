@@ -29,16 +29,21 @@ export function usuarioDaSessao(token) {
   if (!token) return null
   const linha = consultarUm(
     `SELECT s.id AS sessao_id, s.expira_em, s.revogado_em, s.origem,
-            u.id, u.empresa_id, u.nome, u.email, u.papel, u.status
+            u.id, u.empresa_id, u.nome, u.email, u.cpf, u.telefone,
+            u.cargo_id, u.acessa_painel, u.status, u.deve_trocar_senha,
+            c.nome AS cargo_nome
        FROM sessoes s
        JOIN usuarios u ON u.id = s.usuario_id
+       LEFT JOIN cargos c ON c.id = u.cargo_id
       WHERE s.token_hash = ?`,
     [hashDoToken(token)],
   )
   if (!linha) return null
   if (linha.revogado_em) return null
   if (linha.expira_em <= agora()) return null
-  if (linha.status !== 'ativo') return null
+  // "pendente" ainda nao trocou a senha inicial: a sessao vale, mas so para a
+  // troca de senha. Quem barra as demais rotas e' exigirSenhaTrocada().
+  if (linha.status !== 'ativo' && linha.status !== 'pendente') return null
   return linha
 }
 
@@ -54,6 +59,19 @@ export function revogarSessoesDoUsuario(usuarioId) {
 }
 
 export function exigirAutenticado(ctx) {
+  if (!ctx.usuario) throw erro.autenticacao('Sessao ausente ou expirada.')
+  // Enquanto a senha inicial nao for trocada, a unica coisa que o usuario
+  // consegue fazer e' trocar a senha (roadmap 8.1).
+  if (ctx.usuario.deve_trocar_senha) {
+    const recusa = erro.permissao('Troque a senha inicial antes de continuar.')
+    recusa.codigo = 'troca_de_senha_obrigatoria'
+    throw recusa
+  }
+  return ctx.usuario
+}
+
+// Para as poucas rotas que o usuario pendente pode chamar.
+export function exigirSessao(ctx) {
   if (!ctx.usuario) throw erro.autenticacao('Sessao ausente ou expirada.')
   return ctx.usuario
 }

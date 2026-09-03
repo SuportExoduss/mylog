@@ -1,4 +1,4 @@
--- MyLog — esquema multi-tenant
+-- MyLog — esquema multi-tenant (Roadmap v3.0)
 -- Dialeto: SQLite (desenvolvimento). Escrito para portar a PostgreSQL:
 -- sem tipos exoticos, sem AUTOINCREMENT, ids texto, timestamps ISO-8601 UTC.
 -- Toda tabela de dominio carrega empresa_id. Nenhuma consulta pode omiti-lo.
@@ -16,36 +16,55 @@ CREATE TABLE IF NOT EXISTS empresas (
   atualizado_em TEXT NOT NULL
 );
 
--- ---------------------------------------------------------------- usuarios
-CREATE TABLE IF NOT EXISTS usuarios (
-  id             TEXT PRIMARY KEY,
-  empresa_id     TEXT NOT NULL REFERENCES empresas(id),
-  nome           TEXT NOT NULL,
-  email          TEXT NOT NULL,
-  matricula      TEXT,
-  papel          TEXT NOT NULL,                    -- adm|supervisor|colaborador|manutencao|auditoria
-  status         TEXT NOT NULL DEFAULT 'pendente', -- pendente|ativo|bloqueado|suspenso|desativado
-  senha_hash     TEXT,
-  senha_salt     TEXT,
-  senha_definida INTEGER NOT NULL DEFAULT 0,
-  ativado_em     TEXT,
-  ativado_por    TEXT,
-  criado_em      TEXT NOT NULL,
-  atualizado_em  TEXT NOT NULL
+-- ------------------------------------------------------------------ cargos
+-- Funcao da pessoa na empresa (RH, Tecnico de campo, Motorista).
+-- NAO concede permissao de sistema — serve para identificar quem e' a pessoa
+-- e para decidir quais checklists aparecem para ela (roadmap 3).
+CREATE TABLE IF NOT EXISTS cargos (
+  id            TEXT PRIMARY KEY,
+  empresa_id    TEXT NOT NULL REFERENCES empresas(id),
+  nome          TEXT NOT NULL,
+  ativo         INTEGER NOT NULL DEFAULT 1,
+  criado_em     TEXT NOT NULL,
+  atualizado_em TEXT NOT NULL
 );
--- Email e' identidade GLOBAL, nao por empresa: o login pede so email e senha,
--- entao o mesmo email nao pode existir em duas empresas (ver docs/DECISOES.md).
+CREATE UNIQUE INDEX IF NOT EXISTS ux_cargo_nome ON cargos(empresa_id, nome);
+
+-- ---------------------------------------------------------------- usuarios
+-- Dois niveis de acesso, e apenas dois (roadmap 3):
+--   acessa_painel = 1  ->  Frota      (painel web + aplicativo)
+--   acessa_painel = 0  ->  Colaborador (somente aplicativo)
+CREATE TABLE IF NOT EXISTS usuarios (
+  id              TEXT PRIMARY KEY,
+  empresa_id      TEXT NOT NULL REFERENCES empresas(id),
+  nome            TEXT NOT NULL,
+  cpf             TEXT NOT NULL,
+  email           TEXT NOT NULL,
+  telefone        TEXT,
+  cargo_id        TEXT REFERENCES cargos(id),
+  acessa_painel   INTEGER NOT NULL DEFAULT 0,
+  status          TEXT NOT NULL DEFAULT 'pendente',
+  -- pendente|ativo|bloqueado|suspenso|desativado
+  -- "pendente" = ainda nao fez o primeiro acesso nem trocou a senha inicial.
+  senha_hash      TEXT,
+  senha_salt      TEXT,
+  deve_trocar_senha INTEGER NOT NULL DEFAULT 1,
+  primeiro_acesso_em TEXT,
+  criado_em       TEXT NOT NULL,
+  atualizado_em   TEXT NOT NULL
+);
+-- Email e' identidade global: o login pede so email e senha (ver D3).
 CREATE UNIQUE INDEX IF NOT EXISTS ux_usuarios_email ON usuarios(email);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_usuarios_cpf ON usuarios(empresa_id, cpf);
 CREATE INDEX IF NOT EXISTS ix_usuarios_empresa ON usuarios(empresa_id, status);
 
 -- ---------------------------------------------------------------- sessoes
--- Token guardado como hash. Revogacao explicita (secao 8 do roadmap).
 CREATE TABLE IF NOT EXISTS sessoes (
   id          TEXT PRIMARY KEY,
   empresa_id  TEXT NOT NULL REFERENCES empresas(id),
   usuario_id  TEXT NOT NULL REFERENCES usuarios(id),
   token_hash  TEXT NOT NULL UNIQUE,
-  origem      TEXT NOT NULL DEFAULT 'web',       -- web | android
+  origem      TEXT NOT NULL DEFAULT 'web',       -- web | app
   criado_em   TEXT NOT NULL,
   expira_em   TEXT NOT NULL,
   revogado_em TEXT
@@ -60,79 +79,99 @@ CREATE TABLE IF NOT EXISTS veiculos (
   marca             TEXT,
   modelo            TEXT NOT NULL,
   ano               INTEGER,
-  tipo              TEXT NOT NULL DEFAULT 'carro', -- carro|caminhao|van|moto|maquina
+  tipo              TEXT NOT NULL DEFAULT 'compacto_leve',
+  -- compacto_leve|pickup|quatro_x_quatro|motocicleta|caminhao
   km_atual          INTEGER NOT NULL DEFAULT 0,
   status            TEXT NOT NULL DEFAULT 'disponivel',
-  -- disponivel|com_pendencia|restrito|bloqueado|manutencao
+  -- disponivel|com_pendencia|bloqueado|manutencao
   motivo_status     TEXT,
-  usuario_principal TEXT REFERENCES usuarios(id),
   criado_em         TEXT NOT NULL,
   atualizado_em     TEXT NOT NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS ux_veiculos_placa ON veiculos(empresa_id, placa);
 CREATE INDEX IF NOT EXISTS ix_veiculos_empresa ON veiculos(empresa_id, status);
 
--- -------------------------------------------------- vinculo usuario-veiculo
--- Camada de autorizacao (secao 9): o backend valida antes de aceitar inspecao.
-CREATE TABLE IF NOT EXISTS vinculos (
-  id           TEXT PRIMARY KEY,
-  empresa_id   TEXT NOT NULL REFERENCES empresas(id),
-  usuario_id   TEXT NOT NULL REFERENCES usuarios(id),
-  veiculo_id   TEXT NOT NULL REFERENCES veiculos(id),
-  principal    INTEGER NOT NULL DEFAULT 0,
-  valido_de    TEXT,
-  valido_ate   TEXT,
-  criado_em    TEXT NOT NULL,
-  criado_por   TEXT,
-  revogado_em  TEXT
-);
-CREATE INDEX IF NOT EXISTS ix_vinculos_usuario ON vinculos(usuario_id);
-CREATE INDEX IF NOT EXISTS ix_vinculos_veiculo ON vinculos(veiculo_id);
-
--- ---------------------------------------------------------------- templates
+-- --------------------------------------------------------------- templates
+-- Modelo de checklist versionado. "estrutura" guarda as perguntas em JSON;
+-- "cargos_liberados" guarda a lista de cargo_id, ou ["*"] para todos.
 CREATE TABLE IF NOT EXISTS templates (
-  id            TEXT PRIMARY KEY,
-  empresa_id    TEXT NOT NULL REFERENCES empresas(id),
-  codigo        TEXT NOT NULL,
-  nome          TEXT NOT NULL,
-  tipo_veiculo  TEXT,
-  versao        INTEGER NOT NULL DEFAULT 1,
-  status        TEXT NOT NULL DEFAULT 'rascunho', -- rascunho|publicado|arquivado
-  estrutura     TEXT NOT NULL DEFAULT '{"secoes":[]}', -- JSON: secoes/itens/regras
-  publicado_em  TEXT,
-  criado_em     TEXT NOT NULL,
-  atualizado_em TEXT NOT NULL
+  id               TEXT PRIMARY KEY,
+  empresa_id       TEXT NOT NULL REFERENCES empresas(id),
+  codigo           TEXT NOT NULL,
+  nome             TEXT NOT NULL,
+  tipo_veiculo     TEXT NOT NULL,
+  cargos_liberados TEXT NOT NULL DEFAULT '["*"]',
+  exige_assinatura INTEGER NOT NULL DEFAULT 0,
+  versao           INTEGER NOT NULL DEFAULT 1,
+  status           TEXT NOT NULL DEFAULT 'rascunho', -- rascunho|publicado|arquivado
+  estrutura        TEXT NOT NULL DEFAULT '{"perguntas":[]}',
+  publicado_em     TEXT,
+  criado_em        TEXT NOT NULL,
+  atualizado_em    TEXT NOT NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS ux_template_versao ON templates(empresa_id, codigo, versao);
+CREATE INDEX IF NOT EXISTS ix_templates_publicado ON templates(empresa_id, status, tipo_veiculo);
+
+-- ----------------------------------------------------------- solicitacoes
+-- Reserva de veiculo com janela de horario (roadmap 10).
+-- NAO e' chamado de suporte: nao existe categoria "problema" ou "limpeza".
+CREATE TABLE IF NOT EXISTS solicitacoes (
+  id             TEXT PRIMARY KEY,
+  empresa_id     TEXT NOT NULL REFERENCES empresas(id),
+  numero         INTEGER NOT NULL,
+  solicitante_id TEXT NOT NULL REFERENCES usuarios(id),
+  veiculo_id     TEXT NOT NULL REFERENCES veiculos(id),
+  janela_inicio  TEXT NOT NULL,
+  janela_fim     TEXT NOT NULL,
+  motivo         TEXT NOT NULL,
+  status         TEXT NOT NULL DEFAULT 'pendente',
+  -- pendente|aprovada|recusada|em_uso|devolvida|devolvida_com_atraso|cancelada
+  aprovada_por   TEXT REFERENCES usuarios(id),
+  aprovada_em    TEXT,
+  motivo_recusa  TEXT,
+  inspecao_saida   TEXT,
+  inspecao_retorno TEXT,
+  devolvido_em   TEXT,
+  motivo_atraso  TEXT,
+  criado_em      TEXT NOT NULL,
+  atualizado_em  TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_solicitacao_numero ON solicitacoes(empresa_id, numero);
+CREATE INDEX IF NOT EXISTS ix_solicitacoes_status ON solicitacoes(empresa_id, status);
+CREATE INDEX IF NOT EXISTS ix_solicitacoes_janela ON solicitacoes(veiculo_id, janela_inicio, janela_fim);
 
 -- ---------------------------------------------------------------- inspecoes
 CREATE TABLE IF NOT EXISTS inspecoes (
-  id            TEXT PRIMARY KEY,
-  empresa_id    TEXT NOT NULL REFERENCES empresas(id),
-  veiculo_id    TEXT NOT NULL REFERENCES veiculos(id),
-  usuario_id    TEXT NOT NULL REFERENCES usuarios(id),
-  template_id   TEXT NOT NULL REFERENCES templates(id),
-  status        TEXT NOT NULL DEFAULT 'em_execucao', -- rascunho|em_execucao|sincronizando|finalizada
-  km_informado  INTEGER,
-  iniciada_em   TEXT NOT NULL,
-  finalizada_em TEXT,
-  resultado     TEXT,                                -- aprovado|com_pendencia|reprovado
-  assinatura    TEXT,
-  cliente_uuid  TEXT,                                -- idempotencia da fila offline
-  criado_em     TEXT NOT NULL
+  id             TEXT PRIMARY KEY,
+  empresa_id     TEXT NOT NULL REFERENCES empresas(id),
+  veiculo_id     TEXT NOT NULL REFERENCES veiculos(id),
+  usuario_id     TEXT NOT NULL REFERENCES usuarios(id),
+  template_id    TEXT NOT NULL REFERENCES templates(id),
+  solicitacao_id TEXT REFERENCES solicitacoes(id),
+  momento        TEXT NOT NULL DEFAULT 'saida',   -- saida | retorno
+  status         TEXT NOT NULL DEFAULT 'finalizada',
+  km_informado   INTEGER,
+  iniciada_em    TEXT NOT NULL,
+  finalizada_em  TEXT,
+  resultado      TEXT,                            -- aprovado|com_pendencia|reprovado
+  assinatura     TEXT,
+  cliente_uuid   TEXT,                            -- idempotencia da fila offline
+  criado_em      TEXT NOT NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS ux_inspecao_cliente ON inspecoes(empresa_id, cliente_uuid);
 CREATE INDEX IF NOT EXISTS ix_inspecoes_veiculo ON inspecoes(empresa_id, veiculo_id, iniciada_em);
+CREATE INDEX IF NOT EXISTS ix_inspecoes_usuario ON inspecoes(empresa_id, usuario_id, iniciada_em);
 
+-- Uma resposta por pergunta. "desfecho" e' ok ou ocorrencia — nao ha mais
+-- tipo de resposta (roadmap 11.1).
 CREATE TABLE IF NOT EXISTS respostas (
   id            TEXT PRIMARY KEY,
   empresa_id    TEXT NOT NULL REFERENCES empresas(id),
   inspecao_id   TEXT NOT NULL REFERENCES inspecoes(id),
-  item_id       TEXT NOT NULL,
-  tipo          TEXT NOT NULL,   -- ok_nok|sim_nao|numero|selecao|texto|foto|assinatura|datahora
-  valor         TEXT,
-  conforme      INTEGER,
-  observacao    TEXT,
+  pergunta_id   TEXT NOT NULL,
+  desfecho      TEXT NOT NULL,      -- ok | ocorrencia
+  opcao_id      TEXT,               -- opcao de problema escolhida
+  relatorio     TEXT,               -- texto livre quando escreveu em vez de escolher
   respondido_em TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS ix_respostas_inspecao ON respostas(inspecao_id);
@@ -144,8 +183,7 @@ CREATE TABLE IF NOT EXISTS evidencias (
   veiculo_id    TEXT REFERENCES veiculos(id),
   inspecao_id   TEXT REFERENCES inspecoes(id),
   ocorrencia_id TEXT,
-  ticket_id     TEXT,
-  item_id       TEXT,
+  pergunta_id   TEXT,
   usuario_id    TEXT NOT NULL REFERENCES usuarios(id),
   tipo_mime     TEXT NOT NULL,
   caminho       TEXT NOT NULL,
@@ -158,43 +196,23 @@ CREATE TABLE IF NOT EXISTS evidencias (
 );
 CREATE INDEX IF NOT EXISTS ix_evid_inspecao ON evidencias(inspecao_id);
 
--- --------------------------------------------------------- nao conformidades
-CREATE TABLE IF NOT EXISTS nao_conformidades (
+-- --------------------------------------------------------------- ocorrencias
+CREATE TABLE IF NOT EXISTS ocorrencias (
   id             TEXT PRIMARY KEY,
   empresa_id     TEXT NOT NULL REFERENCES empresas(id),
   inspecao_id    TEXT REFERENCES inspecoes(id),
   veiculo_id     TEXT NOT NULL REFERENCES veiculos(id),
-  item_id        TEXT,
+  pergunta_id    TEXT,
   descricao      TEXT NOT NULL,
-  criticidade    TEXT NOT NULL DEFAULT 'baixo',  -- informativo|baixo|medio|alto|critico
-  status         TEXT NOT NULL DEFAULT 'aberta', -- aberta|em_tratamento|resolvida|validada|encerrada
+  prioridade     TEXT NOT NULL DEFAULT 'baixa',  -- baixa|media|alta|critica
+  status         TEXT NOT NULL DEFAULT 'aberta', -- aberta|em_tratamento|resolvida|encerrada
   responsavel_id TEXT REFERENCES usuarios(id),
   aberta_em      TEXT NOT NULL,
   resolvida_em   TEXT,
   resolucao      TEXT
 );
-CREATE INDEX IF NOT EXISTS ix_nc_empresa ON nao_conformidades(empresa_id, status, criticidade);
-
--- ----------------------------------------------------------------- tickets
-CREATE TABLE IF NOT EXISTS tickets (
-  id             TEXT PRIMARY KEY,
-  empresa_id     TEXT NOT NULL REFERENCES empresas(id),
-  numero         INTEGER NOT NULL,
-  solicitante_id TEXT NOT NULL REFERENCES usuarios(id),
-  veiculo_id     TEXT REFERENCES veiculos(id),
-  categoria      TEXT NOT NULL,  -- problema|dano|limpeza|documentacao|solicitacao|outro
-  prioridade     TEXT NOT NULL DEFAULT 'normal', -- normal|alta
-  descricao      TEXT NOT NULL,
-  status         TEXT NOT NULL DEFAULT 'aberto',
-  -- aberto|em_triagem|atribuido|em_andamento|resolvido|fechado
-  responsavel_id TEXT REFERENCES usuarios(id),
-  prazo_em       TEXT,
-  resolucao      TEXT,
-  criado_em      TEXT NOT NULL,
-  fechado_em     TEXT
-);
-CREATE UNIQUE INDEX IF NOT EXISTS ux_ticket_numero ON tickets(empresa_id, numero);
-CREATE INDEX IF NOT EXISTS ix_tickets_status ON tickets(empresa_id, status);
+CREATE INDEX IF NOT EXISTS ix_ocorrencias_empresa ON ocorrencias(empresa_id, status, prioridade);
+CREATE INDEX IF NOT EXISTS ix_ocorrencias_veiculo ON ocorrencias(veiculo_id, pergunta_id);
 
 -- -------------------------------------------------------------- preventivas
 CREATE TABLE IF NOT EXISTS preventivas (
@@ -220,11 +238,13 @@ CREATE INDEX IF NOT EXISTS ix_prev_empresa ON preventivas(empresa_id, status);
 
 -- ------------------------------------------------------- eventos_auditoria
 -- Historico imutavel: sem UPDATE e sem DELETE em nenhuma rota.
+-- Tambem alimenta o historico completo do usuario (roadmap 8.5).
 CREATE TABLE IF NOT EXISTS eventos_auditoria (
   id          TEXT PRIMARY KEY,
   empresa_id  TEXT NOT NULL,
   ator_id     TEXT,
   ator_nome   TEXT,
+  alvo_id     TEXT,        -- usuario afetado, quando a acao recai sobre alguem
   acao        TEXT NOT NULL,
   entidade    TEXT NOT NULL,
   entidade_id TEXT,
@@ -235,3 +255,5 @@ CREATE TABLE IF NOT EXISTS eventos_auditoria (
 );
 CREATE INDEX IF NOT EXISTS ix_audit_empresa ON eventos_auditoria(empresa_id, criado_em);
 CREATE INDEX IF NOT EXISTS ix_audit_entidade ON eventos_auditoria(entidade, entidade_id);
+CREATE INDEX IF NOT EXISTS ix_audit_ator ON eventos_auditoria(ator_id, criado_em);
+CREATE INDEX IF NOT EXISTS ix_audit_alvo ON eventos_auditoria(alvo_id, criado_em);

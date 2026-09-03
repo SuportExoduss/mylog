@@ -243,3 +243,82 @@ da para ver exatamente qual frase do produto mudou, e quando.
 
 **Como atualizar:** editar `docs/ROADMAP.md`, regerar o `.docx` e copiar para
 onde o time le. A v2.0 original esta preservada em `docs/historico/`.
+
+## D21 — Dois niveis de acesso, nao cinco papeis
+
+**Escolha:** `acessa_painel` booleano. Frota entra no painel e faz tudo;
+Colaborador so usa o aplicativo.
+
+**Por que:** a tabela de cinco papeis da v2.0 tinha 19 capacidades e nunca foi
+usada em toda a sua largura — a operacao real e' "quem cuida da frota" e "quem
+dirige". Cada papel a mais era uma linha de tabela para manter e uma decisao a
+mais no cadastro de cada pessoa.
+
+**Custo aceito:** quem cuida da frota tambem consegue apagar cadastro. Se um dia
+a operacao pedir um nivel intermediario, ele volta como uma terceira marcacao —
+nao como uma matriz de capacidades.
+
+## D22 — Cargo e' funcao na empresa, nunca permissao
+
+**Escolha:** `cargos` e' cadastro livre (RH, Tecnico de campo, Motorista) e
+serve para **decidir quais checklists aparecem** para a pessoa. Nenhuma rota
+consulta cargo para autorizar.
+
+**Por que:** misturar as duas coisas foi o erro da v2.0. Quando "papel" decide
+tanto o que a pessoa alcanca quanto o que ela executa, criar um cargo novo vira
+decisao de seguranca — e quem cadastra gente nao deveria estar tomando decisao
+de seguranca.
+
+## D23 — Sem vinculo usuario-veiculo
+
+**Escolha:** a tabela saiu. Nao ha condutor principal nem lista de condutores.
+
+**Por que:** os carros trocam de mao o tempo todo. O controle real e' fisico —
+so mexe na frota quem tem acesso ao galpao. Duplicar isso em software nao
+acrescenta seguranca nenhuma e produz cadastro mentiroso em uma semana, que e'
+pior que cadastro nenhum: da a impressao de que o sistema sabe.
+
+**O que ficou no lugar:** a solicitacao de veiculo, que registra quem pediu,
+para quando, por que, e quem liberou.
+
+## D24 — "Pendente" e' quem ainda nao fez o primeiro acesso
+
+**Escolha:** o cadastro nasce pendente com senha gerada; vira ativo quando o
+proprio colaborador troca a senha. A Frota nao "ativa" ninguem.
+
+**Por que:** na v2.0 a ativacao era um segundo ato manual da Frota, que so
+existia para repetir o que o cadastro ja tinha dito. Amarrar o "ativo" a troca
+de senha faz o estado significar algo verificavel: quem esta ativo provou que
+recebeu a credencial.
+
+**Efeito:** a sessao de um pendente existe, mas so abre a troca de senha.
+Qualquer outra rota responde `troca_de_senha_obrigatoria`.
+
+## D25 — Senha inicial gerada, sem caracteres ambiguos
+
+**Escolha:** o sistema sorteia; a Frota nunca digita. O alfabeto exclui
+`O 0 I l 1`.
+
+**Por que:** quem repassa a senha e' uma pessoa falando com outra, muitas vezes
+por telefone ou bilhete. Um zero lido como "o" custa um chamado de suporte.
+Coberto por teste: 200 senhas seguidas, todas passam na propria validacao de
+forca e nenhuma contem caractere ambiguo.
+
+## D26 — Sobreposicao de janela e' barrada no servidor
+
+**Escolha:** duas reservas do mesmo veiculo nao podem se sobrepor no tempo, e a
+checagem e' refeita **na aprovacao**, nao so no pedido.
+
+**Por que:** a tela do solicitante pode estar desatualizada, e entre o pedido e
+a aprovacao outra reserva pode ter sido liberada. Dois carros prometidos para o
+mesmo horario e' o tipo de erro que so aparece no patio, com gente esperando.
+
+## D27 — Antecedencia de 24 h avisa, nao bloqueia
+
+**Escolha:** `antecedencia_horas` e `antecedencia_rigida` na politica da
+empresa. O padrao avisa e deixa passar.
+
+**Por que:** trava rigida recusaria um pedido urgente feito de manha para a
+tarde — exatamente o caso em que a pessoa mais precisa do carro. Comecar
+avisando deixa a Frota decidir caso a caso; virar trava e' mudar um booleano
+quando a operacao pedir.
