@@ -8,7 +8,7 @@ import { erro } from '../nucleo/http.js'
 import { registrarEvento } from '../nucleo/auditoria.js'
 import { exigirAutenticado } from '../seguranca/sessao.js'
 import { exigirFrota } from '../seguranca/nivel.js'
-import { conferirEstrutura, TIPOS_VEICULO, cargoLiberado } from '../../../compartilhado/template.js'
+import { conferirEstrutura, conferirPeriodicidade, TIPOS_VEICULO, cargoLiberado } from '../../../compartilhado/template.js'
 
 const CODIGO = /^[a-z0-9_-]{2,40}$/
 
@@ -18,6 +18,7 @@ function desserializar(linha) {
     ...linha,
     estrutura: JSON.parse(linha.estrutura),
     cargos_liberados: JSON.parse(linha.cargos_liberados),
+    dias_semana: JSON.parse(linha.dias_semana || '[]'),
     exige_assinatura: Boolean(linha.exige_assinatura),
   }
 }
@@ -74,6 +75,35 @@ export function registrarRotasTemplates(rotas) {
   })
 
   // ------------------------------------------------------------------ criar
+  // Ritmo do modelo (roadmap 11.2.1). Normaliza antes de validar: a tela manda
+  // string, o banco guarda JSON, e a validacao pensa em numeros.
+  function lerRitmo(corpo, antes = {}) {
+    const periodicidade = corpo.periodicidade === undefined
+      ? (antes.periodicidade || 'avulso') : String(corpo.periodicidade)
+
+    const dias = corpo.dias_semana === undefined
+      ? JSON.parse(antes.dias_semana || '[]')
+      : (Array.isArray(corpo.dias_semana) ? corpo.dias_semana.map(Number) : [])
+
+    const diaSemana = corpo.dia_semana === undefined
+      ? (antes.dia_semana ?? null)
+      : (corpo.dia_semana === null || corpo.dia_semana === '' ? null : Number(corpo.dia_semana))
+
+    const horario = corpo.horario_limite === undefined
+      ? (antes.horario_limite ?? null)
+      : (String(corpo.horario_limite || '').trim() || null)
+
+    const ritmo = {
+      periodicidade,
+      dias_semana: [...new Set(dias)].sort((x, y) => x - y),
+      dia_semana: diaSemana,
+      horario_limite: horario,
+    }
+    const juizo = conferirPeriodicidade(ritmo)
+    if (!juizo.valido) throw erro.requisicao(juizo.mensagem)
+    return ritmo
+  }
+
   rotas.post('/api/templates', async (ctx) => {
     const eu = exigirFrota(exigirAutenticado(ctx))
 
@@ -82,6 +112,7 @@ export function registrarRotasTemplates(rotas) {
     const tipoVeiculo = String(ctx.corpo.tipo_veiculo || '')
     const cargos = validarCargos(eu.empresa_id, ctx.corpo.cargos_liberados)
     const exigeAssinatura = ctx.corpo.exige_assinatura ? 1 : 0
+    const ritmo = lerRitmo(ctx.corpo)
 
     if (!CODIGO.test(codigo)) {
       throw erro.requisicao('Codigo invalido. Use letras minusculas, numeros, hifen e _.')
@@ -97,15 +128,21 @@ export function registrarRotasTemplates(rotas) {
     const ts = agora()
     executar(
       `INSERT INTO templates (id, empresa_id, codigo, nome, tipo_veiculo, cargos_liberados,
-                              exige_assinatura, versao, status, estrutura, criado_em, atualizado_em)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 1, 'rascunho', ?, ?, ?)`,
+                              exige_assinatura, periodicidade, dias_semana, dia_semana,
+                              horario_limite, versao, status, estrutura, criado_em, atualizado_em)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'rascunho', ?, ?, ?)`,
       [id, eu.empresa_id, codigo, nome, tipoVeiculo, JSON.stringify(cargos), exigeAssinatura,
+       ritmo.periodicidade, JSON.stringify(ritmo.dias_semana), ritmo.dia_semana,
+       ritmo.horario_limite,
        JSON.stringify(ctx.corpo.estrutura || { perguntas: [] }), ts, ts],
     )
     registrarEvento({
       empresaId: eu.empresa_id, ator: eu, acao: 'checklist.criado',
       entidade: 'template', entidadeId: id,
-      depois: { codigo, nome, tipo_veiculo: tipoVeiculo, versao: 1 }, ip: ctx.ip,
+      depois: {
+        codigo, nome, tipo_veiculo: tipoVeiculo, versao: 1,
+        periodicidade: ritmo.periodicidade, horario_limite: ritmo.horario_limite,
+      }, ip: ctx.ip,
     })
     return { template: buscarNaEmpresa(eu.empresa_id, id) }
   })
@@ -128,6 +165,7 @@ export function registrarRotasTemplates(rotas) {
     const exigeAssinatura = ctx.corpo.exige_assinatura === undefined
       ? (antes.exige_assinatura ? 1 : 0) : (ctx.corpo.exige_assinatura ? 1 : 0)
     const estrutura = ctx.corpo.estrutura === undefined ? antes.estrutura : ctx.corpo.estrutura
+    const ritmo = lerRitmo(ctx.corpo, antes)
 
     if (nome.length < 3) throw erro.requisicao('Informe o nome do checklist.')
     if (!TIPOS_VEICULO.includes(tipoVeiculo)) throw erro.requisicao('Tipo de veiculo invalido.')
@@ -139,9 +177,12 @@ export function registrarRotasTemplates(rotas) {
 
     executar(
       `UPDATE templates SET nome = ?, tipo_veiculo = ?, cargos_liberados = ?,
-              exige_assinatura = ?, estrutura = ?, atualizado_em = ?
+              exige_assinatura = ?, periodicidade = ?, dias_semana = ?, dia_semana = ?,
+              horario_limite = ?, estrutura = ?, atualizado_em = ?
         WHERE id = ? AND empresa_id = ?`,
       [nome, tipoVeiculo, JSON.stringify(cargos), exigeAssinatura,
+       ritmo.periodicidade, JSON.stringify(ritmo.dias_semana), ritmo.dia_semana,
+       ritmo.horario_limite,
        JSON.stringify(estrutura), agora(), antes.id, eu.empresa_id],
     )
     return { template: buscarNaEmpresa(eu.empresa_id, antes.id) }
@@ -198,10 +239,15 @@ export function registrarRotasTemplates(rotas) {
     const ts = agora()
     executar(
       `INSERT INTO templates (id, empresa_id, codigo, nome, tipo_veiculo, cargos_liberados,
-                              exige_assinatura, versao, status, estrutura, criado_em, atualizado_em)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'rascunho', ?, ?, ?)`,
+                              exige_assinatura, periodicidade, dias_semana, dia_semana,
+                              horario_limite, versao, status, estrutura, criado_em, atualizado_em)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'rascunho', ?, ?, ?)`,
       [id, eu.empresa_id, base.codigo, base.nome, base.tipo_veiculo,
        JSON.stringify(base.cargos_liberados), base.exige_assinatura ? 1 : 0,
+       // A nova versao herda o ritmo da anterior: mudar periodicidade sem
+       // querer, so por criar uma versao, tiraria um checklist da cobranca.
+       base.periodicidade, JSON.stringify(base.dias_semana ?? []), base.dia_semana ?? null,
+       base.horario_limite ?? null,
        maior + 1, JSON.stringify(base.estrutura), ts, ts],
     )
     registrarEvento({

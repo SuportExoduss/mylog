@@ -102,6 +102,24 @@ const veiculoB = criarVeiculo(empresaB, 'BBB1B11')
 
 const veiculoA4 = criarVeiculo(empresaA, 'AAA4A44')
 
+// Categoria de uso: e' o que o colaborador pede (roadmap 10.3). A placa so
+// aparece na liberacao, escolhida pela Frota.
+function criarCategoria(empresaId, nome, veiculos) {
+  const id = novoId('categoria')
+  executar(
+    `INSERT INTO categorias_uso (id, empresa_id, nome, assentos, carroceria, criado_em, atualizado_em)
+     VALUES (?, ?, ?, 4, 'comercial', ?, ?)`, [id, empresaId, nome, ts, ts])
+  for (const v of veiculos) {
+    executar('INSERT INTO veiculo_categorias (empresa_id, veiculo_id, categoria_id) VALUES (?, ?, ?)',
+      [empresaId, v, id])
+  }
+  return id
+}
+
+const catA = criarCategoria(empresaA, 'Comercial A', [veiculoA, veiculoA2, veiculoA4])
+const catVazia = criarCategoria(empresaA, 'Sem carro nenhum', [])
+criarCategoria(empresaB, 'Comercial B', [veiculoB])
+
 criarChecklist(empresaA, 'compacto', 'compacto_leve', ['*'])
 criarChecklist(empresaA, 'so-motorista', 'pickup', [cgMotoristaA])
 criarVeiculo(empresaA, 'AAA3A33', 'pickup')
@@ -142,6 +160,24 @@ async function entrar(email, senha = SENHA) {
 }
 
 const daquiAHoras = (h) => new Date(Date.now() + h * 3600000).toISOString()
+
+// Pedir carro passou a ser: escolher CATEGORIA. Liberar passou a ser: escolher
+// a PLACA. Os testes falam a mesma lingua do fluxo (roadmap 10.4).
+async function pedir(token, { categoria = catA, inicio, fim, motivo }) {
+  return chamar('POST', '/api/solicitacoes', {
+    token,
+    corpo: {
+      categoria_id: categoria, janela_inicio: inicio, janela_fim: fim,
+      motivo: motivo || 'Pedido de teste com motivo suficientemente longo.',
+    },
+  })
+}
+
+async function liberar(tokenFrota, solicitacaoId, veiculoId, extras = {}) {
+  return chamar('POST', `/api/solicitacoes/${solicitacaoId}/aprovar`, {
+    token: tokenFrota, corpo: { veiculo_id: veiculoId, ...extras },
+  })
+}
 
 // ------------------------------------------------------- criterio: login
 
@@ -328,72 +364,133 @@ test('veiculo: o KM entra pela edicao e nao anda para tras sem justificativa', a
 
 // -------------------------------------------------- criterio: solicitacao
 
-test('solicitacao: colaborador pede carro com janela e motivo; a frota aprova', async () => {
+test('solicitacao: pedido nasce com categoria e sem placa; a placa vem na liberacao', async () => {
   const colaborador = await entrar('vendas.a@teste.local')
   const frota = await entrar('frota.a@teste.local')
 
-  const pedido = await chamar('POST', '/api/solicitacoes', {
-    token: colaborador,
-    corpo: {
-      veiculo_id: veiculoA, janela_inicio: daquiAHoras(48), janela_fim: daquiAHoras(53),
-      motivo: 'Reuniao com cliente em outra cidade.',
-    },
+  const pedido = await pedir(colaborador, {
+    inicio: daquiAHoras(48), fim: daquiAHoras(53),
+    motivo: 'Reuniao com cliente em outra cidade.',
   })
   assert.equal(pedido.status, 200)
   assert.equal(pedido.dados.solicitacao.status, 'pendente')
+  assert.equal(pedido.dados.solicitacao.veiculo_id, null,
+    'quem pede escolhe categoria; a placa e decisao da Frota')
+  assert.equal(pedido.dados.solicitacao.categoria_id, catA)
 
   const id = pedido.dados.solicitacao.id
   // Colaborador nao aprova o proprio pedido.
-  assert.equal((await chamar('POST', `/api/solicitacoes/${id}/aprovar`, { token: colaborador })).status, 403)
+  assert.equal((await liberar(colaborador, id, veiculoA)).status, 403)
 
-  const aprovada = await chamar('POST', `/api/solicitacoes/${id}/aprovar`, { token: frota })
-  assert.equal(aprovada.status, 200)
-  assert.equal(aprovada.dados.solicitacao.status, 'aprovada')
+  // Liberar sem escolher a placa nao e' liberar: deixaria a pessoa no patio
+  // sem saber o que pegar (roadmap 10.4).
+  const semPlaca = await chamar('POST', `/api/solicitacoes/${id}/aprovar`, { token: frota })
+  assert.equal(semPlaca.status, 400)
+  assert.match(semPlaca.dados.mensagem, /Escolha o veiculo/)
+
+  const liberada = await liberar(frota, id, veiculoA)
+  assert.equal(liberada.status, 200)
+  assert.equal(liberada.dados.solicitacao.status, 'aprovada')
+  assert.equal(liberada.dados.solicitacao.veiculo_id, veiculoA)
+  assert.equal(liberada.dados.solicitacao.placa, 'AAA1A11',
+    'o solicitante precisa ver a placa que vai procurar no estacionamento')
+})
+
+test('solicitacao: colaborador nao escolhe a placa nem por injecao na requisicao', async () => {
+  const colaborador = await entrar('vendas.a@teste.local')
+  const r = await chamar('POST', '/api/solicitacoes', {
+    token: colaborador,
+    corpo: {
+      categoria_id: catA, veiculo_id: veiculoA,
+      janela_inicio: daquiAHoras(900), janela_fim: daquiAHoras(905),
+      motivo: 'Tentando reservar um carro especifico pelas costas da frota.',
+    },
+  })
+  assert.equal(r.status, 400)
+  assert.match(r.dados.mensagem, /equipe da frota/)
+})
+
+test('solicitacao: liberar carro fora da categoria pedida exige explicacao', async () => {
+  const colaborador = await entrar('vendas.a@teste.local')
+  const frota = await entrar('frota.a@teste.local')
+
+  const pedido = await pedir(colaborador, {
+    categoria: catVazia, inicio: daquiAHoras(1000), fim: daquiAHoras(1005),
+    motivo: 'Categoria que nao tem carro nenhum associado.',
+  })
+  const id = pedido.dados.solicitacao.id
+
+  const semExplicar = await liberar(frota, id, veiculoA)
+  assert.equal(semExplicar.status, 400)
+  assert.match(semExplicar.dados.mensagem, /nao atende a categoria/)
+
+  const explicando = await liberar(frota, id, veiculoA,
+    { motivo_categoria: 'Sem utilitario livre; liberado compacto com aval do gestor.' })
+  assert.equal(explicando.status, 200)
+  assert.match(explicando.dados.solicitacao.motivo_categoria, /Sem utilitario livre/)
 })
 
 test('solicitacao: motivo curto e janela invertida sao recusados', async () => {
   const token = await entrar('vendas.a@teste.local')
-  const base = { veiculo_id: veiculoA2, janela_inicio: daquiAHoras(100), janela_fim: daquiAHoras(105) }
+  const base = { categoria_id: catA, janela_inicio: daquiAHoras(100), janela_fim: daquiAHoras(105) }
 
   assert.equal((await chamar('POST', '/api/solicitacoes',
     { token, corpo: { ...base, motivo: 'urgente' } })).status, 400)
   assert.equal((await chamar('POST', '/api/solicitacoes',
     { token, corpo: { ...base, janela_fim: daquiAHoras(99), motivo: 'Motivo suficientemente longo.' } })).status, 400)
+  // Categoria inexistente nao vira pedido fantasma.
+  assert.equal((await chamar('POST', '/api/solicitacoes',
+    { token, corpo: { ...base, categoria_id: 'nao_existe', motivo: 'Motivo suficientemente longo.' } })).status, 404)
 })
 
-test('solicitacao: duas reservas do mesmo carro nao podem se sobrepor', async () => {
+test('solicitacao: o mesmo carro nao e liberado duas vezes na mesma janela', async () => {
+  // A disputa mudou de lugar. Antes dois pedidos brigavam pela placa na hora
+  // de PEDIR; agora pedido nao tem placa, entao a briga acontece na hora de
+  // LIBERAR — e quem ve o conflito e a Frota, na tela em que ela decide.
   const token = await entrar('vendas.a@teste.local')
-  const primeira = await chamar('POST', '/api/solicitacoes', {
-    token,
-    corpo: { veiculo_id: veiculoA2, janela_inicio: daquiAHoras(200), janela_fim: daquiAHoras(210),
-      motivo: 'Primeira reserva desta janela.' },
+  const frota = await entrar('frota.a@teste.local')
+
+  const primeira = await pedir(token, {
+    inicio: daquiAHoras(200), fim: daquiAHoras(210), motivo: 'Primeira reserva desta janela.',
   })
+  const segunda = await pedir(token, {
+    inicio: daquiAHoras(205), fim: daquiAHoras(215), motivo: 'Segunda reserva que invade a primeira.',
+  })
+  // Os dois pedidos entram: nenhum ocupa carro ainda.
   assert.equal(primeira.status, 200)
+  assert.equal(segunda.status, 200)
 
-  const sobrepoe = await chamar('POST', '/api/solicitacoes', {
-    token,
-    corpo: { veiculo_id: veiculoA2, janela_inicio: daquiAHoras(205), janela_fim: daquiAHoras(215),
-      motivo: 'Segunda reserva que invade a primeira.' },
-  })
-  assert.equal(sobrepoe.status, 409)
-  assert.match(sobrepoe.dados.mensagem, /ja esta reservado/)
+  assert.equal((await liberar(frota, primeira.dados.solicitacao.id, veiculoA2)).status, 200)
 
-  // Encostada, sem invadir, passa.
-  const encostada = await chamar('POST', '/api/solicitacoes', {
-    token,
-    corpo: { veiculo_id: veiculoA2, janela_inicio: daquiAHoras(210), janela_fim: daquiAHoras(220),
-      motivo: 'Comeca exatamente quando a outra termina.' },
-  })
-  assert.equal(encostada.status, 200)
+  const choque = await liberar(frota, segunda.dados.solicitacao.id, veiculoA2)
+  assert.equal(choque.status, 409)
+  assert.match(choque.dados.mensagem, /ja foi liberado/)
+
+  // Outro carro na mesma janela passa.
+  assert.equal((await liberar(frota, segunda.dados.solicitacao.id, veiculoA4)).status, 200)
+})
+
+test('solicitacao: a lista de carros livres e da Frota, nao do solicitante', async () => {
+  const colaborador = await entrar('vendas.a@teste.local')
+  const frota = await entrar('frota.a@teste.local')
+  const janela = `janela_inicio=${daquiAHoras(2000)}&janela_fim=${daquiAHoras(2005)}`
+
+  assert.equal((await chamar('GET', `/api/solicitacoes/disponiveis?${janela}`,
+    { token: colaborador })).status, 403)
+
+  const r = await chamar('GET', `/api/solicitacoes/disponiveis?${janela}&categoria_id=${catA}`,
+    { token: frota })
+  assert.equal(r.status, 200)
+  assert.ok(r.dados.veiculos.length > 0)
+  // Os da categoria pedida vem primeiro: e o que a Frota precisa ver no topo.
+  assert.equal(r.dados.veiculos[0].da_categoria, true)
 })
 
 test('solicitacao: recusar exige motivo', async () => {
   const colaborador = await entrar('vendas.a@teste.local')
   const frota = await entrar('frota.a@teste.local')
-  const { dados } = await chamar('POST', '/api/solicitacoes', {
-    token: colaborador,
-    corpo: { veiculo_id: veiculoA2, janela_inicio: daquiAHoras(400), janela_fim: daquiAHoras(404),
-      motivo: 'Pedido que sera recusado no teste.' },
+  const { dados } = await pedir(colaborador, {
+    inicio: daquiAHoras(400), fim: daquiAHoras(404), motivo: 'Pedido que sera recusado no teste.',
   })
   const id = dados.solicitacao.id
 
@@ -425,12 +522,12 @@ test('checklist: cargo nao liberado nao ve o modelo', async () => {
   const pickup = (await chamar('GET', '/api/veiculos?tipo=pickup', { token: frota }))
     .dados.veiculos[0]
 
-  const pedido = await chamar('POST', '/api/solicitacoes', {
-    token: vendas,
-    corpo: { veiculo_id: pickup.id, janela_inicio: daquiAHoras(500), janela_fim: daquiAHoras(505),
-      motivo: 'Pedido de pick-up por quem nao e motorista.' },
+  const pedido = await pedir(vendas, {
+    inicio: daquiAHoras(500), fim: daquiAHoras(505),
+    motivo: 'Pedido de pick-up por quem nao e motorista.',
   })
-  await chamar('POST', `/api/solicitacoes/${pedido.dados.solicitacao.id}/aprovar`, { token: frota })
+  await liberar(frota, pedido.dados.solicitacao.id, pickup.id,
+    { motivo_categoria: 'Unico carro livre na janela.' })
 
   const app = await chamar('GET', '/api/app/inicio', { token: vendas })
   const tarefa = app.dados.tarefas.find((t) => t.veiculo.id === pickup.id)
@@ -492,12 +589,11 @@ test('checklist: o servidor recusa inspecao incompleta', async () => {
   const frota = await entrar('frota.a@teste.local')
   const motorista = await entrar('motorista.a@teste.local')
 
-  const pedido = await chamar('POST', '/api/solicitacoes', {
-    token: motorista,
-    corpo: { veiculo_id: veiculoA2, janela_inicio: daquiAHoras(600), janela_fim: daquiAHoras(605),
-      motivo: 'Pedido para testar checklist incompleto.' },
+  const pedido = await pedir(motorista, {
+    inicio: daquiAHoras(600), fim: daquiAHoras(605),
+    motivo: 'Pedido para testar checklist incompleto.',
   })
-  await chamar('POST', `/api/solicitacoes/${pedido.dados.solicitacao.id}/aprovar`, { token: frota })
+  await liberar(frota, pedido.dados.solicitacao.id, veiculoA2)
 
   const app = await chamar('GET', '/api/app/inicio', { token: motorista })
   const tarefa = app.dados.tarefas.find((t) => t.veiculo.id === veiculoA2)
@@ -652,17 +748,15 @@ test('auditoria: a senha gerada nunca vai parar no historico', async () => {
 
 // Reserva, aprova e devolve as duas tarefas (saida e retorno) do veiculo.
 async function reservar(tokenFrota, tokenPessoa, veiculoId, offsetHoras) {
-  const pedido = await chamar('POST', '/api/solicitacoes', {
-    token: tokenPessoa,
-    corpo: {
-      veiculo_id: veiculoId,
-      janela_inicio: daquiAHoras(offsetHoras),
-      janela_fim: daquiAHoras(offsetHoras + 4),
-      motivo: 'Pedido para exercitar o estado do veiculo.',
-    },
+  const pedido = await pedir(tokenPessoa, {
+    inicio: daquiAHoras(offsetHoras),
+    fim: daquiAHoras(offsetHoras + 4),
+    motivo: 'Pedido para exercitar o estado do veiculo.',
   })
   assert.equal(pedido.status, 200, JSON.stringify(pedido.dados))
-  await chamar('POST', `/api/solicitacoes/${pedido.dados.solicitacao.id}/aprovar`, { token: tokenFrota })
+  const r = await liberar(tokenFrota, pedido.dados.solicitacao.id, veiculoId,
+    { motivo_categoria: 'Teste de estado do veiculo.' })
+  assert.equal(r.status, 200, JSON.stringify(r.dados))
   return pedido.dados.solicitacao.id
 }
 
@@ -786,4 +880,276 @@ test('estado: fechada a ultima ocorrencia, a pendencia sai sozinha', async () =>
   veiculo = await chamar('GET', `/api/veiculos/${veiculoA4}`, { token: frota })
   assert.equal(veiculo.dados.veiculo.status, 'disponivel',
     'sem ocorrencia aberta, a pendencia deixa de existir')
+})
+
+// ------------------------------------------- criterio: checklist avulso
+
+test('avulso: quem usa carro todos os dias faz checklist sem pedir veiculo', async () => {
+  // Roadmap 8.2: e' a maioria dos checklists reais. 863 saidas para 54
+  // retornos no mes do PROLOG — o diario nao tem devolucao.
+  const frota = await entrar('frota.a@teste.local')
+  const diarista = await chamar('POST', '/api/usuarios', {
+    token: frota,
+    corpo: {
+      nome: 'Tecnico Diarista', cpf: '935.411.347-80', email: 'diarista@teste.local',
+      telefone: '(31) 90000-1111', cargo_id: cgMotoristaA,
+      acessa_painel: false, usa_veiculo_diario: true,
+    },
+  })
+  assert.equal(diarista.status, 200)
+  assert.equal(diarista.dados.usuario.usa_veiculo_diario, 1)
+
+  const token = (await chamar('POST', '/api/auth/login', {
+    corpo: { email: 'diarista@teste.local', senha: diarista.dados.senha_inicial },
+  })).dados.token
+  await chamar('POST', '/api/auth/senha', {
+    token, corpo: { senha_atual: diarista.dados.senha_inicial, senha_nova: 'diarista2026' },
+  })
+  const ativo = (await chamar('POST', '/api/auth/login',
+    { corpo: { email: 'diarista@teste.local', senha: 'diarista2026' } })).dados.token
+
+  const app = await chamar('GET', '/api/app/inicio', { token: ativo })
+  assert.equal(app.dados.usuario.usa_veiculo_diario, true)
+  assert.ok(app.dados.avulso.length > 0, 'sem condutor fixo, ele escolhe o carro no galpao')
+
+  const escolhido = app.dados.avulso[0]
+  const envio = await chamar('POST', '/api/inspecoes', {
+    token: ativo,
+    corpo: {
+      cliente_uuid: 'uuid-avulso-0001',
+      veiculo_id: escolhido.veiculo.id,
+      template_id: escolhido.templates[0],
+      momento: 'saida', km_informado: 55000,
+      respostas: { lataria: { desfecho: 'ok', fotos: 1 }, pneus: { desfecho: 'ok', fotos: 1 } },
+    },
+  })
+  assert.equal(envio.status, 200, JSON.stringify(envio.dados))
+  assert.equal(envio.dados.inspecao.solicitacao_id, null, 'avulso nao tem solicitacao por tras')
+  assert.ok(envio.dados.inspecao.numero > 0, 'numero sequencial serve para citar em voz alta')
+})
+
+test('avulso: quem nao usa carro todo dia precisa pedir antes', async () => {
+  const vendas = await entrar('vendas.a@teste.local')
+  const r = await chamar('POST', '/api/inspecoes', {
+    token: vendas,
+    corpo: {
+      cliente_uuid: 'uuid-avulso-negado', veiculo_id: veiculoA, template_id: 'qualquer',
+      momento: 'saida',
+      respostas: { lataria: { desfecho: 'ok' }, pneus: { desfecho: 'ok' } },
+    },
+  })
+  assert.equal(r.status, 403)
+  assert.match(r.dados.mensagem, /Peca um veiculo primeiro/)
+})
+
+test('avulso: nao existe retorno sem alguem a quem devolver', async () => {
+  const frota = await entrar('frota.a@teste.local')
+  const r = await chamar('POST', '/api/inspecoes', {
+    token: frota,
+    corpo: {
+      cliente_uuid: 'uuid-avulso-retorno', veiculo_id: veiculoA, template_id: 'qualquer',
+      momento: 'retorno',
+      respostas: { lataria: { desfecho: 'ok' }, pneus: { desfecho: 'ok' } },
+    },
+  })
+  assert.equal(r.status, 400)
+  assert.match(r.dados.mensagem, /nao tem retorno/)
+})
+
+// ------------------------------------------ criterio: checklists feitos
+
+test('execucoes: a tela abre no dia de hoje sem ninguem pedir', async () => {
+  const frota = await entrar('frota.a@teste.local')
+  const r = await chamar('GET', '/api/execucoes', { token: frota })
+  assert.equal(r.status, 200)
+  const hoje = new Date().toISOString().slice(0, 10)
+  assert.equal(r.dados.periodo.de, hoje)
+  assert.equal(r.dados.periodo.ate, hoje)
+  assert.ok(r.dados.execucoes.length > 0, 'os checklists dos testes foram feitos hoje')
+})
+
+test('execucoes: cada linha traz as contagens que a planilha usa', async () => {
+  const frota = await entrar('frota.a@teste.local')
+  const r = await chamar('GET', '/api/execucoes', { token: frota })
+  const critica = r.dados.execucoes.find((e) => e.prioridade_critica > 0)
+  assert.ok(critica, 'houve checklist com ocorrencia critica nos testes acima')
+  // O PROLOG chama de "itens nao se aplica", mas o numero e' sempre
+  // total - problemas. Conferido nas 917 linhas reais (roadmap 11.10).
+  assert.equal(critica.total_conformes, critica.total_perguntas - critica.total_problemas)
+  assert.ok(critica.duracao_segundos >= 0)
+  assert.ok(['no_prazo', 'atrasado'].includes(critica.prazo))
+})
+
+test('execucoes: filtro de cargo e de periodo', async () => {
+  const frota = await entrar('frota.a@teste.local')
+  const doCargo = await chamar('GET', `/api/execucoes?cargo_id=${cgMotoristaA}`, { token: frota })
+  assert.ok(doCargo.dados.execucoes.every((e) => e.cargo_id === cgMotoristaA))
+
+  const ontem = new Date(Date.now() - 86400000).toISOString().slice(0, 10)
+  const vazio = await chamar('GET', `/api/execucoes?de=${ontem}&ate=${ontem}`, { token: frota })
+  assert.equal(vazio.dados.execucoes.length, 0, 'nada foi feito ontem nestes testes')
+
+  const invertido = await chamar('GET', `/api/execucoes?de=2026-09-10&ate=2026-09-01`, { token: frota })
+  assert.equal(invertido.status, 400)
+})
+
+test('execucoes: colaborador ve so os proprios checklists', async () => {
+  const vendas = await entrar('vendas.a@teste.local')
+  const r = await chamar('GET', '/api/execucoes', { token: vendas })
+  assert.equal(r.status, 200)
+  const eu = (await chamar('GET', '/api/auth/eu', { token: vendas })).dados.usuario
+  assert.ok(r.dados.execucoes.every((e) => e.colaborador === eu.nome))
+})
+
+test('planilha: sai no leiaute do PROLOG, com separador e BOM do Excel', async () => {
+  const frota = await entrar('frota.a@teste.local')
+  const resposta = await fetch(`${base}/api/execucoes.csv`, {
+    headers: { authorization: `Bearer ${frota}` },
+  })
+  assert.equal(resposta.status, 200)
+  assert.match(resposta.headers.get('content-type'), /text\/csv/)
+  assert.match(resposta.headers.get('content-disposition'), /attachment; filename=/)
+
+  // Os BYTES, e nao o texto: `Response.text()` decodifica em UTF-8 e a propria
+  // especificacao manda descartar o BOM inicial. Conferir pelo texto diria
+  // "sem BOM" mesmo quando ele esta la, e o que chega ao Excel sao os bytes.
+  const bytes = new Uint8Array(await resposta.arrayBuffer())
+  assert.deepEqual([bytes[0], bytes[1], bytes[2]], [0xEF, 0xBB, 0xBF],
+    'sem BOM o Excel em portugues estraga os acentos')
+
+  const csv = new TextDecoder('utf-8').decode(bytes)
+
+  const linhas = csv.replace(/^\ufeff/, '').trim().split('\r\n')
+  const colunas = linhas[0].split(';')
+  assert.equal(colunas.length, 24)
+  assert.equal(colunas[0], 'Unidade')
+  assert.equal(colunas[7], 'Equipe')
+  assert.equal(colunas[23], 'Observação')
+  assert.ok(linhas.length > 1, 'deveria haver execucoes de hoje')
+
+  // Equipe sai vazia: o MyLog classifica so por Cargo. Preenche-la com o cargo
+  // seria inventar um dado que nao existe (roadmap 11.10).
+  const primeira = linhas[1].split(';')
+  assert.equal(primeira[7], '')
+  assert.ok(['Saída', 'Retorno'].includes(primeira[14]))
+})
+
+test('planilha: colaborador nao exporta a base', async () => {
+  const vendas = await entrar('vendas.a@teste.local')
+  const r = await fetch(`${base}/api/execucoes.csv`, {
+    headers: { authorization: `Bearer ${vendas}` },
+  })
+  assert.equal(r.status, 403)
+})
+
+// --------------------------------------------- criterio: categoria de uso
+
+test('categoria: colaborador le a lista para pedir, mas nao cria', async () => {
+  const vendas = await entrar('vendas.a@teste.local')
+  const frota = await entrar('frota.a@teste.local')
+
+  const lista = await chamar('GET', '/api/categorias', { token: vendas })
+  assert.equal(lista.status, 200)
+  assert.ok(lista.dados.categorias.some((c) => c.id === catA))
+
+  assert.equal((await chamar('POST', '/api/categorias',
+    { token: vendas, corpo: { nome: 'Categoria pirata' } })).status, 403)
+
+  const criada = await chamar('POST', '/api/categorias', {
+    token: frota, corpo: { nome: '6 assentos — van', assentos: 6, carroceria: 'comercial' },
+  })
+  assert.equal(criada.status, 200)
+  assert.equal(criada.dados.categoria.assentos, 6)
+
+  assert.equal((await chamar('POST', '/api/categorias',
+    { token: frota, corpo: { nome: '6 assentos — van' } })).status, 409)
+  assert.equal((await chamar('POST', '/api/categorias',
+    { token: frota, corpo: { nome: 'Carroceria inventada', carroceria: 'foguete' } })).status, 400)
+})
+
+test('categoria: multi-tenant — a de outra empresa nao aparece nem abre', async () => {
+  const frotaA = await entrar('frota.a@teste.local')
+  const frotaB = await entrar('frota.b@teste.local')
+
+  const listaB = await chamar('GET', '/api/categorias', { token: frotaB })
+  assert.ok(!listaB.dados.categorias.some((c) => c.id === catA))
+  assert.equal((await chamar('PATCH', `/api/categorias/${catA}`,
+    { token: frotaB, corpo: { nome: 'Sequestrada' } })).status, 404)
+
+  // E nem serve para pedir carro de outra empresa.
+  const daB = listaB.dados.categorias[0]
+  const r = await chamar('POST', '/api/solicitacoes', {
+    token: frotaA,
+    corpo: {
+      categoria_id: daB.id, janela_inicio: daquiAHoras(3000), janela_fim: daquiAHoras(3005),
+      motivo: 'Tentando usar categoria de outra empresa.',
+    },
+  })
+  assert.equal(r.status, 404)
+})
+
+test('categoria: usada por uma solicitacao nao pode ser apagada', async () => {
+  const frota = await entrar('frota.a@teste.local')
+  const r = await chamar('DELETE', `/api/categorias/${catA}`, { token: frota })
+  assert.equal(r.status, 409)
+  assert.match(r.dados.mensagem, /Desative em vez de remover/)
+})
+
+test('categoria: a lista de veiculos que atendem e substituida de uma vez', async () => {
+  const frota = await entrar('frota.a@teste.local')
+  const posta = await chamar('PUT', `/api/categorias/${catVazia}/veiculos`, {
+    token: frota, corpo: { veiculos: [veiculoA, veiculoA2] },
+  })
+  assert.equal(posta.dados.veiculos, 2)
+
+  const conferindo = await chamar('GET', `/api/categorias/${catVazia}/veiculos`, { token: frota })
+  const atendem = conferindo.dados.veiculos.filter((v) => v.atende)
+  assert.equal(atendem.length, 2)
+
+  // Veiculo de outra empresa nao entra na lista.
+  const invasor = await chamar('PUT', `/api/categorias/${catVazia}/veiculos`, {
+    token: frota, corpo: { veiculos: [veiculoB] },
+  })
+  assert.equal(invasor.status, 404)
+})
+
+// ------------------------------------------------ criterio: ritmo na API
+
+test('ritmo: o servidor recusa checklist diario sem dia da semana', async () => {
+  const frota = await entrar('frota.a@teste.local')
+  const r = await chamar('POST', '/api/templates', {
+    token: frota,
+    corpo: {
+      codigo: 'ritmo-invalido', nome: 'Diario sem dia', tipo_veiculo: 'compacto_leve',
+      cargos_liberados: ['*'], periodicidade: 'diario', dias_semana: [],
+    },
+  })
+  assert.equal(r.status, 400)
+  assert.match(r.dados.mensagem, /ao menos um dia da semana/)
+})
+
+test('ritmo: o modelo guarda periodicidade e horario limite', async () => {
+  const frota = await entrar('frota.a@teste.local')
+  const r = await chamar('POST', '/api/templates', {
+    token: frota,
+    corpo: {
+      codigo: 'diario-com-prazo', nome: 'Diario com prazo', tipo_veiculo: 'compacto_leve',
+      cargos_liberados: ['*'], periodicidade: 'diario',
+      dias_semana: [1, 2, 3, 4, 5], horario_limite: '08:30',
+      estrutura: ESTRUTURA,
+    },
+  })
+  assert.equal(r.status, 200, JSON.stringify(r.dados))
+  assert.equal(r.dados.template.periodicidade, 'diario')
+  assert.deepEqual(r.dados.template.dias_semana, [1, 2, 3, 4, 5])
+  assert.equal(r.dados.template.horario_limite, '08:30')
+
+  // A nova versao herda o ritmo: nao se perde cobranca por criar versao.
+  const publicado = await chamar('POST', `/api/templates/${r.dados.template.id}/publicar`,
+    { token: frota })
+  assert.equal(publicado.status, 200, JSON.stringify(publicado.dados))
+  const nova = await chamar('POST', `/api/templates/${r.dados.template.id}/versao`, { token: frota })
+  assert.equal(nova.status, 200, JSON.stringify(nova.dados))
+  assert.equal(nova.dados.template.periodicidade, 'diario')
+  assert.equal(nova.dados.template.horario_limite, '08:30')
 })

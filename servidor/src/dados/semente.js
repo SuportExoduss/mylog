@@ -53,16 +53,17 @@ criarCargo('Recursos humanos')
 // A senha da semente e' fixa e ja trocada, para nao travar o desenvolvimento
 // na tela de primeiro acesso a cada "npm run semear". Em producao a senha e'
 // gerada e a troca e' obrigatoria (roadmap 8.1).
-function criarUsuario(nome, cpf, email, telefone, cargoId, acessaPainel, status = 'ativo') {
+function criarUsuario(nome, cpf, email, telefone, cargoId, acessaPainel, status = 'ativo', usaVeiculoDiario = false) {
   const id = novoId('usuario')
   const { hash, salt } = gerarHashSenha(SENHA)
   const pendente = status === 'pendente'
   executar(
     `INSERT INTO usuarios (id, empresa_id, nome, cpf, email, telefone, cargo_id, acessa_painel,
-                           status, senha_hash, senha_salt, deve_trocar_senha,
+                           usa_veiculo_diario, status, senha_hash, senha_salt, deve_trocar_senha,
                            primeiro_acesso_em, criado_em, atualizado_em)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [id, empresaId, nome, cpf, email, telefone, cargoId, acessaPainel ? 1 : 0,
+     usaVeiculoDiario ? 1 : 0,
      status, hash, salt, pendente ? 1 : 0, pendente ? null : ts, ts, ts],
   )
   return id
@@ -71,7 +72,8 @@ function criarUsuario(nome, cpf, email, telefone, cargoId, acessaPainel, status 
 // CPFs validos gerados para desenvolvimento — passam no digito verificador.
 const admId = criarUsuario('Andre Roberth', '52998224725', 'adm@mylog.local', '(31) 90000-0001', cgFrota, true)
 const marinaId = criarUsuario('Marina Lopes', '11144477735', 'marina@mylog.local', '(31) 90000-0002', cgManutencao, true)
-const carlosId = criarUsuario('Carlos Nunes', '15350946056', 'carlos@mylog.local', '(31) 90000-0003', cgMotorista, false)
+// Carlos sai com carro toda manha: faz checklist diario avulso, sem pedir.
+const carlosId = criarUsuario('Carlos Nunes', '15350946056', 'carlos@mylog.local', '(31) 90000-0003', cgMotorista, false, 'ativo', true)
 const ritaId = criarUsuario('Rita Alves', '39145281769', 'rita@mylog.local', '(31) 90000-0004', cgVendas, false)
 criarUsuario('Joao Pires', '71428793860', 'joao@mylog.local', '(31) 90000-0005', cgTecnico, false, 'pendente')
 criarUsuario('Bruno Dias', '87748248800', 'bruno@mylog.local', '(31) 90000-0006', cgMotorista, false, 'bloqueado')
@@ -173,24 +175,57 @@ const ESTRUTURA = {
   ],
 }
 
-function criarChecklist(codigo, nome, tipo, cargos, exigeAssinatura) {
+function criarChecklist(codigo, nome, tipo, cargos, exigeAssinatura, ritmo = {}) {
   const id = novoId('template')
   executar(
     `INSERT INTO templates (id, empresa_id, codigo, nome, tipo_veiculo, cargos_liberados,
-                            exige_assinatura, versao, status, estrutura,
+                            exige_assinatura, periodicidade, dias_semana, dia_semana,
+                            horario_limite, versao, status, estrutura,
                             publicado_em, criado_em, atualizado_em)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 1, 'publicado', ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'publicado', ?, ?, ?, ?)`,
     [id, empresaId, codigo, nome, tipo, JSON.stringify(cargos), exigeAssinatura ? 1 : 0,
+     ritmo.periodicidade || 'avulso', JSON.stringify(ritmo.dias_semana || []),
+     ritmo.dia_semana ?? null, ritmo.horario_limite ?? null,
      JSON.stringify(ESTRUTURA), ts, ts, ts],
   )
   return id
 }
 
-criarChecklist('diario-pickup', 'Checklist diario — pick-up', 'pickup', ['*'], true)
-criarChecklist('diario-compacto', 'Checklist diario — compacto leve', 'compacto_leve', ['*'], false)
+// Ritmo tirado do relatorio real do PROLOG (roadmap 24.1): segunda a sexta,
+// com 74% das saidas ate as 08h. O limite de 08:30 separa a rotina da excecao.
+const DIA_UTIL = { periodicidade: 'diario', dias_semana: [1, 2, 3, 4, 5], horario_limite: '08:30' }
+
+criarChecklist('diario-pickup', 'Checklist diario — pick-up', 'pickup', ['*'], true, DIA_UTIL)
+criarChecklist('diario-compacto', 'Checklist diario — compacto leve', 'compacto_leve', ['*'], false, DIA_UTIL)
 criarChecklist('diario-caminhao', 'Checklist diario — caminhao', 'caminhao',
-  [cgFrota, cgMotorista], true)
-criarChecklist('diario-4x4', 'Checklist diario — 4x4', 'quatro_x_quatro', ['*'], false)
+  [cgFrota, cgMotorista], true, DIA_UTIL)
+criarChecklist('diario-4x4', 'Checklist diario — 4x4', 'quatro_x_quatro', ['*'], false, DIA_UTIL)
+
+// Checklist de mecanico: so aparece para quem tem o cargo (roadmap 11.2.3).
+criarChecklist('pos-manutencao', 'Checklist pos-manutencao', 'compacto_leve',
+  [cgManutencao], true, { periodicidade: 'avulso' })
+
+// ------------------------------------------------------- categorias de uso
+// O que o colaborador pede (roadmap 10.3). Descreve o trabalho, nao o carro.
+function criarCategoria(nome, assentos, carroceria, veiculos) {
+  const id = novoId('categoria')
+  executar(
+    `INSERT INTO categorias_uso (id, empresa_id, nome, assentos, carroceria, criado_em, atualizado_em)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [id, empresaId, nome, assentos, carroceria, ts, ts],
+  )
+  for (const veiculoId of veiculos) {
+    executar(
+      'INSERT INTO veiculo_categorias (empresa_id, veiculo_id, categoria_id) VALUES (?, ?, ?)',
+      [empresaId, veiculoId, id],
+    )
+  }
+  return id
+}
+
+const catCompacto = criarCategoria('4 assentos — compacto', 4, 'compacto', [v3])
+const catComercial = criarCategoria('4 assentos — comercial', 4, 'comercial', [v1, v5])
+criarCategoria('2 assentos — utilitario', 2, 'utilitario', [v2, v4])
 
 // ------------------------------------------------------------ preventivas
 function criarPreventiva(veiculoId, modo, dados) {
@@ -215,27 +250,30 @@ criarPreventiva(v4, 'data', { ultimaData: emDias(-400), proximaData: emDias(-35)
 criarPreventiva(v5, 'km', { ultimoKm: 68000, proximoKm: 88000, alertaKm: 1000 })
 
 // ---------------------------------------------------------- solicitacoes
-function criarSolicitacao(numero, solicitante, veiculo, inicioHoras, duracaoHoras, motivo, status) {
+// Pedido nasce com CATEGORIA e sem placa; a placa entra na liberacao
+// (roadmap 10.4). Por isso "veiculo" e' null enquanto o status e' pendente.
+function criarSolicitacao(numero, solicitante, categoria, veiculo, inicioHoras, duracaoHoras, motivo, status) {
   const inicio = new Date(Date.now() + inicioHoras * 3600000).toISOString()
   const fim = new Date(Date.now() + (inicioHoras + duracaoHoras) * 3600000).toISOString()
   executar(
-    `INSERT INTO solicitacoes (id, empresa_id, numero, solicitante_id, veiculo_id,
+    `INSERT INTO solicitacoes (id, empresa_id, numero, solicitante_id, categoria_id, veiculo_id,
                                janela_inicio, janela_fim, motivo, status,
                                aprovada_por, aprovada_em, criado_em, atualizado_em)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [novoId('solicitacao'), empresaId, numero, solicitante, veiculo, inicio, fim, motivo, status,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [novoId('solicitacao'), empresaId, numero, solicitante, categoria, veiculo, inicio, fim,
+     motivo, status,
      status === 'pendente' ? null : admId, status === 'pendente' ? null : ts, ts, ts],
   )
 }
 
-// Aguardando a Frota.
-criarSolicitacao(1, ritaId, v3, 30, 5,
+// Aguardando a Frota: pediu categoria, ainda NAO tem placa.
+criarSolicitacao(1, ritaId, catCompacto, null, 30, 5,
   'Reuniao com cliente em Betim na sexta a tarde.', 'pendente')
-// Aprovada, ainda nao retirada: o app mostra o checklist de SAIDA.
-criarSolicitacao(2, carlosId, v1, 2, 6,
+// Liberada com placa: o app mostra o veiculo e o checklist de SAIDA.
+criarSolicitacao(2, ritaId, catComercial, v1, 2, 6,
   'Entrega de material na obra do Barreiro.', 'aprovada')
 // Em uso e ja passou do prazo: o app vai pedir o motivo do atraso.
-criarSolicitacao(3, ritaId, v5, -8, 4,
+criarSolicitacao(3, ritaId, catComercial, v5, -8, 4,
   'Visita tecnica em Sete Lagoas.', 'em_uso')
 
 // ------------------------------------------------------------ ocorrencias
@@ -279,8 +317,8 @@ console.log('    adm@mylog.local        / mylog123   Andre Roberth')
 console.log('    marina@mylog.local     / mylog123   Marina Lopes')
 console.log('')
 console.log('  COLABORADOR (somente app)')
-console.log('    carlos@mylog.local     / mylog123   Motorista, tem saida aprovada')
-console.log('    rita@mylog.local       / mylog123   Vendas, tem retorno atrasado')
+console.log('    carlos@mylog.local     / mylog123   USA CARRO TODO DIA: checklist avulso')
+console.log('    rita@mylog.local       / mylog123   Vendas: pede carro, tem saida e retorno')
 console.log('    joao@mylog.local       / mylog123   PENDENTE: cai na troca de senha')
 console.log('    bruno@mylog.local      / mylog123   BLOQUEADO: nao entra')
 fecharBanco()

@@ -14,14 +14,19 @@ export const STATUS_SOLICITACAO = [
   'devolvida', 'devolvida_com_atraso', 'cancelada',
 ]
 
-// Estados em que a reserva ainda ocupa o veiculo na janela.
-const OCUPAM_JANELA = ['pendente', 'aprovada', 'em_uso']
+// Estados em que a reserva ocupa o veiculo na janela. "pendente" NAO entra:
+// pedido pendente ainda nao tem placa — ele pede uma categoria. So ocupa carro
+// quem ja foi liberado (roadmap 10.4).
 
 const CAMPOS = `s.*, v.placa, v.modelo, v.marca, v.tipo, v.status AS veiculo_status,
-  u.nome AS solicitante_nome, a.nome AS aprovador_nome`
+  u.nome AS solicitante_nome, a.nome AS aprovador_nome, cat.nome AS categoria_nome`
 
+// LEFT JOIN em veiculos, e nao JOIN: a solicitacao nasce SEM placa. Quem pede
+// escolhe uma categoria de uso; a Frota escolhe o carro na hora de liberar
+// (roadmap 10.3). Com JOIN, todo pedido pendente sumiria da lista.
 const DE = `FROM solicitacoes s
-  JOIN veiculos v ON v.id = s.veiculo_id
+  LEFT JOIN veiculos v ON v.id = s.veiculo_id
+  LEFT JOIN categorias_uso cat ON cat.id = s.categoria_id
   JOIN usuarios u ON u.id = s.solicitante_id
   LEFT JOIN usuarios a ON a.id = s.aprovada_por`
 
@@ -49,7 +54,7 @@ function conflito(empresaId, veiculoId, inicio, fim, exceto) {
     `SELECT s.id, s.numero, s.janela_inicio, s.janela_fim, u.nome AS solicitante
        FROM solicitacoes s JOIN usuarios u ON u.id = s.solicitante_id
       WHERE s.empresa_id = ? AND s.veiculo_id = ? AND s.id <> ?
-        AND s.status IN ('pendente','aprovada','em_uso')
+        AND s.status IN ('aprovada','em_uso')
         AND s.janela_inicio < ? AND s.janela_fim > ?
       LIMIT 1`,
     [empresaId, veiculoId, exceto || '', fim, inicio])
@@ -92,24 +97,50 @@ export function registrarRotasSolicitacoes(rotas) {
     return { solicitacoes: consultar(sql, params).map(comAtraso), vejo_todas: vejoTudo }
   })
 
-  // Veiculos livres numa janela — o que a tela de pedido lista.
+  // Veiculos livres numa janela. Quem consulta e' a FROTA, na hora de liberar:
+  // e' aqui que o pedido ganha placa. O solicitante nao chama esta rota — ele
+  // nao ve placas na tela de pedido (roadmap 10.4).
   rotas.get('/api/solicitacoes/disponiveis', async (ctx) => {
-    const eu = exigirAutenticado(ctx)
+    const eu = exigirFrota(exigirAutenticado(ctx))
     const { inicio, fim } = validarJanela({
       janela_inicio: ctx.query.get('janela_inicio'),
       janela_fim: ctx.query.get('janela_fim'),
     })
+    const categoriaId = ctx.query.get('categoria_id') || null
+
+    // A ordem dos parametros segue a ordem dos "?" no TEXTO da consulta, e a
+    // subconsulta da categoria aparece antes do WHERE. Por isso ela entra
+    // primeiro na lista.
+    let filtroCategoria = ''
+    const params = []
+    if (categoriaId) {
+      // Marca quais sao da categoria pedida, sem esconder o resto: se nao
+      // houver carro na categoria, a Frota ainda precisa poder liberar outro,
+      // explicando o porque (roadmap 10.4).
+      filtroCategoria = `, (SELECT COUNT(*) FROM veiculo_categorias vc
+                             WHERE vc.veiculo_id = v.id AND vc.categoria_id = ?) AS da_categoria`
+      params.push(categoriaId)
+    }
+    params.push(eu.empresa_id, fim, inicio)
+
+    const veiculos = consultar(
+      `SELECT v.*${filtroCategoria} FROM veiculos v
+        WHERE v.empresa_id = ? AND v.status = 'disponivel'
+          AND NOT EXISTS (
+            SELECT 1 FROM solicitacoes s
+             WHERE s.veiculo_id = v.id
+               AND s.status IN ('aprovada','em_uso')
+               AND s.janela_inicio < ? AND s.janela_fim > ?)
+        ORDER BY v.placa`,
+      params)
+
     return {
-      veiculos: consultar(
-        `SELECT v.* FROM veiculos v
-          WHERE v.empresa_id = ? AND v.status = 'disponivel'
-            AND NOT EXISTS (
-              SELECT 1 FROM solicitacoes s
-               WHERE s.veiculo_id = v.id
-                 AND s.status IN ('pendente','aprovada','em_uso')
-                 AND s.janela_inicio < ? AND s.janela_fim > ?)
-          ORDER BY v.placa`,
-        [eu.empresa_id, fim, inicio]),
+      // Da categoria primeiro na lista: e' o que a Frota quer ver no topo.
+      veiculos: categoriaId
+        ? veiculos
+            .map((v) => ({ ...v, da_categoria: Boolean(v.da_categoria) }))
+            .sort((a, b) => Number(b.da_categoria) - Number(a.da_categoria))
+        : veiculos,
       janela: { inicio, fim },
     }
   })
@@ -130,18 +161,17 @@ export function registrarRotasSolicitacoes(rotas) {
     const motivo = String(ctx.corpo.motivo || '').trim()
     if (motivo.length < 10) throw erro.requisicao('Descreva o motivo com pelo menos 10 caracteres.')
 
-    const veiculo = consultarUm('SELECT * FROM veiculos WHERE id = ? AND empresa_id = ?',
-      [String(ctx.corpo.veiculo_id || ''), eu.empresa_id])
-    if (!veiculo) throw erro.naoEncontrado('Veiculo nao encontrado nesta empresa.')
-    if (veiculo.status !== 'disponivel') {
-      throw erro.conflito(`Este veiculo esta ${veiculo.status.replace('_', ' ')} e nao pode ser reservado.`)
+    // Quem pede escolhe CATEGORIA, nunca placa (roadmap 10.3). A recusa e'
+    // explicita e nao silenciosa: se alguem injetar veiculo_id na requisicao,
+    // o pedido falha em vez de reservar um carro pelas costas da Frota.
+    if (ctx.corpo.veiculo_id) {
+      throw erro.requisicao('Quem escolhe o veiculo e a equipe da frota, na liberacao.')
     }
 
-    const choque = conflito(eu.empresa_id, veiculo.id, inicio, fim)
-    if (choque) {
-      throw erro.conflito(
-        `O veiculo ja esta reservado nesse horario na solicitacao #${choque.numero} (${choque.solicitante}).`)
-    }
+    const categoria = consultarUm(
+      'SELECT * FROM categorias_uso WHERE id = ? AND empresa_id = ? AND ativo = 1',
+      [String(ctx.corpo.categoria_id || ''), eu.empresa_id])
+    if (!categoria) throw erro.naoEncontrado('Escolha uma categoria de uso disponivel.')
 
     // Antecedencia minima. Padrao de 24 h, configuravel por empresa; quando
     // "antecedencia_rigida" e' falso o pedido passa e so fica marcado.
@@ -160,15 +190,15 @@ export function registrarRotasSolicitacoes(rotas) {
     const ts = agora()
 
     executar(
-      `INSERT INTO solicitacoes (id, empresa_id, numero, solicitante_id, veiculo_id,
+      `INSERT INTO solicitacoes (id, empresa_id, numero, solicitante_id, categoria_id,
                                  janela_inicio, janela_fim, motivo, status, criado_em, atualizado_em)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pendente', ?, ?)`,
-      [id, eu.empresa_id, numero, eu.id, veiculo.id, inicio, fim, motivo, ts, ts],
+      [id, eu.empresa_id, numero, eu.id, categoria.id, inicio, fim, motivo, ts, ts],
     )
     registrarEvento({
       empresaId: eu.empresa_id, ator: eu, alvoId: eu.id, acao: 'solicitacao.aberta',
       entidade: 'solicitacao', entidadeId: id,
-      depois: { numero, placa: veiculo.placa, inicio, fim, sem_antecedencia: semAntecedencia },
+      depois: { numero, categoria: categoria.nome, inicio, fim, sem_antecedencia: semAntecedencia },
       ip: ctx.ip,
     })
     return {
@@ -187,12 +217,18 @@ export function registrarRotasSolicitacoes(rotas) {
       throw erro.conflito(`Solicitacao ${antes.status} nao pode ser aprovada.`)
     }
 
-    const veiculo = consultarUm('SELECT * FROM veiculos WHERE id = ?', [antes.veiculo_id])
+    // Escolher a placa E aprovar sao um ato so (roadmap 10.4). Nao existe
+    // "aprovo agora e digo o carro depois": isso deixaria o colaborador de pe
+    // no patio sem saber o que pegar.
+    const veiculo = consultarUm('SELECT * FROM veiculos WHERE id = ? AND empresa_id = ?',
+      [String(ctx.corpo.veiculo_id || ''), eu.empresa_id])
+    if (!veiculo) throw erro.requisicao('Escolha o veiculo que sera liberado.')
     if (veiculo.status !== 'disponivel') {
-      throw erro.conflito(`O veiculo esta ${veiculo.status.replace('_', ' ')}. Resolva antes de aprovar.`)
+      throw erro.conflito(`O veiculo esta ${veiculo.status.replace('_', ' ')}. Resolva antes de liberar.`)
     }
+
     // Reconfere o choque: outra reserva pode ter sido aprovada nesse meio-tempo.
-    const choque = conflito(eu.empresa_id, antes.veiculo_id, antes.janela_inicio, antes.janela_fim, antes.id)
+    const choque = conflito(eu.empresa_id, veiculo.id, antes.janela_inicio, antes.janela_fim, antes.id)
     if (choque && choque.id) {
       const outra = consultarUm('SELECT status FROM solicitacoes WHERE id = ?', [choque.id])
       if (outra && ['aprovada', 'em_uso'].includes(outra.status)) {
@@ -200,15 +236,33 @@ export function registrarRotasSolicitacoes(rotas) {
       }
     }
 
+    // Entregar carro fora da categoria pedida e' permitido — a frota real nem
+    // sempre tem o que foi pedido — mas nao em silencio: quem pediu tem que
+    // saber por que recebeu outra coisa.
+    const daCategoria = !antes.categoria_id || consultarUm(
+      'SELECT 1 AS ok FROM veiculo_categorias WHERE veiculo_id = ? AND categoria_id = ?',
+      [veiculo.id, antes.categoria_id])
+    const motivoCategoria = String(ctx.corpo.motivo_categoria || '').trim() || null
+    if (!daCategoria && !motivoCategoria) {
+      throw erro.requisicao(
+        `Este veiculo nao atende a categoria pedida (${antes.categoria_nome}). Explique o porque para liberar assim mesmo.`)
+    }
+
     const ts = agora()
     executar(
-      `UPDATE solicitacoes SET status = 'aprovada', aprovada_por = ?, aprovada_em = ?, atualizado_em = ?
+      `UPDATE solicitacoes SET status = 'aprovada', veiculo_id = ?, motivo_categoria = ?,
+              aprovada_por = ?, aprovada_em = ?, atualizado_em = ?
         WHERE id = ? AND empresa_id = ?`,
-      [eu.id, ts, ts, antes.id, eu.empresa_id])
+      [veiculo.id, daCategoria ? null : motivoCategoria, eu.id, ts, ts, antes.id, eu.empresa_id])
     registrarEvento({
       empresaId: eu.empresa_id, ator: eu, alvoId: antes.solicitante_id, acao: 'solicitacao.aprovada',
       entidade: 'solicitacao', entidadeId: antes.id,
-      depois: { numero: antes.numero, placa: antes.placa }, ip: ctx.ip,
+      depois: {
+        numero: antes.numero, placa: veiculo.placa, modelo: veiculo.modelo,
+        categoria_pedida: antes.categoria_nome,
+        fora_da_categoria: !daCategoria, motivo_categoria: daCategoria ? null : motivoCategoria,
+      },
+      ip: ctx.ip,
     })
     return { solicitacao: buscarNaEmpresa(eu.empresa_id, antes.id) }
   })
@@ -316,4 +370,3 @@ export function registrarRotasSolicitacoes(rotas) {
   })
 }
 
-export { OCUPAM_JANELA }

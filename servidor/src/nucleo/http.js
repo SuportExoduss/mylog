@@ -73,11 +73,16 @@ export function criarRoteador() {
   const rotas = []
   const registrar = (metodo) => (padrao, ...manipuladores) => {
     const nomes = []
-    const regex = new RegExp('^' + padrao.replace(/:[a-zA-Z_]+/g, (m) => {
-      nomes.push(m.slice(1))
-      return '([^/]+)'
-    }) + '$')
-    rotas.push({ metodo, regex, nomes, manipuladores })
+    // Escapa os metacaracteres do proprio caminho ANTES de trocar os :params.
+    // Sem isso o ponto de "/api/execucoes.csv" casaria com qualquer caractere,
+    // e "/api/execucoesXcsv" cairia na mesma rota.
+    const corpo = padrao
+      .replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      .replace(/:[a-zA-Z_]+/g, (m) => {
+        nomes.push(m.slice(1))
+        return '([^/]+)'
+      })
+    rotas.push({ metodo, regex: new RegExp(`^${corpo}$`), nomes, manipuladores })
   }
   return {
     rotas,

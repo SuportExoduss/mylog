@@ -43,6 +43,10 @@ CREATE TABLE IF NOT EXISTS usuarios (
   telefone        TEXT,
   cargo_id        TEXT REFERENCES cargos(id),
   acessa_painel   INTEGER NOT NULL DEFAULT 0,
+  -- Usa veiculo todos os dias (roadmap 8.2). Separa dois fluxos:
+  --   1 -> checklist diario avulso, sem solicitacao, e' cobrado por falta
+  --   0 -> pega carro por solicitacao, e ai o retorno e' obrigatorio
+  usa_veiculo_diario INTEGER NOT NULL DEFAULT 0,
   status          TEXT NOT NULL DEFAULT 'pendente',
   -- pendente|ativo|bloqueado|suspenso|desativado
   -- "pendente" = ainda nao fez o primeiro acesso nem trocou a senha inicial.
@@ -91,6 +95,32 @@ CREATE TABLE IF NOT EXISTS veiculos (
 CREATE UNIQUE INDEX IF NOT EXISTS ux_veiculos_placa ON veiculos(empresa_id, placa);
 CREATE INDEX IF NOT EXISTS ix_veiculos_empresa ON veiculos(empresa_id, status);
 
+-- --------------------------------------------------- categorias de uso
+-- O que o colaborador pede (roadmap 10.3): "4 assentos comercial".
+-- NAO se converte em tipo de veiculo: categoria e' necessidade de uso, tipo e'
+-- propriedade do carro e continua decidindo qual checklist aparece.
+CREATE TABLE IF NOT EXISTS categorias_uso (
+  id            TEXT PRIMARY KEY,
+  empresa_id    TEXT NOT NULL REFERENCES empresas(id),
+  nome          TEXT NOT NULL,
+  assentos      INTEGER,
+  carroceria    TEXT,                            -- compacto|comercial|utilitario
+  ativo         INTEGER NOT NULL DEFAULT 1,
+  criado_em     TEXT NOT NULL,
+  atualizado_em TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_categoria_nome ON categorias_uso(empresa_id, nome);
+
+-- Que veiculos atendem cada categoria. A Frota mantem; sem isto a aprovacao
+-- nao teria como listar "os carros dessa categoria".
+CREATE TABLE IF NOT EXISTS veiculo_categorias (
+  empresa_id   TEXT NOT NULL REFERENCES empresas(id),
+  veiculo_id   TEXT NOT NULL REFERENCES veiculos(id),
+  categoria_id TEXT NOT NULL REFERENCES categorias_uso(id),
+  PRIMARY KEY (veiculo_id, categoria_id)
+);
+CREATE INDEX IF NOT EXISTS ix_veic_cat ON veiculo_categorias(empresa_id, categoria_id);
+
 -- --------------------------------------------------------------- templates
 -- Modelo de checklist versionado. "estrutura" guarda as perguntas em JSON;
 -- "cargos_liberados" guarda a lista de cargo_id, ou ["*"] para todos.
@@ -102,6 +132,15 @@ CREATE TABLE IF NOT EXISTS templates (
   tipo_veiculo     TEXT NOT NULL,
   cargos_liberados TEXT NOT NULL DEFAULT '["*"]',
   exige_assinatura INTEGER NOT NULL DEFAULT 0,
+  -- Ritmo do modelo (roadmap 11.2.1). "avulso" nao cobra nada.
+  periodicidade    TEXT NOT NULL DEFAULT 'avulso',
+  -- avulso|diario|semanal|mensal
+  -- Dias obrigatorios quando diario: JSON com 0=domingo .. 6=sabado.
+  dias_semana      TEXT NOT NULL DEFAULT '[]',
+  -- Dia de vencimento quando semanal (0..6).
+  dia_semana       INTEGER,
+  -- Horario limite "HH:MM", ou NULL quando o modelo nao tem prazo no dia.
+  horario_limite   TEXT,
   versao           INTEGER NOT NULL DEFAULT 1,
   status           TEXT NOT NULL DEFAULT 'rascunho', -- rascunho|publicado|arquivado
   estrutura        TEXT NOT NULL DEFAULT '{"perguntas":[]}',
@@ -120,7 +159,10 @@ CREATE TABLE IF NOT EXISTS solicitacoes (
   empresa_id     TEXT NOT NULL REFERENCES empresas(id),
   numero         INTEGER NOT NULL,
   solicitante_id TEXT NOT NULL REFERENCES usuarios(id),
-  veiculo_id     TEXT NOT NULL REFERENCES veiculos(id),
+  -- O colaborador pede uma CATEGORIA (roadmap 10.3); a placa so aparece na
+  -- aprovacao, escolhida pela Frota. Por isso veiculo_id nasce nulo.
+  categoria_id   TEXT REFERENCES categorias_uso(id),
+  veiculo_id     TEXT REFERENCES veiculos(id),
   janela_inicio  TEXT NOT NULL,
   janela_fim     TEXT NOT NULL,
   motivo         TEXT NOT NULL,
@@ -129,6 +171,8 @@ CREATE TABLE IF NOT EXISTS solicitacoes (
   aprovada_por   TEXT REFERENCES usuarios(id),
   aprovada_em    TEXT,
   motivo_recusa  TEXT,
+  -- Preenchido quando a Frota entrega carro fora da categoria pedida.
+  motivo_categoria TEXT,
   inspecao_saida   TEXT,
   inspecao_retorno TEXT,
   devolvido_em   TEXT,
@@ -156,8 +200,12 @@ CREATE TABLE IF NOT EXISTS inspecoes (
   resultado      TEXT,                            -- aprovado|com_pendencia|reprovado
   assinatura     TEXT,
   cliente_uuid   TEXT,                            -- idempotencia da fila offline
+  -- Numero sequencial por empresa. Identificador opaco nao serve para conversa
+  -- de radio; o PROLOG usa "Codigo checklist" e a operacao cita esse numero.
+  numero         INTEGER,
   criado_em      TEXT NOT NULL
 );
+CREATE UNIQUE INDEX IF NOT EXISTS ux_inspecao_numero ON inspecoes(empresa_id, numero);
 CREATE UNIQUE INDEX IF NOT EXISTS ux_inspecao_cliente ON inspecoes(empresa_id, cliente_uuid);
 CREATE INDEX IF NOT EXISTS ix_inspecoes_veiculo ON inspecoes(empresa_id, veiculo_id, iniciada_em);
 CREATE INDEX IF NOT EXISTS ix_inspecoes_usuario ON inspecoes(empresa_id, usuario_id, iniciada_em);

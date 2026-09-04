@@ -91,6 +91,16 @@ criarUsuario(empresaB, 'Frota B', '87748248800', 'frota.b@rel.local', cgFrotaB, 
 
 const veiculo1 = criarVeiculo(empresaA, 'AAA1A11')
 const veiculo2 = criarVeiculo(empresaA, 'AAA2A22')
+
+// Pedido nasce com categoria; a placa entra na liberacao (roadmap 10.4).
+const categoriaA = novoId('categoria')
+executar(
+  `INSERT INTO categorias_uso (id, empresa_id, nome, assentos, carroceria, criado_em, atualizado_em)
+   VALUES (?, ?, 'Comercial', 4, 'comercial', ?, ?)`, [categoriaA, empresaA, ts, ts])
+for (const v of [veiculo1, veiculo2]) {
+  executar('INSERT INTO veiculo_categorias (empresa_id, veiculo_id, categoria_id) VALUES (?, ?, ?)',
+    [empresaA, v, categoriaA])
+}
 criarChecklist(empresaA)
 
 // ----------------------------------------------------------------- apoio
@@ -141,12 +151,14 @@ async function prepararTarefa(veiculoId, horas) {
   const pedido = await chamar('POST', '/api/solicitacoes', {
     token: motorista,
     corpo: {
-      veiculo_id: veiculoId, janela_inicio: daquiAHoras(horas), janela_fim: daquiAHoras(horas + 4),
+      categoria_id: categoriaA,
+      janela_inicio: daquiAHoras(horas), janela_fim: daquiAHoras(horas + 4),
       motivo: 'Pedido montado para os testes de relatorio.',
     },
   })
   const solicitacao = pedido.dados.solicitacao.id
-  await chamar('POST', `/api/solicitacoes/${solicitacao}/aprovar`, { token: frota })
+  await chamar('POST', `/api/solicitacoes/${solicitacao}/aprovar`,
+    { token: frota, corpo: { veiculo_id: veiculoId } })
   const app = await chamar('GET', '/api/app/inicio', { token: motorista })
   const tarefa = app.dados.tarefas.find((t) => t.solicitacao_id === solicitacao)
   return { frota, motorista, solicitacao, tarefa }
@@ -269,12 +281,14 @@ test('relatorio: texto vindo do banco e escapado', async () => {
   const pedido = await chamar('POST', '/api/solicitacoes', {
     token: motorista,
     corpo: {
-      veiculo_id: veiculo2, janela_inicio: daquiAHoras(950), janela_fim: daquiAHoras(954),
+      categoria_id: categoriaA,
+      janela_inicio: daquiAHoras(950), janela_fim: daquiAHoras(954),
       motivo: 'Teste de escape <script>alert(1)</script> no relatorio.',
     },
   })
   const sol = pedido.dados.solicitacao.id
-  await chamar('POST', `/api/solicitacoes/${sol}/aprovar`, { token: frota })
+  await chamar('POST', `/api/solicitacoes/${sol}/aprovar`,
+    { token: frota, corpo: { veiculo_id: veiculo2 } })
 
   const resposta = await bruto(`/relatorio/solicitacao/${sol}`, frota)
   assert.equal(resposta.status, 200)

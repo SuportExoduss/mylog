@@ -13,8 +13,10 @@ import { registrarRotasPainel } from './rotas/painel.js'
 import { registrarRotasTemplates } from './rotas/templates.js'
 import { registrarRotasPreventivas } from './rotas/preventivas.js'
 import { registrarRotasOcorrencias, registrarRotasAuditoria } from './rotas/ocorrencias.js'
+import { registrarRotasCategorias } from './rotas/categorias.js'
 import { registrarRotasSolicitacoes } from './rotas/solicitacoes.js'
 import { registrarRotasInspecoes } from './rotas/inspecoes.js'
+import { registrarRotasExecucoes } from './rotas/execucoes.js'
 import { registrarRotasEvidencias } from './rotas/evidencias.js'
 import { registrarRotasRelatorios } from './rotas/relatorios.js'
 
@@ -28,10 +30,12 @@ registrarRotasUsuarios(rotas)
 registrarRotasVeiculos(rotas)
 registrarRotasTemplates(rotas)
 registrarRotasPreventivas(rotas)
+registrarRotasCategorias(rotas)
 registrarRotasSolicitacoes(rotas)
 registrarRotasOcorrencias(rotas)
 registrarRotasAuditoria(rotas)
 registrarRotasInspecoes(rotas)
+registrarRotasExecucoes(rotas)
 registrarRotasEvidencias(rotas)
 registrarRotasRelatorios(rotas)
 

@@ -28,6 +28,82 @@ export const TIPOS_VEICULO = [
 
 export const MOMENTOS = ['saida', 'retorno']
 
+export const PERIODICIDADES = ['avulso', 'diario', 'semanal', 'mensal']
+
+// 0 = domingo, como getDay() do JavaScript. Manter a mesma base evita a
+// conversao silenciosa que troca segunda por domingo em uma das pontas.
+export const DIAS_SEMANA = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sab']
+
+// -------------------------------------------------------- periodicidade
+
+// "HH:MM" em 24 horas. Aceita 00:00 e recusa 24:00.
+const HORARIO = /^([01]\d|2[0-3]):([0-5]\d)$/
+
+export function conferirPeriodicidade(modelo = {}) {
+  const p = modelo.periodicidade || 'avulso'
+  if (!PERIODICIDADES.includes(p)) {
+    return { valido: false, mensagem: `Periodicidade desconhecida: ${p}.` }
+  }
+
+  const dias = modelo.dias_semana || []
+  if (!Array.isArray(dias) || dias.some((d) => !Number.isInteger(d) || d < 0 || d > 6)) {
+    return { valido: false, mensagem: 'Dias da semana precisam ser numeros de 0 (domingo) a 6.' }
+  }
+  // Um checklist diario que nao vale em dia nenhum nunca seria cobrado: ou e'
+  // avulso, ou alguem esqueceu de marcar os dias.
+  if (p === 'diario' && dias.length === 0) {
+    return { valido: false, mensagem: 'Marque ao menos um dia da semana, ou use periodicidade avulsa.' }
+  }
+  if (p !== 'diario' && dias.length > 0) {
+    return { valido: false, mensagem: 'Dias da semana so valem para periodicidade diaria.' }
+  }
+
+  const diaSemana = modelo.dia_semana
+  if (p === 'semanal') {
+    if (!Number.isInteger(diaSemana) || diaSemana < 0 || diaSemana > 6) {
+      return { valido: false, mensagem: 'Escolha em que dia da semana o checklist semanal vence.' }
+    }
+  } else if (diaSemana !== null && diaSemana !== undefined) {
+    return { valido: false, mensagem: 'Dia de vencimento so vale para periodicidade semanal.' }
+  }
+
+  const limite = modelo.horario_limite
+  if (limite !== null && limite !== undefined && limite !== '') {
+    if (!HORARIO.test(String(limite))) {
+      return { valido: false, mensagem: 'Horario limite precisa estar no formato HH:MM.' }
+    }
+    if (p === 'avulso') {
+      return { valido: false, mensagem: 'Checklist avulso nao tem prazo: ninguem e cobrado por ele.' }
+    }
+  }
+
+  return { valido: true }
+}
+
+// O modelo e' obrigatorio nesta data? Recebe a data pronta — nada de ler o
+// relogio aqui (ver cabecalho deste arquivo).
+export function obrigatorioNoDia(modelo = {}, data) {
+  const p = modelo.periodicidade || 'avulso'
+  if (p === 'avulso') return false
+  if (p === 'mensal' || p === 'semanal') return true   // a janela e' maior que o dia
+  return (modelo.dias_semana || []).includes(data.getDay())
+}
+
+// Classifica uma execucao que ACONTECEU. A falta de execucao e' outro assunto:
+// quem sabe que era esperado e nao veio e' quem tem a lista de quem devia
+// fazer, e isso vive no servidor.
+export function classificarExecucao(modelo = {}, finalizadaEm) {
+  const limite = modelo.horario_limite
+  if (!limite || !HORARIO.test(String(limite))) return 'no_prazo'
+  const d = finalizadaEm instanceof Date ? finalizadaEm : new Date(finalizadaEm)
+  if (Number.isNaN(d.getTime())) return 'no_prazo'
+  const [h, m] = String(limite).split(':').map(Number)
+  const minutosFeito = d.getHours() * 60 + d.getMinutes()
+  return minutosFeito <= h * 60 + m ? 'no_prazo' : 'atrasado'
+}
+
+export const ESTADOS_EXECUCAO = ['no_prazo', 'atrasado', 'nao_realizado']
+
 // Tudo que pode impedir a finalizacao de um checklist. A lista vive aqui, ao
 // lado de quem cria as pendencias, para que acrescentar um motivo novo sem
 // dar-lhe uma frase seja um teste vermelho e nao uma tela muda no patio.

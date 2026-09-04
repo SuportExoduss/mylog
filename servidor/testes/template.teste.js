@@ -7,6 +7,7 @@ import assert from 'node:assert/strict'
 const {
   conferirEstrutura, avaliarResposta, avaliarInspecao,
   cargoLiberado, perguntaPorId, opcaoPorId, descreverPendencia,
+  conferirPeriodicidade, obrigatorioNoDia, classificarExecucao, PERIODICIDADES,
   PRIORIDADES, MODOS_FOTO, MOMENTOS, TIPOS_VEICULO, MOTIVOS_PENDENCIA,
 } = await import('../../compartilhado/template.js')
 
@@ -365,4 +366,83 @@ test('todo motivo que o motor produz esta declarado em MOTIVOS_PENDENCIA', () =>
   for (const motivo of vistos) {
     assert.ok(MOTIVOS_PENDENCIA.includes(motivo), `motivo fora da lista: ${motivo}`)
   }
+})
+
+// ------------------------------------------------------ ritmo do modelo
+
+test('ritmo: as periodicidades sao as quatro do roadmap', () => {
+  assert.deepEqual(PERIODICIDADES, ['avulso', 'diario', 'semanal', 'mensal'])
+})
+
+test('ritmo: diario precisa de ao menos um dia da semana', () => {
+  // Um diario que nao vale em dia nenhum nunca seria cobrado. Ou e' avulso,
+  // ou alguem esqueceu de marcar os dias — e o silencio esconderia isso.
+  assert.equal(conferirPeriodicidade({ periodicidade: 'diario', dias_semana: [] }).valido, false)
+  assert.equal(conferirPeriodicidade({ periodicidade: 'diario', dias_semana: [1, 5] }).valido, true)
+})
+
+test('ritmo: dias da semana so valem para diario', () => {
+  const r = conferirPeriodicidade({ periodicidade: 'mensal', dias_semana: [1] })
+  assert.equal(r.valido, false)
+  assert.match(r.mensagem, /so valem para periodicidade diaria/)
+})
+
+test('ritmo: semanal precisa dizer em que dia vence', () => {
+  assert.equal(conferirPeriodicidade({ periodicidade: 'semanal' }).valido, false)
+  assert.equal(conferirPeriodicidade({ periodicidade: 'semanal', dia_semana: 3 }).valido, true)
+  assert.equal(conferirPeriodicidade({ periodicidade: 'semanal', dia_semana: 9 }).valido, false)
+})
+
+test('ritmo: horario limite precisa ser HH:MM de 24 horas', () => {
+  const com = (h) => conferirPeriodicidade({
+    periodicidade: 'diario', dias_semana: [1], horario_limite: h,
+  })
+  assert.equal(com('08:30').valido, true)
+  assert.equal(com('00:00').valido, true)
+  assert.equal(com('23:59').valido, true)
+  assert.equal(com('24:00').valido, false)
+  assert.equal(com('8:30').valido, false)
+  assert.equal(com('meio-dia').valido, false)
+})
+
+test('ritmo: checklist avulso nao pode ter prazo', () => {
+  // Prazo so faz sentido para quem e' cobrado. Avulso ninguem cobra.
+  const r = conferirPeriodicidade({ periodicidade: 'avulso', horario_limite: '08:00' })
+  assert.equal(r.valido, false)
+  assert.match(r.mensagem, /nao tem prazo/)
+})
+
+test('ritmo: dia util obrigatorio nao alcanca o fim de semana', () => {
+  // O relatorio real do PROLOG (roadmap 24.1) tem 62 execucoes no sabado e 13
+  // no domingo, contra ~170 nos dias uteis. Cobrar fim de semana criaria ~90
+  // faltas falsas por mes.
+  const diaUtil = { periodicidade: 'diario', dias_semana: [1, 2, 3, 4, 5] }
+  const sexta = new Date(2026, 8, 4)     // 04/09/2026
+  const sabado = new Date(2026, 8, 5)
+  const domingo = new Date(2026, 8, 6)
+  assert.equal(obrigatorioNoDia(diaUtil, sexta), true)
+  assert.equal(obrigatorioNoDia(diaUtil, sabado), false)
+  assert.equal(obrigatorioNoDia(diaUtil, domingo), false)
+})
+
+test('ritmo: avulso nunca e obrigatorio; semanal e mensal valem o periodo todo', () => {
+  const domingo = new Date(2026, 8, 6)
+  assert.equal(obrigatorioNoDia({ periodicidade: 'avulso' }, domingo), false)
+  assert.equal(obrigatorioNoDia({ periodicidade: 'semanal', dia_semana: 3 }, domingo), true)
+  assert.equal(obrigatorioNoDia({ periodicidade: 'mensal' }, domingo), true)
+})
+
+test('ritmo: o horario limite classifica, nao impede', () => {
+  const modelo = { horario_limite: '08:30' }
+  assert.equal(classificarExecucao(modelo, new Date(2026, 8, 4, 7, 12)), 'no_prazo')
+  assert.equal(classificarExecucao(modelo, new Date(2026, 8, 4, 8, 30)), 'no_prazo')
+  assert.equal(classificarExecucao(modelo, new Date(2026, 8, 4, 8, 31)), 'atrasado')
+  assert.equal(classificarExecucao(modelo, new Date(2026, 8, 4, 17, 0)), 'atrasado')
+})
+
+test('ritmo: sem horario limite, nada e atrasado', () => {
+  assert.equal(classificarExecucao({}, new Date(2026, 8, 4, 23, 59)), 'no_prazo')
+  assert.equal(classificarExecucao({ horario_limite: null }, new Date()), 'no_prazo')
+  // Data ilegivel nao pode virar "atrasado" por acidente.
+  assert.equal(classificarExecucao({ horario_limite: '08:00' }, 'nao e data'), 'no_prazo')
 })

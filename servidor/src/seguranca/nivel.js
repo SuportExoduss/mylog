@@ -42,6 +42,9 @@ export function perfilPublico(usuario) {
     cargo_nome: usuario.cargo_nome ?? null,
     nivel: nivelDe(usuario),
     acessa_painel: Boolean(usuario.acessa_painel),
+    // O app usa isto para decidir a tela inicial: quem usa carro todo dia ve o
+    // checklist diario; quem nao usa ve os pedidos de veiculo (roadmap 8.2).
+    usa_veiculo_diario: Boolean(usuario.usa_veiculo_diario),
     deve_trocar_senha: Boolean(usuario.deve_trocar_senha),
     status: usuario.status,
   }

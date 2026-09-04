@@ -30,8 +30,8 @@ export function usuarioDaSessao(token) {
   const linha = consultarUm(
     `SELECT s.id AS sessao_id, s.expira_em, s.revogado_em, s.origem,
             u.id, u.empresa_id, u.nome, u.email, u.cpf, u.telefone,
-            u.cargo_id, u.acessa_painel, u.status, u.deve_trocar_senha,
-            c.nome AS cargo_nome
+            u.cargo_id, u.acessa_painel, u.usa_veiculo_diario, u.status,
+            u.deve_trocar_senha, c.nome AS cargo_nome
        FROM sessoes s
        JOIN usuarios u ON u.id = s.usuario_id
        LEFT JOIN cargos c ON c.id = u.cargo_id

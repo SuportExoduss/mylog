@@ -60,6 +60,9 @@ export function registrarRotasInspecoes(rotas) {
         nome: modelo.nome,
         versao: modelo.versao,
         exige_assinatura: Boolean(modelo.exige_assinatura),
+        periodicidade: modelo.periodicidade,
+        dias_semana: JSON.parse(modelo.dias_semana || '[]'),
+        horario_limite: modelo.horario_limite,
         estrutura: JSON.parse(modelo.estrutura),
       })
       // Aprovada -> falta a saida. Em uso -> falta o retorno (roadmap 11.5).
@@ -79,9 +82,45 @@ export function registrarRotasInspecoes(rotas) {
       })
     }
 
+    // Checklist diario avulso (roadmap 8.2). Quem sai com carro toda manha nao
+    // pede veiculo: pega um no galpao e faz o checklist nele. Nao ha condutor
+    // fixo, entao o aparelho precisa da lista de carros para a pessoa escolher.
+    const avulso = []
+    if (eu.usa_veiculo_diario || ehFrota(eu)) {
+      const disponiveis = consultar(
+        `SELECT id, placa, marca, modelo, tipo, km_atual, status FROM veiculos
+          WHERE empresa_id = ? AND status IN ('disponivel', 'com_pendencia')
+          ORDER BY placa`,
+        [eu.empresa_id])
+
+      for (const v of disponiveis) {
+        const candidatos = checklistsDisponiveis(eu.empresa_id, v.tipo, eu.cargo_id)
+        if (!candidatos.length) continue
+        for (const modelo of candidatos) {
+          if (modelos.has(modelo.id)) continue
+          modelos.set(modelo.id, {
+            id: modelo.id,
+            codigo: modelo.codigo,
+            nome: modelo.nome,
+            versao: modelo.versao,
+            exige_assinatura: Boolean(modelo.exige_assinatura),
+            periodicidade: modelo.periodicidade,
+            dias_semana: JSON.parse(modelo.dias_semana || '[]'),
+            horario_limite: modelo.horario_limite,
+            estrutura: JSON.parse(modelo.estrutura),
+          })
+        }
+        avulso.push({ veiculo: v, templates: candidatos.map((m) => m.id) })
+      }
+    }
+
     return {
-      usuario: { id: eu.id, nome: eu.nome, cargo_id: eu.cargo_id, cargo_nome: eu.cargo_nome },
+      usuario: {
+        id: eu.id, nome: eu.nome, cargo_id: eu.cargo_id, cargo_nome: eu.cargo_nome,
+        usa_veiculo_diario: Boolean(eu.usa_veiculo_diario),
+      },
       tarefas,
+      avulso,
       modelos: [...modelos.values()],
       politicas: { bloqueio_por_critica: p.bloqueio_por_critica !== false },
       gerado_em: agora(),
@@ -107,26 +146,48 @@ export function registrarRotasInspecoes(rotas) {
     const momento = String(ctx.corpo.momento || 'saida')
     if (!MOMENTOS.includes(momento)) throw erro.requisicao('Momento invalido: use saida ou retorno.')
 
-    const solicitacao = consultarUm(
-      'SELECT * FROM solicitacoes WHERE id = ? AND empresa_id = ?',
-      [String(ctx.corpo.solicitacao_id || ''), eu.empresa_id])
-    if (!solicitacao) throw erro.naoEncontrado('Solicitacao nao encontrada.')
+    // Dois caminhos (roadmap 8.2). Com solicitacao: saida e retorno amarrados a
+    // uma reserva. Sem solicitacao: checklist diario avulso, de quem sai com
+    // carro toda manha e escolhe o carro no galpao.
+    const solicitacaoId = String(ctx.corpo.solicitacao_id || '')
+    let solicitacao = null
+    let veiculo = null
 
-    // A autorizacao e' reconferida aqui: nao basta o app ter mostrado a tarefa.
-    if (solicitacao.solicitante_id !== eu.id && !ehFrota(eu)) {
-      throw erro.permissao('Esta solicitacao pertence a outra pessoa.')
-    }
-    const esperado = solicitacao.status === 'aprovada' ? 'saida'
-      : solicitacao.status === 'em_uso' ? 'retorno' : null
-    if (esperado === null) {
-      throw erro.conflito(`Solicitacao ${solicitacao.status} nao aceita checklist.`)
-    }
-    if (momento !== esperado) {
-      throw erro.conflito(`Esta solicitacao espera o checklist de ${esperado}.`)
-    }
+    if (solicitacaoId) {
+      solicitacao = consultarUm('SELECT * FROM solicitacoes WHERE id = ? AND empresa_id = ?',
+        [solicitacaoId, eu.empresa_id])
+      if (!solicitacao) throw erro.naoEncontrado('Solicitacao nao encontrada.')
 
-    const veiculo = consultarUm('SELECT * FROM veiculos WHERE id = ? AND empresa_id = ?',
-      [solicitacao.veiculo_id, eu.empresa_id])
+      // A autorizacao e' reconferida aqui: nao basta o app ter mostrado a tarefa.
+      if (solicitacao.solicitante_id !== eu.id && !ehFrota(eu)) {
+        throw erro.permissao('Esta solicitacao pertence a outra pessoa.')
+      }
+      const esperado = solicitacao.status === 'aprovada' ? 'saida'
+        : solicitacao.status === 'em_uso' ? 'retorno' : null
+      if (esperado === null) {
+        throw erro.conflito(`Solicitacao ${solicitacao.status} nao aceita checklist.`)
+      }
+      if (momento !== esperado) {
+        throw erro.conflito(`Esta solicitacao espera o checklist de ${esperado}.`)
+      }
+      veiculo = consultarUm('SELECT * FROM veiculos WHERE id = ? AND empresa_id = ?',
+        [solicitacao.veiculo_id, eu.empresa_id])
+    } else {
+      if (!eu.usa_veiculo_diario && !ehFrota(eu)) {
+        throw erro.permissao(
+          'Checklist sem solicitacao e para quem usa veiculo todos os dias. Peca um veiculo primeiro.')
+      }
+      // Avulso nao tem devolucao: nao existe retorno sem alguem a quem devolver.
+      if (momento !== 'saida') {
+        throw erro.requisicao('Checklist avulso nao tem retorno: o carro nao foi reservado.')
+      }
+      veiculo = consultarUm('SELECT * FROM veiculos WHERE id = ? AND empresa_id = ?',
+        [String(ctx.corpo.veiculo_id || ''), eu.empresa_id])
+      if (!veiculo) throw erro.naoEncontrado('Escolha o veiculo do checklist.')
+      if (veiculo.status === 'bloqueado') {
+        throw erro.conflito(`Veiculo bloqueado: ${veiculo.motivo_status || 'liberacao pendente da frota'}.`)
+      }
+    }
 
     const modeloLinha = consultarUm('SELECT * FROM templates WHERE id = ? AND empresa_id = ?',
       [String(ctx.corpo.template_id || ''), eu.empresa_id])
@@ -159,12 +220,19 @@ export function registrarRotasInspecoes(rotas) {
     const km = ctx.corpo.km_informado
 
     transacao(() => {
+      // Numero sequencial por empresa: e' o que a operacao cita em voz alta
+      // ("confere o 21713016"). Calculado dentro da transacao para dois envios
+      // simultaneos nao pegarem o mesmo numero.
+      const numero = (consultarUm(
+        'SELECT MAX(numero) AS maior FROM inspecoes WHERE empresa_id = ?',
+        [eu.empresa_id])?.maior ?? 0) + 1
+
       executar(
-        `INSERT INTO inspecoes (id, empresa_id, veiculo_id, usuario_id, template_id, solicitacao_id,
-                                momento, status, km_informado, iniciada_em, finalizada_em,
-                                resultado, assinatura, cliente_uuid, criado_em)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 'finalizada', ?, ?, ?, ?, ?, ?, ?)`,
-        [id, eu.empresa_id, veiculo.id, eu.id, modeloLinha.id, solicitacao.id,
+        `INSERT INTO inspecoes (id, empresa_id, numero, veiculo_id, usuario_id, template_id,
+                                solicitacao_id, momento, status, km_informado, iniciada_em,
+                                finalizada_em, resultado, assinatura, cliente_uuid, criado_em)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'finalizada', ?, ?, ?, ?, ?, ?, ?)`,
+        [id, eu.empresa_id, numero, veiculo.id, eu.id, modeloLinha.id, solicitacao?.id ?? null,
          momento, km ?? null, ctx.corpo.iniciada_em || ts, ts,
          juizo.resultado, assinatura, clienteUuid, ts])
 
@@ -198,10 +266,11 @@ export function registrarRotasInspecoes(rotas) {
 
       // Saida coloca a solicitacao em uso. O retorno e' fechado pela rota de
       // devolucao, que e' quem sabe pedir o motivo do atraso.
-      if (momento === 'saida') {
+      // Checklist avulso nao tem solicitacao para atualizar.
+      if (solicitacao && momento === 'saida') {
         executar(`UPDATE solicitacoes SET status = 'em_uso', inspecao_saida = ?, atualizado_em = ? WHERE id = ?`,
           [id, ts, solicitacao.id])
-      } else {
+      } else if (solicitacao) {
         executar('UPDATE solicitacoes SET inspecao_retorno = ?, atualizado_em = ? WHERE id = ?',
           [id, ts, solicitacao.id])
       }

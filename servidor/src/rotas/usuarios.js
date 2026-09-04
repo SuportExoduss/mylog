@@ -23,8 +23,8 @@ const TRANSICOES = {
 }
 
 const CAMPOS = `u.id, u.empresa_id, u.nome, u.cpf, u.email, u.telefone, u.cargo_id,
-  u.acessa_painel, u.status, u.deve_trocar_senha, u.primeiro_acesso_em,
-  u.criado_em, u.atualizado_em, c.nome AS cargo_nome`
+  u.acessa_painel, u.usa_veiculo_diario, u.status, u.deve_trocar_senha,
+  u.primeiro_acesso_em, u.criado_em, u.atualizado_em, c.nome AS cargo_nome`
 
 const DE = `FROM usuarios u LEFT JOIN cargos c ON c.id = u.cargo_id`
 
@@ -167,6 +167,10 @@ export function registrarRotasUsuarios(rotas) {
     const telefone = String(ctx.corpo.telefone || '').trim() || null
     const cargoId = String(ctx.corpo.cargo_id || '') || null
     const acessaPainel = ctx.corpo.acessa_painel ? 1 : 0
+    // Usa veiculo todos os dias (roadmap 8.2). Decide se a pessoa faz
+    // checklist diario avulso ou pega carro por solicitacao — e, com isso, se
+    // o retorno e' exigido dela.
+    const usaVeiculoDiario = ctx.corpo.usa_veiculo_diario ? 1 : 0
 
     if (nome.length < 3) throw erro.requisicao('Informe o nome completo.')
     if (!cpfValido(cpf)) throw erro.requisicao('CPF invalido.')
@@ -194,16 +198,21 @@ export function registrarRotasUsuarios(rotas) {
     executar(
       `INSERT INTO usuarios
          (id, empresa_id, nome, cpf, email, telefone, cargo_id, acessa_painel,
-          status, senha_hash, senha_salt, deve_trocar_senha, criado_em, atualizado_em)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pendente', ?, ?, 1, ?, ?)`,
-      [id, eu.empresa_id, nome, cpf, email, telefone, cargoId, acessaPainel, hash, salt, ts, ts],
+          usa_veiculo_diario, status, senha_hash, senha_salt, deve_trocar_senha,
+          criado_em, atualizado_em)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pendente', ?, ?, 1, ?, ?)`,
+      [id, eu.empresa_id, nome, cpf, email, telefone, cargoId, acessaPainel,
+       usaVeiculoDiario, hash, salt, ts, ts],
     )
 
     const criado = buscarNaEmpresa(eu.empresa_id, id)
     registrarEvento({
       empresaId: eu.empresa_id, ator: eu, alvoId: id, acao: 'usuario.criado',
       entidade: 'usuario', entidadeId: id,
-      depois: { nome, email, cargo: cargo.nome, acessa_painel: Boolean(acessaPainel) }, ip: ctx.ip,
+      depois: {
+        nome, email, cargo: cargo.nome, acessa_painel: Boolean(acessaPainel),
+        usa_veiculo_diario: Boolean(usaVeiculoDiario),
+      }, ip: ctx.ip,
     })
     // A senha so viaja nesta resposta, para a Frota repassar. Nao fica em log
     // nem em auditoria.
@@ -225,6 +234,8 @@ export function registrarRotasUsuarios(rotas) {
     const cargoId = ctx.corpo.cargo_id === undefined ? antes.cargo_id : String(ctx.corpo.cargo_id)
     const acessaPainel = ctx.corpo.acessa_painel === undefined
       ? antes.acessa_painel : (ctx.corpo.acessa_painel ? 1 : 0)
+    const usaVeiculoDiario = ctx.corpo.usa_veiculo_diario === undefined
+      ? antes.usa_veiculo_diario : (ctx.corpo.usa_veiculo_diario ? 1 : 0)
 
     if (nome.length < 3) throw erro.requisicao('Informe o nome completo.')
     if (cargoId && !consultarUm('SELECT id FROM cargos WHERE id = ? AND empresa_id = ?',
@@ -236,9 +247,10 @@ export function registrarRotasUsuarios(rotas) {
     }
 
     executar(
-      `UPDATE usuarios SET nome = ?, telefone = ?, cargo_id = ?, acessa_painel = ?, atualizado_em = ?
+      `UPDATE usuarios SET nome = ?, telefone = ?, cargo_id = ?, acessa_painel = ?,
+              usa_veiculo_diario = ?, atualizado_em = ?
         WHERE id = ? AND empresa_id = ?`,
-      [nome, telefone, cargoId, acessaPainel, agora(), antes.id, eu.empresa_id],
+      [nome, telefone, cargoId, acessaPainel, usaVeiculoDiario, agora(), antes.id, eu.empresa_id],
     )
     const depois = buscarNaEmpresa(eu.empresa_id, antes.id)
 
@@ -248,8 +260,16 @@ export function registrarRotasUsuarios(rotas) {
     registrarEvento({
       empresaId: eu.empresa_id, ator: eu, alvoId: antes.id, acao: 'usuario.atualizado',
       entidade: 'usuario', entidadeId: antes.id,
-      antes: { nome: antes.nome, cargo: antes.cargo_nome, acessa_painel: Boolean(antes.acessa_painel) },
-      depois: { nome: depois.nome, cargo: depois.cargo_nome, acessa_painel: Boolean(depois.acessa_painel) },
+      antes: {
+        nome: antes.nome, cargo: antes.cargo_nome,
+        acessa_painel: Boolean(antes.acessa_painel),
+        usa_veiculo_diario: Boolean(antes.usa_veiculo_diario),
+      },
+      depois: {
+        nome: depois.nome, cargo: depois.cargo_nome,
+        acessa_painel: Boolean(depois.acessa_painel),
+        usa_veiculo_diario: Boolean(depois.usa_veiculo_diario),
+      },
       ip: ctx.ip,
     })
     return { usuario: depois }
