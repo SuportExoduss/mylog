@@ -412,20 +412,43 @@ categoria descreve a frota que existe.
 
    Ele **não vê placas** nesta tela, e não precisa ver.
 2. **Antecedência.** O pedido é feito com **24 horas de antecedência**.
-3. **Aprovação — é aqui que o carro ganha placa.** A Frota abre o pedido e vê
-   os veículos daquela categoria livres na janela, com **marca, modelo e
-   placa**. Escolhe um e aprova. A escolha do carro concreto é ato da Frota,
-   registrado em auditoria com quem escolheu.
+3. **Aprovação — escolher a placa É aprovar.** A Frota abre o pedido e vê os
+   veículos daquela categoria livres na janela, com **marca, modelo e placa**.
+   Seleciona um e libera.
 
-   Se não houver carro livre na categoria, a Frota pode aprovar com carro de
+   São **um ato só**, não dois. Não existe "aprovar agora e dizer o carro
+   depois": uma solicitação aprovada sem placa deixaria o colaborador de pé no
+   pátio sem saber o que pegar. O botão de liberar só funciona com um veículo
+   selecionado, e a escolha vai para a auditoria com o nome de quem escolheu.
+
+   Se não houver carro livre na categoria, a Frota pode liberar um carro de
    outra categoria — explicando o porquê — ou recusar com motivo.
-4. **Retirada.** Com o pedido aprovado, o colaborador vê a placa pela primeira
-   vez, vai até o local, pega o carro e executa o **checklist de SAÍDA**.
-5. **Uso.** O veículo fica associado a ele durante a janela aprovada.
-6. **Devolução.** Ele devolve até o prazo e executa o **checklist de RETORNO**.
+4. **O solicitante vê o carro que vai usar.** Assim que a Frota libera, o
+   pedido dele deixa de mostrar a categoria e passa a mostrar o **veículo**:
+
+   ```
+   Solicitação #14                            APROVADA
+
+   Fiat Strada                    Pick-up
+   ABC1D23
+   sexta, 05/09 · 13:00 às 18:00
+
+   Liberado por Marina Lopes
+   ```
+
+   Essa tela é o que ele consulta no pátio para saber qual carro é o dele. A
+   placa em destaque, porque é ela que ele vai procurar no estacionamento —
+   não a marca.
+
+   Aparece **no aplicativo** (é onde ele está quando vai pegar o carro) e
+   também na lista de solicitações do painel.
+5. **Retirada.** Ele vai até o local, pega o carro e executa o **checklist de
+   SAÍDA**. O checklist que abre é o do **tipo do veículo liberado** (10.3).
+6. **Uso.** O veículo fica associado a ele durante a janela aprovada.
+7. **Devolução.** Ele devolve até o prazo e executa o **checklist de RETORNO**.
    **O retorno é obrigatório aqui, e só aqui** — carro pedido tem que voltar
    para a mão de quem o entregou (8.2).
-7. **Fora do prazo.** Se a devolução passar do horário pedido, antes de encerrar
+8. **Fora do prazo.** Se a devolução passar do horário pedido, antes de encerrar
    o aplicativo mostra:
 
    > *Notamos que passou do prazo de retorno. Descreva o motivo.*
@@ -438,8 +461,8 @@ categoria descreve a frota que existe.
 
 | Estado | Quando |
 |---|---|
-| Pendente | Pedido feito, aguardando a Frota |
-| Aprovada | Frota escolheu o carro e liberou; a placa fica reservada na janela |
+| Pendente | Pedido feito com uma categoria, aguardando a Frota |
+| Aprovada | Frota escolheu o carro e liberou; a placa fica reservada na janela e o solicitante já a vê |
 | Recusada | Frota negou, com motivo |
 | Em uso | Checklist de saída concluído |
 | Devolvida | Checklist de retorno concluído dentro do prazo |
@@ -945,7 +968,7 @@ vez de pelo veículo que está na mão.
 | Inspeção | Em execução → Sincronizando → Finalizada |
 | Execução esperada | No prazo · Atrasado · Não realizado — derivado do relógio, nunca gravado (37) |
 | Ocorrência | Em aberto → Em tratamento → Resolvida → Encerrada |
-| Solicitação | Pendente → Aprovada → Em uso → Devolvida / Devolvida com atraso; ou Recusada / Cancelada |
+| Solicitação | Pendente → Aprovada (já com placa) → Em uso → Devolvida / Devolvida com atraso; ou Recusada / Cancelada |
 | Preventiva | Em dia → Próxima → Muito próxima → Vencida → Realizada |
 | Veículo | Disponível → Com pendência → Bloqueado → Em manutenção → Disponível |
 
@@ -1015,7 +1038,7 @@ Valem para todas as telas de lista:
 | Checklist | Modelos versionados por cargo e tipo de veículo, periodicidade e horário limite, execução com foto, saída e retorno, offline |
 | Checklists feitos | Tela com filtro de período (padrão hoje) e por cargo, e exportação em planilha |
 | Ocorrências | Prioridade, evidência, fluxo de tratamento, bloqueio por crítica |
-| Solicitações | Pedido por categoria de uso, escolha do veículo na aprovação, retirada, devolução e atraso justificado |
+| Solicitações | Pedido por categoria de uso, liberação com escolha da placa, veículo visível ao solicitante, retirada, devolução e atraso justificado |
 | Preventivas | KM/data, próxima regra e alerta no painel |
 | Painel | Frota, checklists, solicitações, ocorrências e preventivas |
 | Relatórios | PDF completo e executivo |
@@ -1389,7 +1412,7 @@ O detalhamento de cada escolha, com o motivo e o custo aceito, está em
 | window_start / window_end | Janela de horário pedida |
 | reason | Motivo do pedido |
 | status | Pendente, aprovada, recusada, em uso, devolvida, devolvida com atraso, cancelada |
-| approved_by / approved_at | Quem aprovou, escolheu o carro, e quando |
+| approved_by / approved_at | Quem escolheu o carro e liberou, e quando |
 | category_override_reason | Preenchido quando a Frota entrega carro de outra categoria |
 | checkout_inspection_id | Inspeção de saída |
 | checkin_inspection_id | Inspeção de retorno |
