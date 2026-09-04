@@ -32,6 +32,12 @@ function combina(no, partes) {
     && classes.every((c) => no.classList.contains(c)))
 }
 
+// Atributo booleano <-> propriedade, como o navegador faz.
+const BOOLEANOS = {
+  disabled: 'disabled', required: 'required', readonly: 'readOnly',
+  checked: 'checked', hidden: 'hidden',
+}
+
 class Evento {
   constructor(tipo, opcoes = {}) {
     this.type = tipo
@@ -99,7 +105,19 @@ class No {
     this._valor = v === null || v === undefined ? '' : String(v)
   }
 
-  setAttribute(nome, valor) { this.atributos.set(nome, String(valor)) }
+  setAttribute(nome, valor) {
+    this.atributos.set(nome, String(valor))
+    // No navegador, atributo booleano e propriedade sao o mesmo estado:
+    // `setAttribute('disabled', ...)` deixa `.disabled` verdadeiro. Sem
+    // refletir, um teste que confere `botao.disabled` leria sempre false e
+    // aprovaria uma tela que deixa clicar no que devia estar travado.
+    if (nome in BOOLEANOS) this[BOOLEANOS[nome]] = valor !== false && valor !== 'false'
+  }
+
+  removeAttribute(nome) {
+    this.atributos.delete(nome)
+    if (nome in BOOLEANOS) this[BOOLEANOS[nome]] = false
+  }
   getAttribute(nome) { return this.atributos.has(nome) ? this.atributos.get(nome) : null }
 
   get firstChild() { return this.filhos[0] || null }
@@ -208,6 +226,22 @@ class No {
 
   focus() { this.focado = true }
   select() { this.selecionado = true }
+
+  // <canvas> sem pixels: registra as chamadas e devolve um tracado vazio.
+  // Da para testar que a assinatura foi exigida e capturada; nao da para
+  // testar o desenho, e este arquivo nao finge que da.
+  getContext() {
+    if (!this._contexto) {
+      const nada = () => {}
+      this._contexto = {
+        beginPath: nada, moveTo: nada, lineTo: nada, stroke: nada, clearRect: nada,
+        lineWidth: 0, lineCap: '', strokeStyle: '',
+      }
+    }
+    return this._contexto
+  }
+
+  toDataURL() { return 'data:image/png;base64,' }
 
   // Sem layout nao ha geometria: devolve zeros. Quem depende de posicao real
   // — como abrir o menu para cima perto do rodape — nao da para testar aqui,

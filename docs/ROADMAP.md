@@ -909,13 +909,13 @@ faz hoje e classificar cada item como *obrigatório*, *melhorável*,
 
 ### Onde a cobertura começa e onde termina
 
-São 112 testes em três camadas:
+São 125 testes em três camadas:
 
 | Camada | Arquivo | O que prova |
 |---|---|---|
-| Motor | `template.teste.js` | O julgamento do checklist, offline e no servidor |
+| Motor | `template.teste.js`, `dominio.teste.js` | O julgamento do checklist, offline e no servidor |
 | API | `api.teste.js`, `relatorios.teste.js` | O servidor HTTP real, ponta a ponta |
-| Tela | `interface.teste.js` sobre `dom.js` | O que a interface faz com a resposta |
+| Tela | `interface.teste.js`, `campo.teste.js` sobre `dom.js` | O que a interface faz com a resposta |
 
 A camada de tela existe por um motivo concreto:
 
@@ -931,13 +931,25 @@ A camada de tela existe por um motivo concreto:
 afrouxar a D1. Não é um navegador: não tem layout, não tem CSS, não calcula
 visibilidade. Implementa o que `web/js/ui.js` chama, e nada além.
 
-**O que ele já cobre:** montagem do modal, encadeamento de telas, erro do
-servidor sem perder o que foi digitado, campo condicional que não vaza valor,
-menu de três pontos (um aberto por vez) e o escape de texto do banco.
+**Painel** (`interface.teste.js`): montagem do modal, encadeamento de telas,
+erro do servidor sem perder o que foi digitado, campo condicional que não vaza
+valor, menu de três pontos com um aberto por vez, e o escape de texto do banco.
+
+**App de campo** (`campo.teste.js`): o hodômetro antes da primeira pergunta,
+OCORRÊNCIA à esquerda e OK à direita, a seta que só anda até onde foi
+respondido, voltar sem perder resposta, uma folha por vez, a prioridade que
+vem da opção configurada, o aviso de bloqueio (e a ausência dele quando a
+prioridade é baixa), e o botão final que nomeia a pendência.
+
+Todo teste que diz cobrir um defeito foi conferido contra ele: o código antigo
+é reintroduzido, o teste fica vermelho, o código novo devolve o verde. Um
+teste que nunca viu o bug que alega cobrir não prova nada — e foi assim que
+`campo.teste.js` revelou que a primeira versão do teste de folha empilhada
+exercitava o caminho errado e passaria de qualquer jeito.
 
 **O que continua sem cobertura automatizada:**
 
-- `app/js/checklist.js` — depende de IndexedDB, câmera e canvas de assinatura;
+- captura de foto e assinatura — IndexedDB, câmera e canvas de verdade;
 - qualquer coisa que dependa de geometria (o menu que abre para cima perto do
   rodapé) — sem layout, `getBoundingClientRect` devolve zeros;
 - CSS: contraste, tema claro/escuro, quebra de página na impressão.
