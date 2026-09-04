@@ -907,6 +907,31 @@ faz hoje e classificar cada item como *obrigatório*, *melhorável*,
 | Auditoria | Eventos aparecem e não são apagados |
 | Performance | Painel com volume e sincronização concorrente |
 
+### O que os testes automatizados não cobrem
+
+Os 99 testes rodam contra o servidor HTTP real e contra o motor de checklist.
+**Nenhum deles abre uma tela.** Essa fronteira já custou caro uma vez:
+
+> O teste `cadastro: usuario nasce pendente com senha gerada pelo sistema`
+> provava que `POST /api/usuarios` devolve uma senha inicial e que ela
+> autentica de verdade. Passava. Mas na tela, `abrirModal` limpava a área de
+> modais depois do `aoConfirmar` — apagando a janela que acabara de exibir
+> essa senha. Todo usuário criado pelo painel nascia com uma senha que
+> ninguém jamais veria, e o cadastro era inutilizável. Suíte verde,
+> funcionalidade morta.
+
+Enquanto não houver teste de interface, **toda mudança em `web/js/ui.js` ou em
+`app/js/checklist.js` exige um passe manual no navegador**, percorrendo:
+
+1. criar usuário → ler a senha inicial → entrar com ela → trocar a senha;
+2. solicitar veículo → aprovar → checklist de saída → devolução → retorno;
+3. tratar uma ocorrência até `encerrada` e conferir o estado do veículo;
+4. abrir os três relatórios.
+
+Montar isso automatizado exige um DOM de teste, e a decisão D1 (zero
+dependências) não deixa instalar um. A saída, quando a F7 chegar, é escrever
+um DOM mínimo próprio — não afrouxar a D1.
+
 ---
 
 ## 27. Relatórios

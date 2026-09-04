@@ -413,3 +413,18 @@ mantém `disponivel`; média e alta deixam `com_pendencia`; crítica bloqueia,
 conforme a política da empresa.
 
 **Consequência.** Um risco de pintura vira fila de trabalho, não carro parado.
+
+## D34 — Um modal fecha a si mesmo, não a área de modais
+
+**Contexto.** `abrirModal` fazia `await aoConfirmar(...)` e em seguida
+`limpar(area)`. Quando o `aoConfirmar` abria outro modal — é assim que a senha
+inicial gerada aparece depois de criar um usuário — o `limpar` apagava essa
+segunda janela. A senha não fica em log nem em auditoria: some para sempre.
+Todo usuário criado pelo painel nascia inutilizável.
+
+**Decisão.** `fechar()` remove o próprio elemento de fundo daquele modal, não
+o conteúdo da área. Um modal aberto por dentro do `aoConfirmar` sobrevive.
+
+**Consequência.** Encadear telas passa a ser seguro. E fica o registro do que
+o teste de API não pega: ele provava que a senha volta e autentica — e provava
+certo. O que faltava era alguém abrir a tela.

@@ -239,7 +239,12 @@ export function abrirModal({ titulo, subtitulo, campos = [], confirmar = 'Salvar
     classe: `botao${perigo ? ' botao--perigo' : ''}`, type: 'submit', texto: confirmar,
   })
 
-  const fechar = () => limpar(area)
+  // Fecha SO este modal, nunca a area inteira. Um `aoConfirmar` pode abrir
+  // outro modal em seguida — e' assim que a senha inicial gerada aparece
+  // depois de criar um usuario. Limpar a area aqui apagaria essa tela antes
+  // de alguem ler a senha, e ela nao volta: nao fica em log nem em auditoria.
+  let fundo
+  const fechar = () => fundo?.remove()
 
   const formulario = elemento('form', {
     classe: 'modal',
@@ -274,7 +279,7 @@ export function abrirModal({ titulo, subtitulo, campos = [], confirmar = 'Salvar
     ]),
   ])
 
-  const fundo = elemento('div', {
+  fundo = elemento('div', {
     classe: 'fundo-modal',
     aoClick: (evento) => { if (evento.target === fundo) fechar() },
   }, [formulario])
