@@ -224,19 +224,39 @@ O botão **+ Novo usuário** abre um popup com:
 | Número de telefone | obrigatório |
 | Cargo | escolhido da lista de cargos cadastrados |
 | Acessa o painel? | sim/não — define Frota ou Colaborador |
+| **Usa veículo todos os dias?** | sim/não — ver 8.2 |
 | Senha inicial | **gerada pelo sistema**: alfanumérica, mínimo 8 dígitos |
 
 A senha inicial **não é digitada** pela Frota. O sistema sorteia e mostra na
 tela para ser repassada. No **primeiro acesso ao aplicativo a troca de senha é
 obrigatória**, antes de qualquer outra tela.
 
-### 8.2 Cargos
+### 8.2 Usa veículo todos os dias — a chave dos dois fluxos
+
+Este campo separa dois tipos de gente, e com eles dois fluxos que a v3.0
+tratava como um só:
+
+| | **Sim** — usa veículo todos os dias | **Não** — usa eventualmente |
+|---|---|---|
+| Quem é | Técnico de campo, técnico de redes: sai com carro toda manhã | Vendas, marketing, administrativo |
+| Como pega o carro | Já tem carro à disposição; não pede | Faz **solicitação** (seção 10) |
+| O que executa | **Checklist diário avulso**, sem solicitação por trás | Checklist de **saída e retorno**, amarrado à solicitação |
+| Retorno | Não exigido | **Obrigatório** |
+| Cobrança | Entra na conta de "não realizado" quando o modelo é obrigatório no dia (11.2) | Não entra: só faz checklist quando pede carro |
+
+> **De onde veio esta regra.** O relatório real do PROLOG de 05/08 a 04/09/2026
+> traz **863 checklists de Saída para 54 de Retorno** — retorno em 6% dos
+> casos. Não é indisciplina: é que a esmagadora maioria dos checklists é o
+> diário de quem sai com carro toda manhã, e para esse não existe "devolução".
+> Exigir retorno de todo mundo produziria 800 pendências falsas por mês.
+
+### 8.3 Cargos
 
 Ao lado de **+ Novo usuário**, o botão **Cargos** abre um popup que lista os
 cargos existentes e permite criar novos. É a mesma lista consumida pelo editor
 de checklist.
 
-### 8.3 Estados da credencial
+### 8.4 Estados da credencial
 
 | Estado | Significado exato | Entra no aplicativo? |
 |---|---|---|
@@ -251,7 +271,7 @@ de checklist.
 > ativação deixa de ser um ato da Frota e passa a ser consequência da troca de
 > senha pelo próprio colaborador.
 
-### 8.4 Ações do usuário
+### 8.5 Ações do usuário
 
 Os botões soltos na linha saem. Na ponta direita, **três pontinhos** abrem:
 
@@ -262,7 +282,7 @@ Os botões soltos na linha saem. Na ponta direita, **três pontinhos** abrem:
 - **Desativar**
 - **Histórico completo do usuário**
 
-### 8.5 Histórico completo do usuário
+### 8.6 Histórico completo do usuário
 
 Tela dedicada com **tudo que o colaborador fez ou deixou de fazer**, com data e
 hora em cada linha:
@@ -275,7 +295,7 @@ hora em cada linha:
 
 O objetivo é ter em mãos o registro completo do colaborador.
 
-### 8.6 Regras de segurança
+### 8.7 Regras de segurança
 
 - Nunca armazenar senha em texto puro.
 - Sessões e tokens devem permitir revogação imediata.
@@ -352,18 +372,59 @@ registro nenhum.
 > **A v2.0 interpretou este módulo errado.** Ele não é abertura de chamado sobre
 > problema, dano, limpeza ou documentação. É **reserva de veículo**.
 
-### 10.2 Fluxo
+### 10.2 Quem pede é quem não tem carro fixo
 
-1. **Pedido.** O colaborador escolhe um veículo que não está em uso e informa:
+A solicitação existe para quem tem **"usa veículo todos os dias" = não** (8.2).
+Quem sai com carro toda manhã não pede: executa o checklist diário avulso.
+
+### 10.3 O colaborador pede uma CATEGORIA, não uma placa
+
+Quem precisa de carro sabe **o que vai fazer**, não qual carro está livre. Pedir
+placa obriga o colaborador a conhecer a frota, e faz ele escolher errado — pede
+o carro de que gostou, não o que serve.
+
+Então ele escolhe uma **categoria de uso**, descrita pelo que importa para o
+trabalho: quantos lugares e que tipo de carroceria.
+
+| Categoria | Para que serve |
+|---|---|
+| 4 assentos — compacto | Deslocamento de pessoas, reunião, visita |
+| 4 assentos — comercial | Pessoas mais carga leve |
+| 2 assentos — utilitário | Carga, material, equipamento |
+
+A lista é **cadastrável pela Frota**, não fixa no código: a frota muda e a
+categoria descreve a frota que existe.
+
+> **Categoria e tipo de veículo são coisas diferentes e não se convertem uma na
+> outra.** A categoria é a necessidade de uso, declarada pelo colaborador. O
+> **tipo** (compacto leve, pick-up, 4x4, motocicleta, caminhão) é uma
+> propriedade do carro, e é ele — e só ele — que decide qual checklist aparece
+> no aplicativo. Pedir "4 assentos comercial" e receber uma pick-up faz aparecer
+> o checklist de pick-up, porque o checklist verifica o carro que está na mão,
+> não o que foi pedido.
+
+### 10.4 Fluxo
+
+1. **Pedido.** O colaborador informa:
+   - **categoria de uso** — ex.: 4 assentos comercial;
    - dia e janela de horário — por exemplo, sexta-feira das 13:00 às 18:00;
    - motivo — por exemplo, reunião em outra cidade.
+
+   Ele **não vê placas** nesta tela, e não precisa ver.
 2. **Antecedência.** O pedido é feito com **24 horas de antecedência**.
-3. **Aprovação.** A Frota aprova. Pode aprovar a qualquer momento depois que o
-   pedido foi feito, desde que o veículo esteja disponível na janela.
-4. **Retirada.** Com o pedido aprovado, o colaborador vai até o local, pega o
-   carro e executa o **checklist de SAÍDA**.
+3. **Aprovação — é aqui que o carro ganha placa.** A Frota abre o pedido e vê
+   os veículos daquela categoria livres na janela, com **marca, modelo e
+   placa**. Escolhe um e aprova. A escolha do carro concreto é ato da Frota,
+   registrado em auditoria com quem escolheu.
+
+   Se não houver carro livre na categoria, a Frota pode aprovar com carro de
+   outra categoria — explicando o porquê — ou recusar com motivo.
+4. **Retirada.** Com o pedido aprovado, o colaborador vê a placa pela primeira
+   vez, vai até o local, pega o carro e executa o **checklist de SAÍDA**.
 5. **Uso.** O veículo fica associado a ele durante a janela aprovada.
 6. **Devolução.** Ele devolve até o prazo e executa o **checklist de RETORNO**.
+   **O retorno é obrigatório aqui, e só aqui** — carro pedido tem que voltar
+   para a mão de quem o entregou (8.2).
 7. **Fora do prazo.** Se a devolução passar do horário pedido, antes de encerrar
    o aplicativo mostra:
 
@@ -373,23 +434,25 @@ registro nenhum.
    que ir com o carro embora para não deixar no tempo"*. O texto fica no
    registro da solicitação e no histórico do usuário.
 
-### 10.3 Estados da solicitação
+### 10.5 Estados da solicitação
 
 | Estado | Quando |
 |---|---|
 | Pendente | Pedido feito, aguardando a Frota |
-| Aprovada | Frota liberou; o veículo fica reservado na janela |
+| Aprovada | Frota escolheu o carro e liberou; a placa fica reservada na janela |
 | Recusada | Frota negou, com motivo |
 | Em uso | Checklist de saída concluído |
 | Devolvida | Checklist de retorno concluído dentro do prazo |
 | Devolvida com atraso | Checklist de retorno concluído fora do prazo, com motivo registrado |
 | Cancelada | Desistência antes da retirada |
 
-### 10.4 Regra de segurança
+### 10.6 Regra de segurança
 
-O colaborador **pesquisa e seleciona** o veículo, mas não altera placa, modelo
-ou qualquer dado mestre. Esses dados pertencem ao cadastro administrado pela
-Frota, e a garantia é de permissão no servidor — não de botão escondido na tela.
+O colaborador escolhe **categoria, janela e motivo**. Não escolhe carro, não
+altera placa, modelo ou qualquer dado mestre. A garantia é de permissão no
+servidor — não de botão escondido na tela: a rota de criação de solicitação
+recusa `veiculo_id` vindo do colaborador, mesmo que alguém o injete na
+requisição.
 
 ---
 
@@ -415,9 +478,75 @@ A Frota clica em **+ Novo checklist** e informa:
 | Tipo de veículo | Compactos leves · Pick-up · 4x4 · Motocicleta · Caminhões |
 | Cargos liberados | Todos, ou um/alguns cargos da lista |
 | Exigir assinatura digital ao finalizar? | botão deslizante sim/não |
+| **Periodicidade** | Avulso · Diário · Semanal · Mensal — ver 11.2.1 |
+| **Tem horário limite?** | caixa de marcar; se sim, um horário — ver 11.2.2 |
 
 Dois botões ao final: **Cancelar** e **Criar rascunho**. Criado o rascunho, a
 tela cai direto na configuração das perguntas.
+
+#### 11.2.1 Periodicidade e obrigatoriedade
+
+Nem todo checklist é do dia a dia. O PROLOG real roda quatro modelos ao mesmo
+tempo, com ritmos diferentes:
+
+| Modelo real | Execuções no mês | Ritmo |
+|---|---|---|
+| Checklist Padrão (diário) | 797 | Todo dia útil |
+| Check List OCORRÊNCIA | 51 | Avulso, quando acontece algo |
+| Checklist Semanal (Calibragem/Limpeza/Itens) | 38 | Uma vez por semana |
+| Checklist Padrão Moto (diário) | 31 | Todo dia útil, quem anda de moto |
+
+Daí as quatro periodicidades:
+
+| Periodicidade | O que a Frota configura | O que o sistema cobra |
+|---|---|---|
+| **Avulso** | nada | Nada. Aparece no app, é feito quando alguém precisa |
+| **Diário** | quais **dias da semana** são obrigatórios | Um checklist por dia marcado, por colaborador obrigado |
+| **Semanal** | em que **dia da semana** vence | Um por semana |
+| **Mensal** | o mês inteiro é a janela | Um por mês |
+
+Os dias da semana são sete caixas de marcar. O relatório real mostra por que
+isso importa: **155 a 189 checklists de segunda a sexta, contra 62 no sábado e
+13 no domingo**. Cobrar sábado e domingo criaria ~90 faltas falsas por mês.
+
+**Quem é cobrado:** só o colaborador com "usa veículo todos os dias" = sim
+(8.2), e só se o **cargo dele estiver liberado** naquele modelo (11.2.3).
+
+#### 11.2.2 Horário limite
+
+Caixa de marcar: **"Tem horário limite para ser realizado?"**. Marcada, abre um
+campo de horário.
+
+| Situação | Estado do checklist |
+|---|---|
+| Feito antes do horário limite | **No prazo** |
+| Feito depois do horário limite, no mesmo dia | **Atrasado** |
+| Não feito até o fim do dia obrigatório | **Não realizado** |
+
+O horário limite não impede a execução: um checklist atrasado ainda é melhor
+que checklist nenhum. Ele **classifica**, e a classificação é o que a Frota
+cobra.
+
+> **O número que justifica isso:** das saídas do checklist diário, **74%
+> acontecem entre 07h e 08h** — 256 às 7h e 352 às 8h, contra 86 às 9h e menos
+> de 20 em cada hora depois. Existe um horário de fato, e hoje ele não está em
+> lugar nenhum do sistema. Um limite às 08h30 separaria a rotina da exceção sem
+> inventar regra nova: só escreveria a que já existe.
+
+#### 11.2.3 Cargo liberado esconde o modelo
+
+Se o cargo do colaborador **não** está entre os liberados, o modelo **não
+aparece** na tela dele — não aparece cinza, não aparece bloqueado, não aparece.
+
+> **O caso que define a regra.** A frota tem um mecânico, e existe um
+> *checklist pós-manutenção*. Esse modelo é liberado só para o cargo dele.
+> Nenhum técnico de campo vê esse checklist na lista; o mecânico vê. Um
+> checklist que aparece para quem não deve preenchê-lo é convite a preenchimento
+> errado, e o dado errado é pior que a ausência dele.
+
+A regra vale nas duas pontas: a tela esconde, e **o servidor recusa** uma
+inspeção enviada com um modelo que o cargo não libera. A tela é conveniência; a
+recusa no servidor é a garantia.
 
 ### 11.3 Criação — cada pergunta
 
@@ -499,11 +628,22 @@ troca a lista por um campo de texto livre para descrever o que houve.
 
 ### 11.5 Saída e retorno
 
-O mesmo modelo roda **duas vezes** por solicitação: **SAÍDA** na retirada e
+O mesmo modelo roda **duas vezes por solicitação**: **SAÍDA** na retirada e
 **RETORNO** na devolução.
 
 Rodar o mesmo modelo nos dois momentos é o que permite comparar a mesma pergunta
 antes e depois. É assim que se prova dano novo, em vez de discutir.
+
+**O retorno não é universal.** Ele existe quando há solicitação por trás — ou
+seja, para quem tem "usa veículo todos os dias" = não (8.2). O checklist diário
+avulso, que é a esmagadora maioria, tem **só saída**: não há devolução, o carro
+fica com a pessoa.
+
+| Origem da execução | Saída | Retorno |
+|---|---|---|
+| Solicitação de veículo | sim | **obrigatório** |
+| Checklist diário avulso | sim | não se aplica |
+| Checklist de ocorrência (avulso) | sim | não se aplica |
 
 ### 11.6 Versionamento
 
@@ -523,6 +663,85 @@ Antes de concluir, o aplicativo mostra um resumo com:
 - fotos obrigatórias pendentes;
 - estado final previsto do veículo;
 - assinatura, quando o modelo exigir.
+
+### 11.8 A aba Checklists no painel
+
+Passar o mouse sobre **Checklists** no menu lateral abre duas linhas:
+
+```
+  Checklists  ▸   Checklists feitos      o que aconteceu
+                  Modelos de checklist   o que deve acontecer
+```
+
+São duas coisas diferentes e hoje estão empilhadas na mesma tela. *Modelos* é
+cadastro: raro, feito pela Frota, muda pouco. *Feitos* é operação: aberto todo
+dia, várias vezes.
+
+### 11.9 Checklists feitos
+
+**Ao abrir, mostra os checklists de hoje.** Sem clicar em nada. Quem entra
+nessa tela quer saber o que já foi feito hoje e o que está faltando — essa é a
+pergunta das 8h da manhã, e ela não deveria custar dois cliques.
+
+Dois filtros no topo, lado a lado:
+
+**1. Período**
+
+- **De … até …** — intervalo livre entre duas datas;
+- **navegação por mês completo** — setas ‹ › que andam de mês em mês, mostrando
+  o mês inteiro de uma vez;
+- atalhos: **Hoje** (padrão) · Ontem · Esta semana · Este mês.
+
+**2. Visualização**
+
+- **Todos** — tudo que foi feito no período;
+- **Por cargo** — agrupa pelos cargos cadastrados, o mesmo recorte que a tela
+  da Frota usa;
+- **Um cargo específico** — só Técnico de Campo, só Vendedor, e assim por
+  diante.
+
+A lista traz, por linha: data e hora, colaborador, cargo, modelo, placa, tipo do
+veículo, KM coletado, momento (saída/retorno), quantas ocorrências, e o estado
+de prazo (no prazo · atrasado). Clicar abre o dossiê de impressão da inspeção
+(seção 27).
+
+### 11.10 Exportar para planilha
+
+Botão **Exportar** na tela de checklists feitos, aplicando os mesmos filtros que
+estão na tela — exporta o que está sendo visto, não a base inteira.
+
+O formato reproduz o relatório que a operação já lê hoje no PROLOG, para que
+ninguém precise aprender a ler outra planilha durante a substituição. Colunas,
+nesta ordem:
+
+```
+Unidade;Modelo checklist;Código checklist;Data realização;Data importado;
+Colaborador;CPF;Equipe;Cargo;Placa;ID Frota;Tipo de veículo;KM coletado;
+Tempo realização (segundos);Tipo;Total de perguntas;Total itens com problemas;
+Total imagens ou anexos;Total imagens alternativas;Itens com Prioridade baixa;
+Itens com Prioridade alta;Itens com Prioridade crítica;Itens não se aplica;
+Observação
+```
+
+Separador `;`, codificação UTF-8 com BOM — é o que o Excel em português abre
+sem pedir nada.
+
+Três colunas exigem explicação, porque o nome engana:
+
+- **`Itens não se aplica`** é sempre `Total de perguntas − Total itens com
+  problemas`. Conferido em todas as 917 linhas do relatório real: não existe um
+  terceiro desfecho no PROLOG, apesar do nome. O MyLog preenche com a contagem
+  de conformes, que é a mesma coisa dita direito.
+- **`Equipe`** sai **vazia**. O PROLOG tem Equipe e Cargo como duas
+  classificações independentes; o MyLog tem só Cargo (decisão da operação). A
+  coluna fica no arquivo para o leiaute não quebrar, e vazia porque preenchê-la
+  com o cargo seria inventar um dado que não existe.
+- **`Código checklist`** é um número sequencial por empresa, legível e citável
+  ("confere o 21713016"). O identificador interno da inspeção é opaco e não
+  serve para conversa de rádio.
+
+`Data importado` e `ID Frota` também saem vazias: são campos de importação e de
+lotação que não existem no modelo do MyLog.
 
 ---
 
@@ -704,9 +923,17 @@ Para evitar confusão de conceitos, o MyLog mantém entidades distintas:
 | Ocorrência | O que deu errado? |
 | Solicitação de veículo | Quem precisa de um carro, quando e por quê? |
 | Ordem de serviço | Qual intervenção de manutenção foi executada? |
+| **Categoria de uso** | Que tipo de carro esse trabalho exige? |
+| **Tipo de veículo** | O que esse carro é? |
 
 Uma ocorrência pode gerar uma ordem de serviço. Uma solicitação nunca vira
 ocorrência: são fluxos diferentes que apenas compartilham o veículo.
+
+**Categoria e tipo são o par que mais tenta se fundir, e não pode.** A
+categoria é o que o colaborador precisa e sabe declarar; o tipo é o que o carro
+é e o que decide o checklist. Fundir os dois obrigaria o colaborador a conhecer
+a frota para pedir um carro, ou faria o checklist ser escolhido pelo pedido em
+vez de pelo veículo que está na mão.
 
 ---
 
@@ -716,6 +943,7 @@ ocorrência: são fluxos diferentes que apenas compartilham o veículo.
 |---|---|
 | Usuário | Pendente → Ativo → Bloqueado/Suspenso → Ativo ou Desativado |
 | Inspeção | Em execução → Sincronizando → Finalizada |
+| Execução esperada | No prazo · Atrasado · Não realizado — derivado do relógio, nunca gravado (37) |
 | Ocorrência | Em aberto → Em tratamento → Resolvida → Encerrada |
 | Solicitação | Pendente → Aprovada → Em uso → Devolvida / Devolvida com atraso; ou Recusada / Cancelada |
 | Preventiva | Em dia → Próxima → Muito próxima → Vencida → Realizada |
@@ -784,9 +1012,10 @@ Valem para todas as telas de lista:
 |---|---|
 | Identidade | Login, troca de senha no primeiro acesso, bloqueio, cargos |
 | Veículos | Cadastro, placa, modelo, tipo, status e KM |
-| Checklist | Modelos versionados por cargo e tipo de veículo, execução com foto, saída e retorno, offline |
+| Checklist | Modelos versionados por cargo e tipo de veículo, periodicidade e horário limite, execução com foto, saída e retorno, offline |
+| Checklists feitos | Tela com filtro de período (padrão hoje) e por cargo, e exportação em planilha |
 | Ocorrências | Prioridade, evidência, fluxo de tratamento, bloqueio por crítica |
-| Solicitações | Pedido com janela, aprovação, retirada, devolução e atraso justificado |
+| Solicitações | Pedido por categoria de uso, escolha do veículo na aprovação, retirada, devolução e atraso justificado |
 | Preventivas | KM/data, próxima regra e alerta no painel |
 | Painel | Frota, checklists, solicitações, ocorrências e preventivas |
 | Relatórios | PDF completo e executivo |
@@ -866,6 +1095,62 @@ faz hoje e classificar cada item como *obrigatório*, *melhorável*,
 | Preventivas | Como calculam vencimento? Quem recebe alerta? |
 | Exceções | O que acontece quando o veículo quebra ou sai da frota? |
 | Integrações | Existem ERP, email, WhatsApp, BI ou APIs envolvidas? |
+
+### 24.1 O que a primeira evidência real já respondeu
+
+Em 04/09/2026 entrou o primeiro dado de verdade: a exportação de *resumo de
+checklist* do PROLOG, em três janelas — dia, semana e mês. O recorte mensal
+cobre **05/08 a 04/09/2026, com 917 execuções**.
+
+| | |
+|---|---|
+| Volume | ~40 checklists por dia útil |
+| Frota | 42 placas distintas |
+| Pessoas | 51 colaboradores |
+| Unidade | Ibiúna (uma só em todo o período) |
+| Momento | Saída 863 · Retorno 54 |
+| Tempo de execução | mediana 158 s · mínimo 19 s · máximo 44 min |
+| Observação escrita | 46 de 917 execuções (5%) |
+
+**Modelos em uso:** Padrão diário (797) · Ocorrência (51) · Semanal
+Calibragem/Limpeza/Itens (38) · Padrão Moto (31).
+
+**Tipos de veículo:** Compacto leve (783) · Pick-up (91) · Motocicleta (34) ·
+4x4 (9). Caminhão não aparece no mês.
+
+**Cargos (12):** Técnico de Campo (603), Técnico de Redes (146), Vendedor (56),
+Técnico Multskill (42), Gestor de Frota (33), Líder de operações, Supervisor
+Redes, Supervisor Técnico, Auxiliar de Logística, Supervisor de Marketing,
+Supervisor de Sucesso do Cliente, Fiscal Técnico.
+
+#### O que a planilha confirmou do desenho atual
+
+- **Não existe terceiro desfecho.** `Itens não se aplica` é sempre
+  `total − problemas`, nas 917 linhas. OK e Ocorrência bastam.
+- **Não existe condutor fixo.** A placa TIO7A14 aparece no mesmo dia, com o
+  mesmo KM, para dois colaboradores diferentes. Remover o vínculo
+  usuário-veículo estava certo.
+- **A prioridade da ocorrência é do modelo, não digitada.** As colunas de
+  baixa/alta/crítica saem contadas, sem campo livre.
+
+#### O que a planilha obrigou a mudar
+
+- **Retorno não é universal** — 6% de retorno virou a distinção entre checklist
+  diário avulso e checklist de solicitação (8.2, 11.5).
+- **Periodicidade existe** — há modelo semanal em produção (11.2.1).
+- **Existe um horário de fato** — 74% das saídas entre 07h e 08h (11.2.2).
+- **Sábado e domingo não são dias de rotina** — 62 e 13 execuções contra ~170
+  nos dias úteis; obrigatoriedade tem que ser por dia da semana.
+
+#### O que continua faltando da F0
+
+Este relatório é o **resumo** — uma linha por execução. Falta o **detalhe**:
+resposta pergunta a pergunta, com as fotos. Sem ele não dá para desenhar a
+migração do histórico (F8) nem conferir as 13 perguntas do Padrão diário.
+
+Também falta: o cadastro de veículos completo, o cadastro de usuários, os
+modelos de checklist exportados, e como a empresa trata hoje uma ocorrência da
+abertura ao fechamento.
 
 ---
 
@@ -977,6 +1262,11 @@ mudança:
 | Frota | Status, ocorrências e indicadores |
 | Auditoria | Alterações críticas de cadastro e operação |
 | Histórico do usuário | Tudo que um colaborador fez, com data e hora |
+| **Resumo de checklists (planilha)** | Uma linha por execução, no leiaute do PROLOG — ver 11.10 |
+
+Todos os relatórios acima são **HTML pronto para imprimir**, abertos pelo
+navegador (decisão D28). O resumo de checklists é a exceção: sai como **CSV**,
+porque não é para ler, é para filtrar e somar em planilha.
 
 ---
 
@@ -1081,6 +1371,7 @@ O detalhamento de cada escolha, com o motivo e o custo aceito, está em
 | phone | Telefone |
 | role_id | Cargo |
 | panel_access | Acessa o painel: Frota (sim) ou Colaborador (não) |
+| daily_vehicle | Usa veículo todos os dias — separa checklist diário de solicitação (8.2) |
 | status | Pendente, ativo, bloqueado, suspenso, desativado |
 | must_change_password | Verdadeiro até a primeira troca |
 | created_at / updated_at | Controle temporal |
@@ -1093,11 +1384,13 @@ O detalhamento de cada escolha, com o motivo e o custo aceito, está em
 |---|---|
 | request_id | Número da solicitação |
 | requester_id | Quem pediu |
-| vehicle_id | Veículo escolhido |
+| category_id | **Categoria de uso pedida** — o que o colaborador escolhe (10.3) |
+| vehicle_id | Veículo entregue — **nulo até a aprovação**; quem preenche é a Frota |
 | window_start / window_end | Janela de horário pedida |
 | reason | Motivo do pedido |
 | status | Pendente, aprovada, recusada, em uso, devolvida, devolvida com atraso, cancelada |
-| approved_by / approved_at | Quem aprovou e quando |
+| approved_by / approved_at | Quem aprovou, escolheu o carro, e quando |
+| category_override_reason | Preenchido quando a Frota entrega carro de outra categoria |
 | checkout_inspection_id | Inspeção de saída |
 | checkin_inspection_id | Inspeção de retorno |
 | returned_at | Devolução efetiva |
@@ -1105,7 +1398,36 @@ O detalhamento de cada escolha, com o motivo e o custo aceito, está em
 
 ---
 
-## 36. Apêndice — estrutura lógica da preventiva
+## 36. Apêndice — estrutura lógica da categoria de uso
+
+Cadastrável pela Frota. Descreve necessidade de transporte, não o carro.
+
+| Campo | Descrição |
+|---|---|
+| category_id | Identificador |
+| tenant_id | Empresa |
+| name | Ex.: "4 assentos — comercial" |
+| seats | Número de assentos, para ordenar e filtrar |
+| body | Descrição da carroceria: compacto, comercial, utilitário |
+| active | Categoria fora de uso some do formulário sem apagar histórico |
+
+## 37. Apêndice — periodicidade do modelo de checklist
+
+| Campo | Descrição |
+|---|---|
+| periodicity | `avulso` · `diario` · `semanal` · `mensal` |
+| weekdays | Dias obrigatórios, quando diário — sete posições |
+| week_day | Dia de vencimento, quando semanal |
+| deadline_time | Horário limite, ou nulo quando não há |
+
+Estado derivado de cada execução esperada, nunca gravado como verdade fixa:
+**no prazo** · **atrasado** · **não realizado**. É recalculado a partir do
+relógio, como a preventiva — gravar "atrasado" produziria um registro que mente
+assim que o horário limite do modelo mudar.
+
+---
+
+## 38. Apêndice — estrutura lógica da preventiva
 
 | Campo | Descrição |
 |---|---|
@@ -1121,19 +1443,38 @@ O detalhamento de cada escolha, com o motivo e o custo aceito, está em
 
 ---
 
-## 37. Em aberto
+## 39. Em aberto
 
 Pontos que ainda dependem de decisão da operação:
 
 1. **Antecedência de 24 h** — é trava rígida, com o sistema recusando pedido
    feito com menos de 24 h, ou orientação, aceitando e marcando como urgente?
-2. **Conflito de janela** — dois pedidos para o mesmo carro com horários
-   sobrepostos: o sistema recusa o segundo automaticamente ou deixa a Frota
-   decidir?
+   *Implementado hoje como orientação; inverter é um booleano.*
+2. **Conflito de janela** — dois pedidos para a mesma **categoria** com
+   horários sobrepostos e só um carro livre: o sistema segura o segundo ou
+   deixa a Frota decidir na hora de escolher a placa?
 3. **Login por CPF** — hoje é por email. Digitar email de luva, em pátio, sob
    sol, é pior que digitar CPF. Vale trocar?
-4. **Retirada sem solicitação** — a equipe da frota precisa fazer checklist sem
-   pedido prévio? Se sim, é uma execução avulsa, fora do ciclo de solicitação.
-5. **Quem recebe a notificação** de pedido novo e de devolução atrasada.
-6. **Exportação do histórico do PROLOG** — bloqueia a F8. Precisa ser respondido
-   pela empresa, não pela engenharia.
+4. **Quem recebe a notificação** de pedido novo, de devolução atrasada e de
+   checklist **não realizado** (11.2.2).
+5. **Exportação do histórico do PROLOG** — bloqueia a F8. O resumo já chegou
+   (24.1); falta o detalhe pergunta a pergunta, com fotos.
+6. **Horário limite de cada modelo** — os dados mostram o pico às 07h–08h, mas
+   o horário oficial é decisão da operação, não da estatística.
+7. **Categorias de uso** — as três de partida ("4 assentos compacto", "4
+   assentos comercial", "2 assentos utilitário") cobrem a frota inteira, ou
+   falta alguma? Moto e caminhão entram como categoria pedível?
+8. **O filtro de período "igual ao do Fibra nos relatórios de O.S."** — desenhei
+   como *de… até…* mais navegação por mês e atalhos (11.9). Se a tela do Fibra
+   tem algo além disso, um print resolve.
+
+### Respondidos em 04/09/2026
+
+- ~~**Retirada sem solicitação**~~ — sim, e é a maioria. Virou o checklist
+  diário avulso, separado pelo campo "usa veículo todos os dias" (8.2).
+- ~~**Equipe como classificação**~~ — não entra. O filtro agrupa por Cargo; a
+  coluna Equipe da exportação sai vazia (11.10).
+- ~~**Unidade**~~ — ignorada por ora. Uma só em todo o período observado.
+- ~~**Categoria × tipo de veículo**~~ — não se convertem. Categoria é
+  necessidade de uso; tipo é propriedade do carro e é ele que decide o
+  checklist (10.3).
