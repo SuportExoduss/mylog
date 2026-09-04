@@ -428,3 +428,26 @@ o conteúdo da área. Um modal aberto por dentro do `aoConfirmar` sobrevive.
 **Consequência.** Encadear telas passa a ser seguro. E fica o registro do que
 o teste de API não pega: ele provava que a senha volta e autentica — e provava
 certo. O que faltava era alguém abrir a tela.
+
+## D35 — DOM de teste escrito à mão, em vez de afrouxar a D1
+
+**Contexto.** O bug do D34 — a senha inicial que nunca aparecia — passou por
+uma suíte inteiramente verde porque nenhum teste abria uma tela. Testar
+interface pede um DOM, e o caminho normal seria instalar um (jsdom, happy-dom),
+contra a decisão D1 de zero dependências.
+
+**Decisão.** `servidor/testes/dom.js`: um DOM mínimo próprio, ~230 linhas, que
+implementa exatamente o que `web/js/ui.js` chama — criar nó, pendurar, remover,
+ouvir e disparar evento com bolha, e seletor simples (`tag`, `.classe`, `#id`,
+lista separada por vírgula).
+
+**O que ele deliberadamente NÃO faz.** Layout, CSS, visibilidade calculada.
+`getBoundingClientRect()` devolve zeros: forjar um retângulo plausível criaria
+confiança falsa sobre código que depende de posição real na tela.
+
+**Consequência.** A camada de tela passou a ser testável sem dependência. O
+teste `modal: o que o aoConfirmar abriu sobrevive ao fechamento` foi conferido
+contra o defeito original — fica vermelho com o código antigo, verde com o
+novo. O que o DOM não alcança está listado no roadmap 26 como passe manual
+obrigatório, e continua listado: cobertura parcial declarada é honesta;
+cobertura parcial silenciosa é a armadilha que criou o D34.
