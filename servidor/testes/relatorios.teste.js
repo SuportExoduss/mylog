@@ -317,7 +317,11 @@ test('relatorio de frota: recalcula a preventiva antes de imprimir', async () =>
   assert.match(html, /Situacao da frota/)
   assert.match(html, /AAA1A11/)
   // O veiculo tem 10.000 km e o alvo era 500: precisa sair como vencida.
-  assert.match(html, /vencida/, 'a preventiva estourada precisa aparecer recalculada')
+  // O relatorio e' impresso: confere o rotulo que sai no papel, nao o valor
+  // cru do banco.
+  assert.match(html, /Vencida/, 'a preventiva estourada precisa aparecer recalculada')
+  assert.doesNotMatch(html, /com_pendencia|em_tratamento/,
+    'nenhum identificador de banco pode vazar para o documento impresso')
 })
 
 test('relatorio: inspecao de outra empresa nao abre', async () => {

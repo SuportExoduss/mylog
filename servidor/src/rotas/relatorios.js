@@ -23,6 +23,15 @@ const dataHora = (iso) => (iso
   ? new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
   : '—')
 
+// Data pura (AAAA-MM-DD), sem hora. Montada em UTC de proposito: a preventiva
+// vence num DIA, e converter para o fuso local jogaria o dia 01 para o 31 do
+// mes anterior em quem esta a oeste de Greenwich.
+const dataCurta = (iso) => {
+  if (!iso) return '—'
+  const [ano, mes, dia] = String(iso).slice(0, 10).split('-')
+  return dia ? `${dia}/${mes}/${ano}` : String(iso)
+}
+
 const numero = (v) => Number(v || 0).toLocaleString('pt-BR')
 
 const ROTULO_MOMENTO = { saida: 'SAIDA', retorno: 'RETORNO' }
@@ -30,6 +39,30 @@ const ROTULO_TIPO = {
   compacto_leve: 'Compacto leve', pickup: 'Pick-up', quatro_x_quatro: '4x4',
   motocicleta: 'Motocicleta', caminhao: 'Caminhao',
 }
+
+// O relatorio e' impresso e entregue na mao de alguem. "em_tratamento" com
+// sublinhado e' vocabulario de banco de dados; num papel assinado, vira ruido.
+const ROTULO_STATUS_VEICULO = {
+  disponivel: 'Disponivel', com_pendencia: 'Com pendencia',
+  bloqueado: 'Bloqueado', manutencao: 'Em manutencao',
+}
+const ROTULO_STATUS_OCORRENCIA = {
+  aberta: 'Em aberto', em_tratamento: 'Em tratamento',
+  resolvida: 'Resolvida', encerrada: 'Encerrada',
+}
+const ROTULO_PRIORIDADE = {
+  baixa: 'Baixa', media: 'Media', alta: 'Alta', critica: 'Critica',
+}
+const ROTULO_STATUS_PREVENTIVA = {
+  em_dia: 'Em dia', proxima: 'Proxima', muito_proxima: 'Muito proxima', vencida: 'Vencida',
+}
+const ROTULO_RESULTADO = {
+  aprovado: 'Aprovado', com_pendencia: 'Com pendencia', reprovado: 'Reprovado',
+}
+
+// Traduz sem esconder: um valor que o mapa nao conhece aparece como esta, em
+// vez de sumir do papel.
+const rotular = (mapa, valor) => mapa[valor] || valor || '—'
 
 // Estilo embutido de proposito: o relatorio impresso nao pode depender de um
 // arquivo externo que pode nao carregar na hora da impressao.
@@ -208,8 +241,8 @@ export function registrarRotasRelatorios(rotas) {
     const ocorrencias = i.ocorrencias.length
       ? `<table><thead><tr><th>Prioridade</th><th>Descricao</th><th>Situacao</th></tr></thead><tbody>
          ${i.ocorrencias.map((o) => `<tr>
-           <td><span class="selo s-${e(o.prioridade)}">${e(o.prioridade)}</span></td>
-           <td>${e(o.descricao)}</td><td>${e(o.status)}</td></tr>`).join('')}
+           <td><span class="selo s-${e(o.prioridade)}">${e(rotular(ROTULO_PRIORIDADE, o.prioridade))}</span></td>
+           <td>${e(o.descricao)}</td><td>${e(rotular(ROTULO_STATUS_OCORRENCIA, o.status))}</td></tr>`).join('')}
          </tbody></table>`
       : '<div class="vazio">Nenhuma ocorrencia aberta nesta inspecao.</div>'
 
@@ -225,7 +258,7 @@ export function registrarRotasRelatorios(rotas) {
       empresa,
       corpo: `
         <h1>${e(i.checklist)}</h1>
-        <p class="sub">Versao ${e(i.checklist_versao)} · resultado <strong>${e(i.resultado || '—')}</strong></p>
+        <p class="sub">Versao ${e(i.checklist_versao)} · resultado <strong>${e(rotular(ROTULO_RESULTADO, i.resultado))}</strong></p>
         ${fichaInspecao(i)}
         <h2>Perguntas e evidencias</h2>
         ${perguntas}
@@ -353,7 +386,7 @@ export function registrarRotasRelatorios(rotas) {
             <td>${e([v.marca, v.modelo].filter(Boolean).join(' '))}</td>
             <td>${e(ROTULO_TIPO[v.tipo] || v.tipo)}</td>
             <td class="dado">${numero(v.km_atual)}</td>
-            <td>${e(v.status)}${v.motivo_status ? `<br><span style="font-size:11px;color:var(--fraco)">${e(v.motivo_status)}</span>` : ''}</td>
+            <td>${e(rotular(ROTULO_STATUS_VEICULO, v.status))}${v.motivo_status ? `<br><span style="font-size:11px;color:var(--fraco)">${e(v.motivo_status)}</span>` : ''}</td>
             <td class="dado">${v.ocorrencias || 0}</td>
             <td class="dado">${dataHora(v.ultimo_checklist)}</td></tr>`).join('')}
         </tbody></table>
@@ -362,11 +395,11 @@ export function registrarRotasRelatorios(rotas) {
         ${ocorrencias.length ? `<table><thead><tr><th>Prioridade</th><th>Veiculo</th>
           <th>Descricao</th><th>Aberta em</th><th>Situacao</th></tr></thead><tbody>
           ${ocorrencias.map((o) => `<tr>
-            <td><span class="selo s-${e(o.prioridade)}">${e(o.prioridade)}</span></td>
+            <td><span class="selo s-${e(o.prioridade)}">${e(rotular(ROTULO_PRIORIDADE, o.prioridade))}</span></td>
             <td class="dado">${e(o.placa)}</td>
             <td>${e(o.descricao)}</td>
             <td class="dado">${dataHora(o.aberta_em)}</td>
-            <td>${e(o.status)}</td></tr>`).join('')}
+            <td>${e(rotular(ROTULO_STATUS_OCORRENCIA, o.status))}</td></tr>`).join('')}
         </tbody></table>` : '<div class="vazio">Nenhuma ocorrencia aberta.</div>'}
 
         <h2>Preventivas exigindo atencao</h2>
@@ -375,8 +408,8 @@ export function registrarRotasRelatorios(rotas) {
           ${preventivas.map((p) => `<tr>
             <td class="dado">${e(p.placa)}</td>
             <td>${p.modo === 'km' ? 'Quilometragem' : 'Data'}</td>
-            <td class="dado">${p.modo === 'km' ? `${numero(p.proximo_km)} km` : e(p.proxima_data)}</td>
-            <td><span class="selo s-${p.status === 'vencida' ? 'critica' : 'media'}">${e(p.status)}</span></td>
+            <td class="dado">${p.modo === 'km' ? `${numero(p.proximo_km)} km` : e(dataCurta(p.proxima_data))}</td>
+            <td><span class="selo s-${p.status === 'vencida' ? 'critica' : 'media'}">${e(rotular(ROTULO_STATUS_PREVENTIVA, p.status))}</span></td>
           </tr>`).join('')}
         </tbody></table>` : '<div class="vazio">Todas as preventivas em dia.</div>'}`,
     }))
