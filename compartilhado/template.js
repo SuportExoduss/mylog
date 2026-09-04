@@ -28,6 +28,31 @@ export const TIPOS_VEICULO = [
 
 export const MOMENTOS = ['saida', 'retorno']
 
+// Tudo que pode impedir a finalizacao de um checklist. A lista vive aqui, ao
+// lado de quem cria as pendencias, para que acrescentar um motivo novo sem
+// dar-lhe uma frase seja um teste vermelho e nao uma tela muda no patio.
+export const MOTIVOS_PENDENCIA = [
+  'sem_resposta', 'foto_obrigatoria', 'fotos_acima_do_limite',
+  'sem_opcao_nem_relatorio', 'assinatura_obrigatoria',
+]
+
+const FRASE_PENDENCIA = {
+  sem_resposta: (titulo) => `Falta responder: ${titulo}`,
+  foto_obrigatoria: (titulo) => `Falta a foto: ${titulo}`,
+  fotos_acima_do_limite: (titulo) => `Fotos demais em: ${titulo}`,
+  sem_opcao_nem_relatorio: (titulo) => `Falta dizer o que houve: ${titulo}`,
+  assinatura_obrigatoria: () => 'Falta assinar',
+}
+
+// O que dizer ao motorista quando o botao de finalizar esta travado. Dizer
+// sempre "falta responder" o manda procurar pergunta em branco quando o que
+// falta e' uma foto ou a assinatura — e ele fica girando na tela.
+export function descreverPendencia(pendencia) {
+  if (!pendencia) return null
+  const frase = FRASE_PENDENCIA[pendencia.motivo]
+  return frase ? frase(pendencia.titulo) : `Pendencia em: ${pendencia.titulo}`
+}
+
 const IDENTIFICADOR = /^[a-z0-9_]{2,40}$/
 const MAX_FOTOS_ABSOLUTO = 12
 

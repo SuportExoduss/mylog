@@ -5,7 +5,7 @@
 // a direita. Quem preenche isso esta de pe no patio, com pressa e as vezes de
 // luva; cada toque a mais e' um checklist que nao vai ser feito direito.
 import { fotos, uuid } from './armazem.js'
-import { avaliarInspecao, avaliarResposta } from '../../compartilhado/template.js'
+import { avaliarInspecao, avaliarResposta, descreverPendencia } from '../../compartilhado/template.js'
 
 export function elemento(tag, atributos = {}, filhos = []) {
   const el = document.createElement(tag)
@@ -186,6 +186,11 @@ export function executarChecklist({ tarefa, modelo, aoConcluir, aoSair }) {
 
   // Folha que sobe de baixo: e' onde ficam as tres opcoes depois da foto.
   function folha({ titulo, texto, acoes, filhos = [] }) {
+    // Uma folha por vez. O fundo e' fixed/inset:0 e intercepta o toque, entao
+    // na pratica nao da para empilhar duas; mas o custo de garantir e' uma
+    // linha, e uma folha esquecida embaixo de outra e' o tipo de estado que
+    // so aparece no patio, com o carro parado e ninguem para depurar.
+    raiz.querySelector('.folha-fundo')?.remove()
     const fundo = elemento('div', { classe: 'folha-fundo' })
     const fechar = () => fundo.remove()
     fundo.append(elemento('div', { classe: 'folha' }, [
@@ -453,6 +458,17 @@ export function executarChecklist({ tarefa, modelo, aoConcluir, aoSair }) {
     )
   }
 
+  // A frase de cada pendencia vem do motor compartilhado: a mesma que o
+  // servidor usaria ao recusar a inspecao.
+  function rotuloDoBotao(juizo) {
+    if (juizo.pode_finalizar) return 'Finalizar checklist'
+    const texto = descreverPendencia(juizo.pendencias[0])
+    if (!texto) return 'Falta responder'
+    return juizo.pendencias.length > 1
+      ? `${texto} (+${juizo.pendencias.length - 1})`
+      : texto
+  }
+
   function desenharResumo() {
     const juizo = avaliarInspecao(estrutura, materializar(), {
       politicas: tarefa.politicas || {},
@@ -463,15 +479,27 @@ export function executarChecklist({ tarefa, modelo, aoConcluir, aoSair }) {
     const linhas = perguntas.map((p) => {
       const r = respostas[p.id]
       const juizoItem = r ? avaliarResposta(p, { ...r, fotos: (r.fotos_ids || []).length }) : null
+      // Uma pergunta respondida ainda pode estar pendente — falta a foto
+      // obrigatoria, por exemplo. Marcar essa linha como "OK" faria a lista
+      // contradizer o botao que diz que nao da para finalizar.
+      const travada = (juizoItem?.problemas || []).length > 0
+      const classe = !r ? 'selo--pendente'
+        : travada ? 'selo--pendente'
+        : r.desfecho === 'ok' ? 'selo--ok'
+        : `selo--${juizoItem?.prioridade || 'registro'}`
+      const texto = !r ? 'sem resposta'
+        : travada
+          ? descreverPendencia({ motivo: juizoItem.problemas[0], titulo: p.titulo })
+              .replace(`: ${p.titulo}`, '').toLowerCase()
+        : r.desfecho === 'ok' ? 'OK'
+        : (juizoItem?.descricao || 'ocorrencia')
+
       return elemento('button', {
         classe: 'resumo-linha', type: 'button',
         aoClick: () => { indice = perguntas.indexOf(p); desenhar() },
       }, [
         elemento('span', { classe: 'resumo-titulo', texto: p.titulo }),
-        elemento('span', {
-          classe: `resumo-selo ${!r ? 'selo--pendente' : r.desfecho === 'ok' ? 'selo--ok' : `selo--${juizoItem?.prioridade || 'registro'}`}`,
-          texto: !r ? 'sem resposta' : r.desfecho === 'ok' ? 'OK' : (juizoItem?.descricao || 'ocorrencia'),
-        }),
+        elemento('span', { classe: `resumo-selo ${classe}`, texto }),
       ])
     })
 
@@ -501,7 +529,7 @@ export function executarChecklist({ tarefa, modelo, aoConcluir, aoSair }) {
       elemento('footer', { classe: 'exec-rodape exec-rodape--unico' }, [
         elemento('button', {
           classe: 'botao botao--grande botao--ok', type: 'button',
-          texto: juizo.pode_finalizar ? 'Finalizar checklist' : 'Falta responder',
+          texto: rotuloDoBotao(juizo),
           disabled: !juizo.pode_finalizar,
           aoClick: () => aoConcluir({
             cliente_uuid: clienteUuid,

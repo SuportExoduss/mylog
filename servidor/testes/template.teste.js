@@ -6,8 +6,8 @@ import assert from 'node:assert/strict'
 
 const {
   conferirEstrutura, avaliarResposta, avaliarInspecao,
-  cargoLiberado, perguntaPorId, opcaoPorId,
-  PRIORIDADES, MODOS_FOTO, MOMENTOS, TIPOS_VEICULO,
+  cargoLiberado, perguntaPorId, opcaoPorId, descreverPendencia,
+  PRIORIDADES, MODOS_FOTO, MOMENTOS, TIPOS_VEICULO, MOTIVOS_PENDENCIA,
 } = await import('../../compartilhado/template.js')
 
 const ESTRUTURA = {
@@ -321,4 +321,48 @@ test('inspecao: o julgamento nao depende do relogio', () => {
   const a = avaliarInspecao(ESTRUTURA, TUDO_OK, {})
   const b = avaliarInspecao(ESTRUTURA, TUDO_OK, {})
   assert.deepEqual(a, b)
+})
+
+// -------------------------------------------------- frases de pendencia
+
+test('todo motivo de pendencia tem frase propria', () => {
+  // Se alguem acrescentar um motivo no motor e esquecer a frase, o motorista
+  // ve "Pendencia em: X" e nao sabe o que fazer. Este teste fica vermelho antes.
+  for (const motivo of MOTIVOS_PENDENCIA) {
+    const frase = descreverPendencia({ motivo, titulo: 'Lataria' })
+    assert.ok(frase, `motivo sem frase: ${motivo}`)
+    assert.ok(!frase.startsWith('Pendencia em:'), `motivo caiu no generico: ${motivo}`)
+  }
+})
+
+test('a frase diz o que falta, nao apenas que falta', () => {
+  assert.equal(descreverPendencia({ motivo: 'foto_obrigatoria', titulo: 'Pneus' }),
+    'Falta a foto: Pneus')
+  assert.equal(descreverPendencia({ motivo: 'assinatura_obrigatoria', titulo: 'Assinatura' }),
+    'Falta assinar')
+  assert.equal(descreverPendencia(null), null)
+})
+
+test('motivo desconhecido nao quebra a tela', () => {
+  assert.equal(descreverPendencia({ motivo: 'inventado', titulo: 'Freios' }),
+    'Pendencia em: Freios')
+})
+
+test('todo motivo que o motor produz esta declarado em MOTIVOS_PENDENCIA', () => {
+  // Percorre casos reais e confere que nenhum motivo escapa da lista.
+  const casos = [
+    avaliarInspecao(ESTRUTURA, {}, {}),
+    avaliarInspecao(ESTRUTURA, TUDO_OK, { exige_assinatura: true }),
+    avaliarInspecao(ESTRUTURA,
+      { ...TUDO_OK, pneus: { desfecho: 'ocorrencia', opcao_id: 'liso', fotos: 0 } }, {}),
+    avaliarInspecao(ESTRUTURA,
+      { ...TUDO_OK, pneus: { desfecho: 'ocorrencia', fotos: 1 } }, {}),
+    avaliarInspecao(ESTRUTURA,
+      { ...TUDO_OK, pneus: { desfecho: 'ocorrencia', opcao_id: 'liso', fotos: 9 } }, {}),
+  ]
+  const vistos = new Set(casos.flatMap((c) => c.pendencias.map((p) => p.motivo)))
+  assert.ok(vistos.size >= 4, `poucos motivos exercitados: ${[...vistos]}`)
+  for (const motivo of vistos) {
+    assert.ok(MOTIVOS_PENDENCIA.includes(motivo), `motivo fora da lista: ${motivo}`)
+  }
 })
