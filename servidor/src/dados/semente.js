@@ -40,7 +40,10 @@ function criarCargo(nome) {
   return id
 }
 
-const cgFrota = criarCargo('Equipe de frota')
+// Cargo e' funcao, nao permissao (roadmap 3). Quem trabalha na frota tem um
+// cargo como qualquer outro; o que da acesso ao painel e' o nivel.
+const cgFrota = criarCargo('Supervisor de frota')
+const cgManutencao = criarCargo('Analista de manutencao')
 const cgMotorista = criarCargo('Motorista')
 const cgTecnico = criarCargo('Tecnico de campo')
 const cgVendas = criarCargo('Consultor de vendas')
@@ -67,7 +70,7 @@ function criarUsuario(nome, cpf, email, telefone, cargoId, acessaPainel, status 
 
 // CPFs validos gerados para desenvolvimento — passam no digito verificador.
 const admId = criarUsuario('Andre Roberth', '52998224725', 'adm@mylog.local', '(31) 90000-0001', cgFrota, true)
-criarUsuario('Marina Lopes', '11144477735', 'marina@mylog.local', '(31) 90000-0002', cgFrota, true)
+const marinaId = criarUsuario('Marina Lopes', '11144477735', 'marina@mylog.local', '(31) 90000-0002', cgManutencao, true)
 const carlosId = criarUsuario('Carlos Nunes', '15350946056', 'carlos@mylog.local', '(31) 90000-0003', cgMotorista, false)
 const ritaId = criarUsuario('Rita Alves', '39145281769', 'rita@mylog.local', '(31) 90000-0004', cgVendas, false)
 criarUsuario('Joao Pires', '71428793860', 'joao@mylog.local', '(31) 90000-0005', cgTecnico, false, 'pendente')
@@ -234,6 +237,40 @@ criarSolicitacao(2, carlosId, v1, 2, 6,
 // Em uso e ja passou do prazo: o app vai pedir o motivo do atraso.
 criarSolicitacao(3, ritaId, v5, -8, 4,
   'Visita tecnica em Sete Lagoas.', 'em_uso')
+
+// ------------------------------------------------------------ ocorrencias
+// A frota bloqueada precisa ter um porque visivel na fila. Sem isto o painel
+// mostra "1 bloqueado" e "0 ocorrencias abertas" ao mesmo tempo, que e' o tipo
+// de contradicao que faz o supervisor parar de confiar no numero.
+function criarOcorrencia(veiculo, perguntaId, descricao, prioridade, status, diasAtras, extras = {}) {
+  const abertaEm = new Date(Date.now() - diasAtras * 86400000).toISOString()
+  executar(
+    `INSERT INTO ocorrencias (id, empresa_id, veiculo_id, pergunta_id, descricao,
+                              prioridade, status, responsavel_id, resolucao,
+                              resolvida_em, aberta_em)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [novoId('ocorrencia'), empresaId, veiculo, perguntaId, descricao, prioridade, status,
+     extras.responsavel ?? null, extras.resolucao ?? null, extras.resolvidaEm ?? null, abertaEm],
+  )
+}
+
+criarOcorrencia(v4, 'freios',
+  'Folga excessiva no pedal: pedal vai quase ao fundo antes de responder.',
+  'critica', 'aberta', 5)
+criarOcorrencia(v4, 'pneus',
+  'Desgaste visivel na banda: dianteiro esquerdo abaixo do sulco minimo.',
+  'media', 'em_tratamento', 5, { responsavel: marinaId })
+criarOcorrencia(v2, 'iluminacao',
+  'Farol queimado: baixo direito nao acende.',
+  'alta', 'aberta', 2)
+criarOcorrencia(v3, 'lataria',
+  'Risco na pintura: porta traseira direita, sem deformacao.',
+  'baixa', 'aberta', 9)
+criarOcorrencia(v1, 'interior',
+  'Veiculo sujo: cabine com residuo de obra.',
+  'baixa', 'resolvida', 20,
+  { responsavel: marinaId, resolucao: 'Higienizacao completa feita no patio.',
+    resolvidaEm: new Date(Date.now() - 18 * 86400000).toISOString() })
 
 console.log('Banco semeado em', config.bancoCaminho)
 console.log('')

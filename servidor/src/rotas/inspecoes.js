@@ -10,7 +10,7 @@ import { erro } from '../nucleo/http.js'
 import { registrarEvento } from '../nucleo/auditoria.js'
 import { exigirAutenticado } from '../seguranca/sessao.js'
 import { ehFrota } from '../seguranca/nivel.js'
-import { registrarKm } from './veiculos.js'
+import { registrarKm, agrava } from './veiculos.js'
 import { avaliarInspecao, cargoLiberado, MOMENTOS } from '../../../compartilhado/template.js'
 
 function politicas(empresaId) {
@@ -187,8 +187,11 @@ export function registrarRotasInspecoes(rotas) {
            `${oc.titulo}: ${oc.descricao}`, oc.prioridade, ts])
       }
 
-      // Estado do veiculo conforme a politica da empresa.
-      if (juizo.estado_veiculo_previsto !== 'disponivel') {
+      // Estado do veiculo conforme a politica da empresa. So aplica se o
+      // checklist APERTAR a restricao: um retorno com problema medio nao pode
+      // rebaixar para "com pendencia" um carro que estava bloqueado — liberar
+      // veiculo bloqueado e' decisao da Frota, com motivo (roadmap 9.3).
+      if (agrava(veiculo.status, juizo.estado_veiculo_previsto)) {
         executar('UPDATE veiculos SET status = ?, motivo_status = ?, atualizado_em = ? WHERE id = ?',
           [juizo.estado_veiculo_previsto, juizo.motivo, ts, veiculo.id])
       }

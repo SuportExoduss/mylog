@@ -11,6 +11,17 @@ import { exigirFrota } from '../seguranca/nivel.js'
 
 export const STATUS_VEICULO = ['disponivel', 'com_pendencia', 'bloqueado', 'manutencao']
 
+// Quanto cada estado restringe o uso do carro. Existe para uma regra so:
+// um checklist pode APERTAR a restricao de um veiculo, nunca afrouxar.
+// Sem isso, um retorno com problema medio rebaixaria para "com pendencia" um
+// carro bloqueado por falha critica — liberando pela porta dos fundos aquilo
+// que so a Frota libera, com motivo e auditoria (roadmap 9.3 e 12.2).
+const RESTRICAO = { disponivel: 0, com_pendencia: 1, manutencao: 2, bloqueado: 3 }
+
+export function agrava(atual, proposto) {
+  return (RESTRICAO[proposto] ?? 0) > (RESTRICAO[atual] ?? 0)
+}
+
 export const TIPOS_VEICULO = [
   'compacto_leve', 'pickup', 'quatro_x_quatro', 'motocicleta', 'caminhao',
 ]
@@ -52,6 +63,36 @@ export function registrarKm(veiculo, kmNovo, { motivo, ator, ip }) {
     antes: { km_atual: veiculo.km_atual }, depois: { km_atual: km, motivo }, ip,
   })
   return { ...veiculo, km_atual: km }
+}
+
+// "Com pendencia" e' consequencia de ocorrencia aberta, nao carimbo vitalicio.
+// Fechada a ultima ocorrencia, o carro volta sozinho para disponivel. Sem isto
+// a frota inteira migra para "com pendencia" com o passar dos meses e o filtro
+// do painel para de separar o que precisa de acao do que ja foi resolvido.
+//
+// Bloqueio e manutencao NAO saem por aqui: continuam sendo decisao explicita
+// da Frota, com motivo (roadmap 9.3).
+export function reavaliarPendencia(empresaId, veiculoId, { ator, ip } = {}) {
+  const veiculo = consultarUm('SELECT * FROM veiculos WHERE id = ? AND empresa_id = ?',
+    [veiculoId, empresaId])
+  if (!veiculo || veiculo.status !== 'com_pendencia') return veiculo
+
+  const abertas = consultarUm(
+    `SELECT COUNT(*) AS n FROM ocorrencias
+      WHERE empresa_id = ? AND veiculo_id = ? AND status IN ('aberta', 'em_tratamento')`,
+    [empresaId, veiculoId])
+  if (Number(abertas?.n || 0) > 0) return veiculo
+
+  executar(`UPDATE veiculos SET status = 'disponivel', motivo_status = NULL, atualizado_em = ?
+             WHERE id = ? AND empresa_id = ?`, [agora(), veiculoId, empresaId])
+  registrarEvento({
+    empresaId, ator, acao: 'veiculo.status.disponivel',
+    entidade: 'veiculo', entidadeId: veiculoId,
+    antes: { status: 'com_pendencia' },
+    depois: { status: 'disponivel', motivo: 'Ultima ocorrencia do veiculo foi encerrada.' },
+    ip,
+  })
+  return consultarUm('SELECT * FROM veiculos WHERE id = ?', [veiculoId])
 }
 
 export function registrarRotasVeiculos(rotas) {

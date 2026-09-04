@@ -799,29 +799,52 @@ Valem para todas as telas de lista:
 
 | Fase | Entrega | Situação |
 |---|---|---|
-| F0 — Descoberta | Mapear o PROLOG real em uso | pendente |
+| F0 — Descoberta | Mapear o PROLOG real em uso | **pendente — depende da empresa** |
 | F1 — Fundação | Repo, banco, auth, tenant, auditoria | **feita** |
-| F2 — Web ADM | Usuários, veículos, painel, editor de checklist | **feita** — a rever pela v3.0 |
-| F3 — Aplicativo de campo | Login, checklist, evidências, offline | **feita** — a rever pela v3.0 |
-| F4 — Regras | Prioridade, bloqueio, ocorrências | **parcial** |
+| F2 — Web ADM | Usuários, veículos, painel, editor de checklist | **feita** — reescrita na v3.0 |
+| F3 — Aplicativo de campo | Login, checklist, evidências, offline | **feita** — reescrita na v3.0 |
+| F4 — Regras | Prioridade, bloqueio, ocorrências | **feita** |
 | F5 — Preventivas | Agenda por KM/data, reagendamento, alertas | **feita** |
-| F6 — Relatórios | PDFs, filtros e dossiês | pendente |
-| F7 — Piloto | Rodar em paralelo com o PROLOG | pendente |
-| F8 — Migração | Migrar cadastros e histórico útil | pendente |
+| F6 — Relatórios | Dossiês de impressão, comparativo, frota | **feita** |
+| F7 — Piloto | Rodar em paralelo com o PROLOG | pendente — depende da empresa |
+| F8 — Migração | Migrar cadastros e histórico útil | pendente — depende da F0 |
 | F9 — Substituição | Homologar e retirar o PROLOG | pendente |
 | F10 — Evolução | OCR, detecção visual, analytics | futuro |
 
-### O que a v3.0 obriga a revisar
+Da F1 à F6 o software está escrito e coberto por testes. O que separa o MyLog
+do piloto não é mais código: é a F0 — sentar com quem usa o PROLOG hoje e
+descobrir o que ele realmente faz. Codificar antes disso seria inventar
+requisito.
 
-| Área | Ação |
-|---|---|
-| Vínculos usuário-veículo | **remover** — tabela, rotas, tela e testes |
-| Papéis de acesso | **substituir** os cinco por Frota/Colaborador |
-| Tickets | **reescrever** como Solicitação de veículo |
-| Motor de checklist | **simplificar** — sai tipo de resposta e condicional; entra foto de exibição, opções de problema e execução em duas passagens |
-| Usuários | **acrescentar** CPF, telefone, cargo, senha gerada, histórico completo |
-| Listas | **trocar** botões por menu de três pontos |
-| Preventivas, auditoria, design system | mantidos |
+### O que a v3.0 obrigou a revisar — e já foi revisto
+
+| Área | Ação | Situação |
+|---|---|---|
+| Vínculos usuário-veículo | **remover** — tabela, rotas, tela e testes | feito |
+| Papéis de acesso | **substituir** os cinco por Frota/Colaborador | feito |
+| Tickets | **reescrever** como Solicitação de veículo | feito |
+| Motor de checklist | **simplificar** — sai tipo de resposta e condicional; entra foto de exibição, opções de problema e execução em duas passagens | feito |
+| Usuários | **acrescentar** CPF, telefone, cargo, senha gerada, histórico completo | feito |
+| Listas | **trocar** botões por menu de três pontos | feito |
+| Preventivas, auditoria, design system | mantidos | — |
+
+### Regras de estado do veículo que a implementação fixou
+
+Três consequências da seção 12.2 que só aparecem quando o sistema roda por
+semanas, e que o código passou a garantir:
+
+1. **Prioridade baixa não para o carro.** Um risco de pintura entra na fila e
+   o veículo segue disponível. Se toda ocorrência tirasse o carro de
+   circulação, em um mês a frota inteira estaria "com pendência" e ninguém
+   olharia mais para o status.
+2. **Checklist só aperta, nunca afrouxa.** Uma inspeção pode piorar o estado
+   de um veículo, jamais melhorá-lo. Sem isso, um retorno com problema médio
+   rebaixaria para "com pendência" um carro bloqueado por falha crítica —
+   liberando pela porta dos fundos o que só a Frota libera, com motivo.
+3. **Pendência sai sozinha; bloqueio não.** Fechada a última ocorrência aberta
+   do veículo, ele volta a disponível automaticamente, porque a pendência era
+   consequência dela. Bloqueio e manutenção continuam saindo apenas por
+   decisão explícita da Frota, com motivo e registro em auditoria (9.3).
 
 ---
 

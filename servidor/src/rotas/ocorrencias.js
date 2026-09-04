@@ -10,6 +10,7 @@ import { registrarEvento } from '../nucleo/auditoria.js'
 import { exigirAutenticado } from '../seguranca/sessao.js'
 import { exigirFrota } from '../seguranca/nivel.js'
 import { PRIORIDADES } from '../../../compartilhado/template.js'
+import { reavaliarPendencia } from './veiculos.js'
 
 export const STATUS_OCORRENCIA = ['aberta', 'em_tratamento', 'resolvida', 'encerrada']
 
@@ -98,8 +99,14 @@ export function registrarRotasOcorrencias(rotas) {
         WHERE id = ? AND empresa_id = ?`,
       [novo, resolucao, novo, ts, antes.id, eu.empresa_id])
 
-    // Encerrar a ocorrencia NAO desbloqueia o veiculo sozinho: liberar veiculo
-    // continua sendo decisao explicita, com motivo (roadmap 9.3).
+    // Fechada a ultima ocorrencia aberta, o veiculo sai de "com pendencia"
+    // sozinho — a pendencia era consequencia dela. Bloqueio e manutencao nao
+    // saem por aqui: liberar veiculo bloqueado continua sendo decisao
+    // explicita da Frota, com motivo (roadmap 9.3).
+    if (['resolvida', 'encerrada'].includes(novo)) {
+      reavaliarPendencia(eu.empresa_id, antes.veiculo_id, { ator: eu, ip: ctx.ip })
+    }
+
     registrarEvento({
       empresaId: eu.empresa_id, ator: eu, acao: `ocorrencia.${novo}`,
       entidade: 'ocorrencia', entidadeId: antes.id,

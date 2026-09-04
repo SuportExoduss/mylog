@@ -229,7 +229,10 @@ export function avaliarInspecao(estrutura, respostas = {}, opcoes = {}) {
 
   if (ocorrencias.length > 0) {
     resultado = 'com_pendencia'
-    estadoVeiculo = 'com_pendencia'
+    // Prioridade baixa entra na fila mas nao tira o carro de circulacao
+    // (roadmap 12.2). Se todo risco de pintura parasse um veiculo, a frota
+    // inteira ficaria "com pendencia" e o status deixaria de significar algo.
+    estadoVeiculo = maiorPrioridade === 'baixa' ? 'disponivel' : 'com_pendencia'
     motivo = `${ocorrencias.length} ocorrencia(s), maior prioridade: ${maiorPrioridade}.`
   }
   if (temCritica) {

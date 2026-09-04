@@ -372,3 +372,44 @@ aceitavel para o volume de uma frota.
 
 **O caminho ja esta pronto para S3/R2:** `empresa/veiculo/inspecao/pergunta/arquivo`,
 derivado no servidor e nunca recebido do cliente.
+
+## D31 — O estado do veículo só é afrouxado por decisão humana
+
+**Contexto.** Um checklist grava o estado que ele mesmo julgou. Um retorno com
+problema médio julga "com pendência"; se isso for gravado sobre um veículo que
+estava bloqueado por falha crítica, o checklist acabou de liberar um carro
+que só a Frota podia liberar.
+
+**Decisão.** Os estados têm uma ordem de restrição
+(`disponivel < com_pendencia < manutencao < bloqueado`) e a inspeção só grava
+o estado julgado quando ele **agrava** o atual.
+
+**Consequência.** Nenhum caminho automático destrava um veículo. Destravar é
+sempre `POST /api/veiculos/:id/status` com motivo obrigatório e evento de
+auditoria.
+
+## D32 — Pendência é consequência, bloqueio é decisão
+
+**Contexto.** "Com pendência" nascia de uma ocorrência aberta e nunca saía
+sozinho. Em poucos meses a frota inteira migraria para esse estado e o filtro
+do painel deixaria de separar o que precisa de ação do que já foi resolvido.
+
+**Decisão.** Fechada a última ocorrência aberta (`resolvida` ou `encerrada`)
+de um veículo que está `com_pendencia`, ele volta a `disponivel` sozinho, com
+evento de auditoria. `bloqueado` e `manutencao` não saem por esse caminho.
+
+**Consequência.** O estado do veículo passa a ser legível: pendência descreve
+a fila de ocorrências; bloqueio descreve uma decisão que alguém tomou e
+assinou.
+
+## D33 — Prioridade baixa não tira o carro de circulação
+
+**Contexto.** O motor tratava qualquer ocorrência como pendência, contrariando
+a tabela da seção 12.2 do roadmap, que reserva a baixa para "entra na fila;
+veículo segue disponível".
+
+**Decisão.** O estado previsto passa a considerar a maior prioridade: baixa
+mantém `disponivel`; média e alta deixam `com_pendencia`; crítica bloqueia,
+conforme a política da empresa.
+
+**Consequência.** Um risco de pintura vira fila de trabalho, não carro parado.

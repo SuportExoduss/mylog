@@ -11,17 +11,32 @@ const ROTULO_STATUS = ROTULO_STATUS_OCORRENCIA
 const TOM_STATUS = TOM_STATUS_OCORRENCIA
 const PRIORIDADES = Object.entries(ROTULO_PRIORIDADE).map(([valor, rotulo]) => ({ valor, rotulo }))
 
+// A mesma cadeia que o servidor aplica (roadmap 12.3). Oferecer no seletor um
+// destino que o servidor recusa so produz erro depois de o usuario decidir.
+const TRANSICOES = {
+  aberta: ['em_tratamento', 'encerrada'],
+  em_tratamento: ['resolvida', 'aberta', 'encerrada'],
+  resolvida: ['encerrada', 'em_tratamento'],
+  encerrada: [],
+}
+
 function tratar(ocorrencia, recarregar) {
+  const destinos = TRANSICOES[ocorrencia.status] || []
+  if (!destinos.length) {
+    return notificar('Ocorrencia encerrada. Nao ha proximo estado.')
+  }
   abrirModal({
     titulo: `Ocorrencia — ${ocorrencia.placa}`,
     subtitulo: ocorrencia.descricao,
     campos: [
       { nome: 'status', rotulo: 'Novo status', tipo: 'select',
-        opcoes: Object.entries(ROTULO_STATUS).map(([valor, rotulo]) => ({ valor, rotulo })),
-        valor: ocorrencia.status,
-        dica: 'Encerrar a ocorrencia nao libera o veiculo: isso e decisao a parte, com motivo.' },
+        opcoes: destinos.map((valor) => ({ valor, rotulo: ROTULO_STATUS[valor] })),
+        valor: destinos[0],
+        dica: 'Fechada a ultima ocorrencia do veiculo, a pendencia sai sozinha. '
+            + 'Veiculo bloqueado continua exigindo liberacao a parte, com motivo.' },
       { nome: 'resolucao', rotulo: 'O que foi feito', tipo: 'textarea',
-        valor: ocorrencia.resolucao || '' },
+        valor: ocorrencia.resolucao || '',
+        dica: 'Obrigatorio para marcar como resolvida.' },
     ],
     aoConfirmar: async (v) => {
       await api.statusOcorrencia(ocorrencia.id, v.status, v.resolucao)
@@ -33,12 +48,19 @@ function tratar(ocorrencia, recarregar) {
 
 async function atribuir(ocorrencia, recarregar) {
   const { usuarios } = await api.usuarios({ status: 'ativo' })
-  const tratadores = usuarios.filter((u) => ['adm', 'supervisor', 'manutencao'].includes(u.papel))
+  // So a equipe da frota trata ocorrencia. Cargo nao decide isso (roadmap 3):
+  // o que decide e' o acesso ao painel.
+  const tratadores = usuarios.filter((u) => u.acessa_painel)
+  if (!tratadores.length) {
+    return notificar('Nenhum usuario da frota ativo para receber a ocorrencia.')
+  }
   abrirModal({
     titulo: `Atribuir ocorrencia — ${ocorrencia.placa}`,
     campos: [{ nome: 'responsavel_id', rotulo: 'Responsavel', tipo: 'select',
-      opcoes: tratadores.map((u) => ({ valor: u.id, rotulo: `${u.nome} (${u.papel})` })),
-      valor: ocorrencia.responsavel_id || '' }],
+      opcoes: tratadores.map((u) => ({
+        valor: u.id, rotulo: u.cargo_nome ? `${u.nome} — ${u.cargo_nome}` : u.nome,
+      })),
+      valor: ocorrencia.responsavel_id || tratadores[0].id }],
     confirmar: 'Atribuir',
     aoConfirmar: async (v) => {
       await api.atribuirOcorrencia(ocorrencia.id, v.responsavel_id)
@@ -107,7 +129,7 @@ export async function telaOcorrencias(raiz, contexto) {
   raiz.append(
     cabecalhoTela({
       titulo: 'Ocorrencias',
-      descricao: 'Nao conformidades encontradas em checklist ou promovidas de tickets. Mais criticas primeiro.',
+      descricao: 'O que os checklists encontraram de errado na frota. Mais graves primeiro.',
     }),
     elemento('div', { classe: 'filtros' }, [seletorStatus, seletorPrioridade]),
     areaLista,

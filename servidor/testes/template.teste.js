@@ -259,6 +259,27 @@ test('inspecao: ocorrencia nao critica deixa com pendencia', () => {
   assert.equal(r.maior_prioridade, 'alta')
 })
 
+test('inspecao: prioridade baixa entra na fila mas nao para o veiculo', () => {
+  // Roadmap 12.2: baixa entra na fila e o veiculo segue disponivel. Se um
+  // risco de pintura tirasse o carro de circulacao, em um mes a frota inteira
+  // estaria "com pendencia" e ninguem olharia mais para o status.
+  const r = avaliarInspecao(ESTRUTURA,
+    { ...TUDO_OK, lateral_esquerda: { desfecho: 'ocorrencia', opcao_id: 'risco', fotos: 1 } }, {})
+  assert.equal(r.ocorrencias.length, 1)
+  assert.equal(r.maior_prioridade, 'baixa')
+  assert.equal(r.resultado, 'com_pendencia')
+  assert.equal(r.estado_veiculo_previsto, 'disponivel')
+})
+
+test('inspecao: baixa junto de media segue a mais grave', () => {
+  const r = avaliarInspecao(ESTRUTURA, {
+    ...TUDO_OK,
+    lateral_esquerda: { desfecho: 'ocorrencia', opcao_id: 'amassado', fotos: 1 },
+  }, {})
+  assert.equal(r.maior_prioridade, 'media')
+  assert.equal(r.estado_veiculo_previsto, 'com_pendencia')
+})
+
 test('inspecao: foto obrigatoria pendente impede finalizar', () => {
   const r = avaliarInspecao(ESTRUTURA,
     { ...TUDO_OK, pneus: { desfecho: 'ocorrencia', opcao_id: 'liso', fotos: 0 } }, {})

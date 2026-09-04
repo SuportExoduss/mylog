@@ -100,6 +100,8 @@ const veiculoA = criarVeiculo(empresaA, 'AAA1A11')
 const veiculoA2 = criarVeiculo(empresaA, 'AAA2A22')
 const veiculoB = criarVeiculo(empresaB, 'BBB1B11')
 
+const veiculoA4 = criarVeiculo(empresaA, 'AAA4A44')
+
 criarChecklist(empresaA, 'compacto', 'compacto_leve', ['*'])
 criarChecklist(empresaA, 'so-motorista', 'pickup', [cgMotoristaA])
 criarVeiculo(empresaA, 'AAA3A33', 'pickup')
@@ -644,4 +646,144 @@ test('auditoria: a senha gerada nunca vai parar no historico', async () => {
   const tudo = JSON.stringify(consultar(
     'SELECT antes, depois FROM eventos_auditoria WHERE empresa_id = ?', [empresaA]))
   assert.ok(!tudo.includes(senha), 'a senha inicial vazou para a auditoria')
+})
+
+// --------------------------------------- criterio: estado do veiculo
+
+// Reserva, aprova e devolve as duas tarefas (saida e retorno) do veiculo.
+async function reservar(tokenFrota, tokenPessoa, veiculoId, offsetHoras) {
+  const pedido = await chamar('POST', '/api/solicitacoes', {
+    token: tokenPessoa,
+    corpo: {
+      veiculo_id: veiculoId,
+      janela_inicio: daquiAHoras(offsetHoras),
+      janela_fim: daquiAHoras(offsetHoras + 4),
+      motivo: 'Pedido para exercitar o estado do veiculo.',
+    },
+  })
+  assert.equal(pedido.status, 200, JSON.stringify(pedido.dados))
+  await chamar('POST', `/api/solicitacoes/${pedido.dados.solicitacao.id}/aprovar`, { token: tokenFrota })
+  return pedido.dados.solicitacao.id
+}
+
+test('estado: um checklist aperta a restricao do veiculo, nunca afrouxa', async () => {
+  const frota = await entrar('frota.a@teste.local')
+  const motorista = await entrar('motorista.a@teste.local')
+  const solicitacao = await reservar(frota, motorista, veiculoA4, 700)
+
+  const app = await chamar('GET', '/api/app/inicio', { token: motorista })
+  const tarefa = app.dados.tarefas.find((t) => t.solicitacao_id === solicitacao)
+
+  // Saida com pneu liso: critica, bloqueia.
+  const saida = await chamar('POST', '/api/inspecoes', {
+    token: motorista,
+    corpo: {
+      cliente_uuid: 'uuid-aperta-saida', solicitacao_id: solicitacao,
+      template_id: tarefa.template_id, momento: 'saida',
+      respostas: {
+        lataria: { desfecho: 'ok', fotos: 1 },
+        pneus: { desfecho: 'ocorrencia', opcao_id: 'liso', fotos: 1 },
+      },
+    },
+  })
+  assert.equal(saida.dados.resumo.estado_veiculo_previsto, 'bloqueado')
+  let veiculo = await chamar('GET', `/api/veiculos/${veiculoA4}`, { token: frota })
+  assert.equal(veiculo.dados.veiculo.status, 'bloqueado')
+
+  // Retorno com problema de prioridade baixa. O julgamento isolado diria
+  // "disponivel", mas o carro esta bloqueado: o checklist nao pode libera-lo.
+  const retorno = await chamar('POST', '/api/inspecoes', {
+    token: motorista,
+    corpo: {
+      cliente_uuid: 'uuid-aperta-retorno', solicitacao_id: solicitacao,
+      template_id: tarefa.template_id, momento: 'retorno',
+      respostas: {
+        lataria: { desfecho: 'ocorrencia', opcao_id: 'risco', fotos: 1 },
+        pneus: { desfecho: 'ok', fotos: 1 },
+      },
+    },
+  })
+  assert.equal(retorno.status, 200, JSON.stringify(retorno.dados))
+
+  veiculo = await chamar('GET', `/api/veiculos/${veiculoA4}`, { token: frota })
+  assert.equal(veiculo.dados.veiculo.status, 'bloqueado',
+    'so a Frota libera veiculo bloqueado, com motivo')
+})
+
+test('estado: liberar veiculo bloqueado exige motivo e vai para a auditoria', async () => {
+  const frota = await entrar('frota.a@teste.local')
+
+  const semMotivo = await chamar('POST', `/api/veiculos/${veiculoA4}/status`, {
+    token: frota, corpo: { status: 'disponivel' },
+  })
+  assert.equal(semMotivo.status, 400)
+  assert.match(semMotivo.dados.mensagem, /motivo/i)
+
+  const comMotivo = await chamar('POST', `/api/veiculos/${veiculoA4}/status`, {
+    token: frota,
+    corpo: { status: 'disponivel', motivo: 'Pneus trocados; laudo do mecanico anexado.' },
+  })
+  assert.equal(comMotivo.status, 200)
+  assert.equal(comMotivo.dados.veiculo.status, 'disponivel')
+
+  const auditoria = await chamar('GET', '/api/auditoria?busca=Pneus trocados', { token: frota })
+  assert.ok(auditoria.dados.eventos.some((e) => e.acao === 'veiculo.status.disponivel'))
+})
+
+test('estado: fechada a ultima ocorrencia, a pendencia sai sozinha', async () => {
+  const frota = await entrar('frota.a@teste.local')
+  const motorista = await entrar('motorista.a@teste.local')
+  const solicitacao = await reservar(frota, motorista, veiculoA4, 800)
+
+  const app = await chamar('GET', '/api/app/inicio', { token: motorista })
+  const tarefa = app.dados.tarefas.find((t) => t.solicitacao_id === solicitacao)
+
+  // Duas ocorrencias na mesma saida, nenhuma critica.
+  await chamar('POST', '/api/inspecoes', {
+    token: motorista,
+    corpo: {
+      cliente_uuid: 'uuid-pendencia-saida', solicitacao_id: solicitacao,
+      template_id: tarefa.template_id, momento: 'saida',
+      respostas: {
+        lataria: { desfecho: 'ocorrencia', opcao_id: 'risco', fotos: 1 },
+        pneus: { desfecho: 'ok', fotos: 1 },
+      },
+    },
+  })
+
+  // Prioridade baixa sozinha nao tira o carro de circulacao (roadmap 12.2).
+  let veiculo = await chamar('GET', `/api/veiculos/${veiculoA4}`, { token: frota })
+  assert.equal(veiculo.dados.veiculo.status, 'disponivel')
+
+  // Agora uma de prioridade alta, que de fato deixa com pendencia.
+  await chamar('POST', `/api/veiculos/${veiculoA4}/status`, {
+    token: frota, corpo: { status: 'com_pendencia', motivo: 'Aguardando funilaria.' },
+  })
+
+  const fila = await chamar('GET', `/api/ocorrencias?veiculo_id=${veiculoA4}`, { token: frota })
+  const abertas = fila.dados.ocorrencias
+  assert.ok(abertas.length > 0)
+
+  // A cadeia da secao 12.3 nao tem atalho: aberta -> em tratamento -> resolvida.
+  async function resolver(ocorrencia, resolucao) {
+    const emTratamento = await chamar('POST', `/api/ocorrencias/${ocorrencia.id}/status`, {
+      token: frota, corpo: { status: 'em_tratamento' },
+    })
+    assert.equal(emTratamento.status, 200, JSON.stringify(emTratamento.dados))
+    const resolvida = await chamar('POST', `/api/ocorrencias/${ocorrencia.id}/status`, {
+      token: frota, corpo: { status: 'resolvida', resolucao },
+    })
+    assert.equal(resolvida.status, 200, JSON.stringify(resolvida.dados))
+  }
+
+  // Fecha todas menos a ultima: o carro segue com pendencia.
+  for (const o of abertas.slice(0, -1)) await resolver(o, 'Polida.')
+  veiculo = await chamar('GET', `/api/veiculos/${veiculoA4}`, { token: frota })
+  assert.equal(veiculo.dados.veiculo.status, 'com_pendencia')
+
+  await resolver(abertas[abertas.length - 1], 'Reparo concluido.')
+
+  veiculo = await chamar('GET', `/api/veiculos/${veiculoA4}`, { token: frota })
+  assert.equal(veiculo.dados.veiculo.status, 'disponivel',
+    'sem ocorrencia aberta, a pendencia deixa de existir')
 })
