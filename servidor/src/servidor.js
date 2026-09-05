@@ -80,7 +80,20 @@ function servirArquivo(destino, raiz, res) {
   }
   fs.readFile(destino, (falha, conteudo) => {
     if (falha) {
-      // Rotas resolvidas no cliente: cai no index da raiz correspondente.
+      // O index so cobre ROTA — caminho sem extensao, resolvido no cliente.
+      // Arquivo que nao existe precisa dizer 404.
+      //
+      // Sem essa distincao, um import com erro de digitacao volta como HTML
+      // com status 200, e o navegador tenta interpretar uma pagina como
+      // modulo: o erro que aparece e' "unknown error fetching the script", que
+      // nao diz nada sobre o arquivo que falta. O mesmo vale para uma imagem
+      // ou um manifesto errado, que viram uma pagina inteira em cache.
+      const extensao = path.extname(destino).toLowerCase()
+      if (extensao && extensao !== '.html') {
+        res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' })
+           .end('Arquivo nao encontrado')
+        return
+      }
       fs.readFile(path.join(raiz, 'index.html'), (falha2, indice) => {
         if (falha2) { res.writeHead(404).end('Nao encontrado'); return }
         res.writeHead(200, { 'content-type': TIPOS['.html'] }).end(indice)

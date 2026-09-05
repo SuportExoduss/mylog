@@ -1260,3 +1260,29 @@ test('cargo: a trava vale para a frota tambem', async () => {
   assert.equal(r.status, 403)
   assert.match(r.dados.mensagem, /cargo nao esta liberado/)
 })
+
+// -------------------------------------------- criterio: arquivos estaticos
+
+test('estatico: arquivo que nao existe responde 404, nao a pagina do painel', async () => {
+  // O index cobre ROTA — caminho sem extensao, resolvido no cliente. Arquivo
+  // inexistente precisa dizer 404: devolvendo HTML com status 200, um import
+  // com erro de digitacao chega ao navegador como pagina, e o erro vira
+  // "unknown error fetching the script" — que nao diz qual arquivo falta.
+  const pedir = (caminho) => fetch(`${base}${caminho}`, { redirect: 'manual' })
+
+  for (const caminho of ['/js/inexistente.js', '/css/nada.css', '/app/manifesto.json']) {
+    const r = await pedir(caminho)
+    assert.equal(r.status, 404, `${caminho} deveria ser 404`)
+    assert.doesNotMatch(r.headers.get('content-type') || '', /html/)
+  }
+
+  // Rota do cliente continua caindo no index.
+  const rota = await pedir('/solicitacoes')
+  assert.equal(rota.status, 200)
+  assert.match(rota.headers.get('content-type'), /html/)
+
+  // E arquivo de verdade continua sendo servido com o tipo certo.
+  const real = await pedir('/js/api.js')
+  assert.equal(real.status, 200)
+  assert.match(real.headers.get('content-type'), /javascript/)
+})

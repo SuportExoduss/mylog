@@ -451,3 +451,19 @@ contra o defeito original — fica vermelho com o código antigo, verde com o
 novo. O que o DOM não alcança está listado no roadmap 26 como passe manual
 obrigatório, e continua listado: cobertura parcial declarada é honesta;
 cobertura parcial silenciosa é a armadilha que criou o D34.
+
+## D36 — O index cobre rota, não arquivo que falta
+
+**Contexto.** O servidor estático caía no `index.html` para qualquer caminho
+não encontrado, incluindo `.js`, `.css` e `.json`. Um import com erro de
+digitação voltava como página HTML com status **200**, e o navegador tentava
+interpretá-la como módulo. O erro que aparecia era *"unknown error occurred
+when fetching the script"* — que não diz qual arquivo falta.
+
+**Decisão.** O fallback para o index vale só quando o caminho **não tem
+extensão** (ou é `.html`): isso é rota, resolvida no cliente. Qualquer outra
+extensão que não exista responde **404 em texto puro**.
+
+**Consequência.** Erro de caminho passa a falhar alto e no lugar certo. E um
+manifesto ou uma imagem com nome errado deixa de virar uma página inteira
+guardada no cache do service worker.
