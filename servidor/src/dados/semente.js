@@ -223,9 +223,13 @@ function criarCategoria(nome, assentos, carroceria, veiculos) {
   return id
 }
 
+// Assentos x carroceria. "2 assentos — compacto" nasce sem carro nenhum de
+// proposito: e' o caso que faz a tela de categorias mostrar o aviso amarelo,
+// e um pedido nele so pode ser atendido com justificativa.
 const catCompacto = criarCategoria('4 assentos — compacto', 4, 'compacto', [v3])
-const catComercial = criarCategoria('4 assentos — comercial', 4, 'comercial', [v1, v5])
-criarCategoria('2 assentos — utilitario', 2, 'utilitario', [v2, v4])
+criarCategoria('2 assentos — compacto', 2, 'compacto', [])
+const catUtilitario = criarCategoria('4 assentos — utilitario', 4, 'utilitario', [v5])
+criarCategoria('2 assentos — utilitario', 2, 'utilitario', [v1, v2, v4])
 
 // ------------------------------------------------------------ preventivas
 function criarPreventiva(veiculoId, modo, dados) {
@@ -270,10 +274,10 @@ function criarSolicitacao(numero, solicitante, categoria, veiculo, inicioHoras, 
 criarSolicitacao(1, ritaId, catCompacto, null, 30, 5,
   'Reuniao com cliente em Betim na sexta a tarde.', 'pendente')
 // Liberada com placa: o app mostra o veiculo e o checklist de SAIDA.
-criarSolicitacao(2, ritaId, catComercial, v1, 2, 6,
+criarSolicitacao(2, ritaId, catUtilitario, v1, 2, 6,
   'Entrega de material na obra do Barreiro.', 'aprovada')
 // Em uso e ja passou do prazo: o app vai pedir o motivo do atraso.
-criarSolicitacao(3, ritaId, catComercial, v5, -8, 4,
+criarSolicitacao(3, ritaId, catUtilitario, v5, -8, 4,
   'Visita tecnica em Sete Lagoas.', 'em_uso')
 
 // ------------------------------------------------------------ ocorrencias

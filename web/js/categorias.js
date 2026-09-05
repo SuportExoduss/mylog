@@ -1,6 +1,6 @@
 // Categorias de uso (roadmap 10.3).
 //
-// E' o vocabulario com que o colaborador pede carro: "4 assentos comercial".
+// E' o vocabulario com que o colaborador pede carro: "4 assentos utilitario".
 // Ele descreve o TRABALHO. O tipo do veiculo — compacto, pick-up, 4x4 — e'
 // propriedade do carro e continua decidindo qual checklist aparece. Os dois
 // nao se convertem um no outro, e esta tela existe para manter essa fronteira
@@ -12,7 +12,6 @@ import {
 
 const CARROCERIAS = [
   { valor: 'compacto', rotulo: 'Compacto' },
-  { valor: 'comercial', rotulo: 'Comercial' },
   { valor: 'utilitario', rotulo: 'Utilitario' },
 ]
 
@@ -25,7 +24,7 @@ function formulario(categoria, recarregar) {
     subtitulo: 'Descreve a necessidade de transporte, nao o carro.',
     campos: [
       { nome: 'nome', rotulo: 'Nome', obrigatorio: true, valor: categoria?.nome || '',
-        dica: 'E o que o colaborador vai ler na hora de pedir. Ex.: 4 assentos — comercial.' },
+        dica: 'E o que o colaborador vai ler na hora de pedir. Ex.: 4 assentos — utilitario.' },
       { nome: 'assentos', rotulo: 'Assentos', tipo: 'number', valor: categoria?.assentos ?? '' },
       { nome: 'carroceria', rotulo: 'Carroceria', tipo: 'select',
         opcoes: [{ valor: '', rotulo: 'Nao especificar' }, ...CARROCERIAS],

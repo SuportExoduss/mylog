@@ -96,7 +96,7 @@ const veiculo2 = criarVeiculo(empresaA, 'AAA2A22')
 const categoriaA = novoId('categoria')
 executar(
   `INSERT INTO categorias_uso (id, empresa_id, nome, assentos, carroceria, criado_em, atualizado_em)
-   VALUES (?, ?, 'Comercial', 4, 'comercial', ?, ?)`, [categoriaA, empresaA, ts, ts])
+   VALUES (?, ?, 'Utilitario', 4, 'utilitario', ?, ?)`, [categoriaA, empresaA, ts, ts])
 for (const v of [veiculo1, veiculo2]) {
   executar('INSERT INTO veiculo_categorias (empresa_id, veiculo_id, categoria_id) VALUES (?, ?, ?)',
     [empresaA, v, categoriaA])

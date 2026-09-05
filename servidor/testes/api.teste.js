@@ -108,7 +108,7 @@ function criarCategoria(empresaId, nome, veiculos) {
   const id = novoId('categoria')
   executar(
     `INSERT INTO categorias_uso (id, empresa_id, nome, assentos, carroceria, criado_em, atualizado_em)
-     VALUES (?, ?, ?, 4, 'comercial', ?, ?)`, [id, empresaId, nome, ts, ts])
+     VALUES (?, ?, ?, 4, 'utilitario', ?, ?)`, [id, empresaId, nome, ts, ts])
   for (const v of veiculos) {
     executar('INSERT INTO veiculo_categorias (empresa_id, veiculo_id, categoria_id) VALUES (?, ?, ?)',
       [empresaId, v, id])
@@ -1062,7 +1062,7 @@ test('categoria: colaborador le a lista para pedir, mas nao cria', async () => {
     { token: vendas, corpo: { nome: 'Categoria pirata' } })).status, 403)
 
   const criada = await chamar('POST', '/api/categorias', {
-    token: frota, corpo: { nome: '6 assentos — van', assentos: 6, carroceria: 'comercial' },
+    token: frota, corpo: { nome: '6 assentos — van', assentos: 6, carroceria: 'utilitario' },
   })
   assert.equal(criada.status, 200)
   assert.equal(criada.dados.categoria.assentos, 6)

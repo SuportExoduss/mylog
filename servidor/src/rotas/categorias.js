@@ -1,6 +1,6 @@
 // Categorias de uso (roadmap 10.3).
 //
-// E' o que o colaborador pede quando precisa de carro: "4 assentos comercial".
+// E' o que o colaborador pede quando precisa de carro: "4 assentos utilitario".
 // Ele sabe o que vai FAZER; nao sabe (nem precisa saber) qual placa esta livre.
 //
 // Categoria NAO e' tipo de veiculo e nao se converte nele. Categoria e'
@@ -14,7 +14,10 @@ import { registrarEvento } from '../nucleo/auditoria.js'
 import { exigirAutenticado } from '../seguranca/sessao.js'
 import { exigirFrota } from '../seguranca/nivel.js'
 
-export const CARROCERIAS = ['compacto', 'comercial', 'utilitario']
+// Duas carrocerias, cruzadas com o numero de assentos: e' assim que a
+// operacao descreve a necessidade. Compacto leva gente; utilitario leva
+// carga. A lista de CATEGORIAS e' cadastro; esta e' so o vocabulario.
+export const CARROCERIAS = ['compacto', 'utilitario']
 
 function buscarNaEmpresa(empresaId, id) {
   const linha = consultarUm('SELECT * FROM categorias_uso WHERE id = ? AND empresa_id = ?',

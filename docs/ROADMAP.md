@@ -388,9 +388,14 @@ trabalho: quantos lugares e que tipo de carroceria.
 
 | Categoria | Para que serve |
 |---|---|
-| 4 assentos — compacto | Deslocamento de pessoas, reunião, visita |
-| 4 assentos — comercial | Pessoas mais carga leve |
+| 4 assentos — compacto | Deslocamento de pessoas: reunião, visita |
+| 2 assentos — compacto | Deslocamento curto, uma ou duas pessoas |
+| 4 assentos — utilitário | Equipe mais carga ou equipamento |
 | 2 assentos — utilitário | Carga, material, equipamento |
+
+São dois eixos cruzados — **quantos lugares** e **que tipo de carroceria** —
+e é assim que quem precisa de carro descreve a necessidade: "vou levar três
+pessoas" ou "vou levar escada e caixa de ferramenta".
 
 A lista é **cadastrável pela Frota**, não fixa no código: a frota muda e a
 categoria descreve a frota que existe.
