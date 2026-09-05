@@ -357,9 +357,15 @@ export function registrarRotasUsuarios(rotas) {
       [eu.empresa_id, alvo.id, limite])
 
     const solicitacoes = consultar(
+      // LEFT JOIN: pedido pendente, recusado ou cancelado nunca ganha placa
+      // (roadmap 10.3). Com JOIN, some do historico justamente o registro de
+      // que a pessoa PEDIU e nao recebeu — que e' o que ela vai querer provar.
       `SELECT s.id, s.numero, s.status, s.janela_inicio, s.janela_fim, s.motivo,
-              s.motivo_atraso, s.devolvido_em, v.placa
-         FROM solicitacoes s JOIN veiculos v ON v.id = s.veiculo_id
+              s.motivo_atraso, s.devolvido_em, s.motivo_recusa,
+              v.placa, cat.nome AS categoria_nome
+         FROM solicitacoes s
+         LEFT JOIN veiculos v ON v.id = s.veiculo_id
+         LEFT JOIN categorias_uso cat ON cat.id = s.categoria_id
         WHERE s.empresa_id = ? AND s.solicitante_id = ?
         ORDER BY s.criado_em DESC LIMIT ?`,
       [eu.empresa_id, alvo.id, limite])

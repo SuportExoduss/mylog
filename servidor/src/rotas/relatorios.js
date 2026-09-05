@@ -274,9 +274,14 @@ export function registrarRotasRelatorios(rotas) {
   rotas.get('/relatorio/solicitacao/:id', async (ctx) => {
     const eu = exigirFrota(exigirAutenticado(ctx))
     const s = consultarUm(
-      `SELECT s.*, v.placa, v.marca, v.modelo, u.nome AS solicitante, a.nome AS aprovador
+      // LEFT JOIN em veiculos: pedido pendente ainda nao tem placa. Com JOIN,
+      // o relatorio devolvia 404 "nao encontrada" para uma solicitacao que
+      // existe — erro que manda a pessoa procurar a coisa errada.
+      `SELECT s.*, v.placa, v.marca, v.modelo, u.nome AS solicitante,
+              a.nome AS aprovador, cat.nome AS categoria_nome
          FROM solicitacoes s
-         JOIN veiculos v ON v.id = s.veiculo_id
+         LEFT JOIN veiculos v ON v.id = s.veiculo_id
+         LEFT JOIN categorias_uso cat ON cat.id = s.categoria_id
          JOIN usuarios u ON u.id = s.solicitante_id
          LEFT JOIN usuarios a ON a.id = s.aprovada_por
         WHERE s.id = ? AND s.empresa_id = ?`, [ctx.params.id, eu.empresa_id])
@@ -324,14 +329,22 @@ export function registrarRotasRelatorios(rotas) {
          <p><em>"${e(s.motivo_atraso)}"</em></p>`
       : ''
 
+    // Enquanto a Frota nao escolheu a placa, o documento fala da CATEGORIA
+    // pedida. Escrever "—" no lugar da placa faria parecer dado faltando,
+    // quando a decisao e' que ainda nao foi tomada.
+    const identificacao = s.placa
+      ? `${s.placa} ${s.modelo || ''}`.trim()
+      : `${s.categoria_nome || 'sem categoria'} — veiculo ainda nao escolhido`
+
     responderHtml(ctx, pagina({
-      titulo: `Solicitacao #${s.numero} — ${s.placa}`,
+      titulo: `Solicitacao #${s.numero} — ${s.placa || 'sem veiculo'}`,
       empresa,
       corpo: `
         <h1>Comparativo de saida e retorno</h1>
-        <p class="sub">Solicitacao #${e(s.numero)} · ${e(s.placa)} ${e(s.modelo)}</p>
+        <p class="sub">Solicitacao #${e(s.numero)} · ${e(identificacao)}</p>
         <div class="ficha">
           <div><dt>Solicitante</dt><dd>${e(s.solicitante)}</dd></div>
+          <div><dt>Categoria pedida</dt><dd>${e(s.categoria_nome || '—')}</dd></div>
           <div><dt>Aprovado por</dt><dd>${e(s.aprovador || '—')}</dd></div>
           <div><dt>Janela</dt><dd class="dado">${dataHora(s.janela_inicio)}</dd></div>
           <div><dt>Ate</dt><dd class="dado">${dataHora(s.janela_fim)}</dd></div>

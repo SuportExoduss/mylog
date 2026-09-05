@@ -571,6 +571,12 @@ A regra vale nas duas pontas: a tela esconde, e **o servidor recusa** uma
 inspeção enviada com um modelo que o cargo não libera. A tela é conveniência; a
 recusa no servidor é a garantia.
 
+E vale **para todo mundo, inclusive a equipe da Frota**. O caso que criou a
+regra é o checklist pós-manutenção do mecânico — e o mecânico é da Frota.
+Abrir exceção para o nível de acesso esvaziaria a regra exatamente no exemplo
+que a originou. Quem precisa executar um modelo acrescenta o próprio cargo à
+lista de liberados; não existe atalho por nível.
+
 ### 11.3 Criação — cada pergunta
 
 | Campo | Opções |

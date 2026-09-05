@@ -1182,3 +1182,81 @@ test('execucoes: o dia do filtro e o dia de quem olha, nao o dia em UTC', async 
   assert.ok(r.dados.execucoes.some((e) => e.id === alvo.id),
     'checklist das 22h precisa aparecer no dia em que foi feito')
 })
+
+// ---------------------------------- criterio: solicitacao ainda sem placa
+
+test('historico: pedido pendente e pedido recusado nao somem do historico', async () => {
+  // O historico existe para mostrar tudo que a pessoa fez ou deixou de fazer.
+  // Pendente e recusado nunca ganham placa; com JOIN em veiculos, sumiam da
+  // lista — justamente o registro de que ela PEDIU e nao recebeu.
+  const colaborador = await entrar('vendas.a@teste.local')
+  const frota = await entrar('frota.a@teste.local')
+
+  const pendente = await pedir(colaborador, {
+    inicio: daquiAHoras(5000), fim: daquiAHoras(5004),
+    motivo: 'Pedido que fica pendente para conferir o historico.',
+  })
+  const recusado = await pedir(colaborador, {
+    inicio: daquiAHoras(5100), fim: daquiAHoras(5104),
+    motivo: 'Pedido que sera recusado para conferir o historico.',
+  })
+  await chamar('POST', `/api/solicitacoes/${recusado.dados.solicitacao.id}/recusar`,
+    { token: frota, corpo: { motivo: 'Sem carro disponivel nessa data.' } })
+
+  const eu = (await chamar('GET', '/api/auth/eu', { token: colaborador })).dados.usuario
+  const h = await chamar('GET', `/api/usuarios/${eu.id}/historico`, { token: frota })
+
+  const numeros = h.dados.solicitacoes.map((x) => x.numero)
+  assert.ok(numeros.includes(pendente.dados.solicitacao.numero), 'pendente precisa aparecer')
+  assert.ok(numeros.includes(recusado.dados.solicitacao.numero), 'recusado precisa aparecer')
+
+  const semPlaca = h.dados.solicitacoes.find((x) => x.numero === pendente.dados.solicitacao.numero)
+  assert.equal(semPlaca.placa, null)
+  assert.ok(semPlaca.categoria_nome, 'sem placa, o historico mostra a categoria pedida')
+})
+
+test('relatorio: solicitacao sem placa abre e diz o que falta, em vez de 404', async () => {
+  // Devolver "nao encontrada" para algo que existe manda a pessoa procurar a
+  // coisa errada.
+  const colaborador = await entrar('vendas.a@teste.local')
+  const frota = await entrar('frota.a@teste.local')
+
+  const pedido = await pedir(colaborador, {
+    inicio: daquiAHoras(5200), fim: daquiAHoras(5204),
+    motivo: 'Pedido sem placa para conferir o relatorio comparativo.',
+  })
+
+  const resposta = await fetch(`${base}/relatorio/solicitacao/${pedido.dados.solicitacao.id}`, {
+    headers: { authorization: `Bearer ${frota}` },
+  })
+  assert.equal(resposta.status, 200)
+  const html = await resposta.text()
+  assert.match(html, /veiculo ainda nao escolhido/)
+  assert.match(html, /Categoria pedida/)
+  assert.match(html, /Nenhuma inspecao registrada/)
+})
+
+test('cargo: a trava vale para a frota tambem', async () => {
+  // O caso que define a regra e' o checklist pos-manutencao do mecanico — e o
+  // mecanico E DA FROTA. Abrir excecao para a frota esvaziaria a regra
+  // exatamente no caso que a criou (roadmap 11.2.3).
+  const frota = await entrar('frota.a@teste.local')
+
+  const soMotorista = consultarUm(
+    `SELECT id FROM templates WHERE empresa_id = ? AND codigo = 'so-motorista'`, [empresaA])
+  assert.ok(soMotorista, 'a fixture tem um modelo liberado so para Motorista')
+
+  const eu = (await chamar('GET', '/api/auth/eu', { token: frota })).dados.usuario
+  assert.notEqual(eu.cargo_id, cgMotoristaA, 'quem e da frota aqui tem outro cargo')
+
+  const r = await chamar('POST', '/api/inspecoes', {
+    token: frota,
+    corpo: {
+      cliente_uuid: 'uuid-cargo-frota', veiculo_id: veiculoA4,
+      template_id: soMotorista.id, momento: 'saida',
+      respostas: { lataria: { desfecho: 'ok' }, pneus: { desfecho: 'ok' } },
+    },
+  })
+  assert.equal(r.status, 403)
+  assert.match(r.dados.mensagem, /cargo nao esta liberado/)
+})

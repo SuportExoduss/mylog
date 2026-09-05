@@ -195,7 +195,15 @@ export function registrarRotasInspecoes(rotas) {
 
     const estrutura = JSON.parse(modeloLinha.estrutura)
     const cargos = JSON.parse(modeloLinha.cargos_liberados)
-    if (!ehFrota(eu) && !cargoLiberado(cargos, eu.cargo_id)) {
+    // Cargo vale para TODO MUNDO, inclusive a frota. O exemplo que define a
+    // regra e' o checklist pos-manutencao do mecanico — e o mecanico e' da
+    // frota (roadmap 11.2.3). Abrir excecao aqui esvaziaria a regra
+    // exatamente no caso que a criou.
+    //
+    // A lista ja escondia o modelo; sem esta linha, o servidor aceitaria um
+    // envio que a tela nunca ofereceu — e tela e servidor diriam coisas
+    // diferentes sobre a mesma regra.
+    if (!cargoLiberado(cargos, eu.cargo_id)) {
       throw erro.permissao('Seu cargo nao esta liberado para este checklist.')
     }
 
