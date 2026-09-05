@@ -28,6 +28,16 @@ export const TIPOS_VEICULO = [
 
 export const MOMENTOS = ['saida', 'retorno']
 
+// Para que serve o modelo (roadmap 14.2). O padrao julga conformidade — "esta
+// OK?". A preventiva documenta servico — "o que foi feito aqui?". Sao duas
+// perguntas diferentes, e por isso duas telas e dois julgamentos.
+export const FINALIDADES = ['padrao', 'preventiva']
+
+// Tamanho minimo do relatorio escrito. Cinco caracteres barram o "ok" e o
+// "sim" que nao descrevem nada, sem exigir redacao de quem esta de pe na
+// oficina.
+export const MINIMO_RELATORIO = 5
+
 export const PERIODICIDADES = ['avulso', 'diario', 'semanal', 'mensal']
 
 // 0 = domingo, como getDay() do JavaScript. Manter a mesma base evita a
@@ -110,6 +120,7 @@ export const ESTADOS_EXECUCAO = ['no_prazo', 'atrasado', 'nao_realizado']
 export const MOTIVOS_PENDENCIA = [
   'sem_resposta', 'foto_obrigatoria', 'fotos_acima_do_limite',
   'sem_opcao_nem_relatorio', 'assinatura_obrigatoria',
+  'sem_resposta_manutencao', 'relatorio_obrigatorio', 'proxima_preventiva_obrigatoria',
 ]
 
 const FRASE_PENDENCIA = {
@@ -118,6 +129,9 @@ const FRASE_PENDENCIA = {
   fotos_acima_do_limite: (titulo) => `Fotos demais em: ${titulo}`,
   sem_opcao_nem_relatorio: (titulo) => `Falta dizer o que houve: ${titulo}`,
   assinatura_obrigatoria: () => 'Falta assinar',
+  sem_resposta_manutencao: (titulo) => `Falta dizer se houve manutencao: ${titulo}`,
+  relatorio_obrigatorio: (titulo) => `Falta descrever o servico: ${titulo}`,
+  proxima_preventiva_obrigatoria: () => 'Falta dizer quando vence a proxima',
 }
 
 // O que dizer ao motorista quando o botao de finalizar esta travado. Dizer
@@ -278,12 +292,129 @@ export function avaliarResposta(pergunta, resposta) {
   }
 }
 
+// Retorno de preventiva (roadmap 14.2.2). Aqui nao se julga conformidade: a
+// pergunta e' "o que foi feito nesta peca?". Por isso nao ha OK nem
+// Ocorrencia, e nenhuma resposta abre ocorrencia — o que sobrou de problema
+// esta escrito no relatorio, e quem le e' a Frota.
+export function avaliarManutencao(pergunta, resposta) {
+  const problemas = []
+
+  const feita = resposta?.manutencao_feita
+  if (feita !== true && feita !== false) {
+    return { respondida: false, manutencao: null, problemas: ['sem_resposta_manutencao'] }
+  }
+
+  const fotos = Number(resposta.fotos || 0)
+  const modo = pergunta.foto_ok || 'opcional'
+  if (modo === 'obrigatorio' && fotos < 1) problemas.push('foto_obrigatoria')
+  if (fotos > (pergunta.max_fotos_ok ?? 1)) problemas.push('fotos_acima_do_limite')
+
+  // Mexeu na peca e nao descreveu: o registro nao serve nem para a proxima
+  // manutencao nem para uma discussao de garantia. Quando nao mexeu, o campo
+  // continua disponivel, mas ninguem e' obrigado a escrever "nada a fazer".
+  const relatorio = String(resposta.relatorio || '').trim()
+  if (feita && relatorio.length < MINIMO_RELATORIO) problemas.push('relatorio_obrigatorio')
+
+  return {
+    respondida: true,
+    manutencao: feita,
+    relatorio: relatorio || null,
+    problemas,
+  }
+}
+
+// Alvo da proxima preventiva, perguntado na tela extra antes da assinatura
+// (roadmap 14.2.3). Mesmas duas opcoes do cadastro: KM ou data.
+export function conferirProximaPreventiva(proxima) {
+  if (!proxima || !proxima.modo) return { valido: false, motivo: 'proxima_preventiva_obrigatoria' }
+
+  if (proxima.modo === 'km') {
+    const alvo = Math.trunc(Number(proxima.proximo_km))
+    if (!Number.isFinite(alvo) || alvo <= 0) {
+      return { valido: false, motivo: 'proxima_preventiva_obrigatoria' }
+    }
+    return { valido: true, modo: 'km', proximo_km: alvo, proxima_data: null }
+  }
+
+  if (proxima.modo === 'data') {
+    const data = String(proxima.proxima_data || '').slice(0, 10)
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(data)) {
+      return { valido: false, motivo: 'proxima_preventiva_obrigatoria' }
+    }
+    return { valido: true, modo: 'data', proximo_km: null, proxima_data: data }
+  }
+
+  return { valido: false, motivo: 'proxima_preventiva_obrigatoria' }
+}
+
+// Retorno de preventiva: uma passagem inteira sobre o mesmo modelo, perguntando
+// de cada peca o que foi feito nela. Nao abre ocorrencia e nao mexe no estado
+// do veiculo — o carro acabou de sair da manutencao, e quem decide se ele volta
+// a rodar e' a Frota, com o dossie na mao.
+function avaliarRetornoPreventiva(estrutura, respostas, opcoes) {
+  const pendencias = []
+  const servicos = []
+  let mexidas = 0
+
+  for (const pergunta of estrutura.perguntas) {
+    const juizo = avaliarManutencao(pergunta, respostas[pergunta.id])
+    for (const problema of juizo.problemas) {
+      pendencias.push({ pergunta_id: pergunta.id, titulo: pergunta.titulo, motivo: problema })
+    }
+    if (!juizo.respondida) continue
+    if (juizo.manutencao) {
+      mexidas += 1
+      servicos.push({
+        pergunta_id: pergunta.id, titulo: pergunta.titulo, relatorio: juizo.relatorio,
+      })
+    }
+  }
+
+  if (Boolean(opcoes.exige_assinatura) && !opcoes.assinatura) {
+    pendencias.push({ pergunta_id: null, titulo: 'Assinatura', motivo: 'assinatura_obrigatoria' })
+  }
+
+  // Sem a proxima preventiva nao da para encerrar: a frota ficaria sem agenda
+  // justamente depois de fazer a manutencao (roadmap 14.1).
+  const proxima = conferirProximaPreventiva(opcoes.proxima_preventiva)
+  if (!proxima.valido) {
+    pendencias.push({ pergunta_id: null, titulo: 'Proxima preventiva', motivo: proxima.motivo })
+  }
+
+  return {
+    finalidade: 'preventiva',
+    momento: 'retorno',
+    total_perguntas: estrutura.perguntas.length,
+    conformes: estrutura.perguntas.length - pendencias.length,
+    pendencias,
+    ocorrencias: [],
+    servicos,
+    itens_com_manutencao: mexidas,
+    maior_prioridade: null,
+    pode_finalizar: pendencias.length === 0,
+    resultado: 'aprovado',
+    // A preventiva nao aperta nem afrouxa o estado do veiculo por conta
+    // propria: liberar carro continua sendo decisao da Frota (D31).
+    estado_veiculo_previsto: 'disponivel',
+    motivo: mexidas
+      ? `${mexidas} item(ns) com manutencao executada.`
+      : 'Nenhum item exigiu manutencao.',
+    proxima_preventiva: proxima.valido ? proxima : null,
+  }
+}
+
 // Percorre o checklist inteiro e devolve o que a tela de encerramento precisa
 // mostrar ANTES de finalizar (roadmap 11.7), sem gravar nada.
 export function avaliarInspecao(estrutura, respostas = {}, opcoes = {}) {
   const politicas = opcoes.politicas || {}
   const exigeAssinatura = Boolean(opcoes.exige_assinatura)
   const temAssinatura = Boolean(opcoes.assinatura)
+
+  // O retorno de uma preventiva nao julga conformidade: documenta servico
+  // (roadmap 14.2.2). E' outro julgamento inteiro, com outras pendencias.
+  if (opcoes.finalidade === 'preventiva' && opcoes.momento === 'retorno') {
+    return avaliarRetornoPreventiva(estrutura, respostas, opcoes)
+  }
 
   const pendencias = []
   const ocorrencias = []

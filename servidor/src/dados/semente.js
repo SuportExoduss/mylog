@@ -179,14 +179,15 @@ function criarChecklist(codigo, nome, tipo, cargos, exigeAssinatura, ritmo = {})
   const id = novoId('template')
   executar(
     `INSERT INTO templates (id, empresa_id, codigo, nome, tipo_veiculo, cargos_liberados,
-                            exige_assinatura, periodicidade, dias_semana, dia_semana,
-                            horario_limite, versao, status, estrutura,
+                            exige_assinatura, finalidade, periodicidade, dias_semana,
+                            dia_semana, horario_limite, versao, status, estrutura,
                             publicado_em, criado_em, atualizado_em)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'publicado', ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'publicado', ?, ?, ?, ?)`,
     [id, empresaId, codigo, nome, tipo, JSON.stringify(cargos), exigeAssinatura ? 1 : 0,
+     ritmo.finalidade || 'padrao',
      ritmo.periodicidade || 'avulso', JSON.stringify(ritmo.dias_semana || []),
      ritmo.dia_semana ?? null, ritmo.horario_limite ?? null,
-     JSON.stringify(ESTRUTURA), ts, ts, ts],
+     JSON.stringify(ritmo.estrutura || ESTRUTURA), ts, ts, ts],
   )
   return id
 }
@@ -204,6 +205,45 @@ criarChecklist('diario-4x4', 'Checklist diario — 4x4', 'quatro_x_quatro', ['*'
 // Checklist de mecanico: so aparece para quem tem o cargo (roadmap 11.2.3).
 criarChecklist('pos-manutencao', 'Checklist pos-manutencao', 'compacto_leve',
   [cgManutencao], true, { periodicidade: 'avulso' })
+
+// -------------------------------------------------- checklist de preventiva
+// Peca a peca, com foto obrigatoria dos dois lados: a saida mostra como a peca
+// chegou, o retorno mostra como ficou (roadmap 14.2).
+const ESTRUTURA_PREVENTIVA = {
+  perguntas: [
+    { id: 'pinca_freio', titulo: 'Pinca de freio', foto_ok: 'obrigatorio', max_fotos_ok: 3,
+      opcoes_problema: [
+        { id: 'pastilha', nome: 'Pastilha no limite', foto: 'obrigatorio', max_fotos: 2,
+          abrir_ocorrencia: true, prioridade: 'alta' },
+        { id: 'disco', nome: 'Disco empenado', foto: 'obrigatorio', max_fotos: 2,
+          abrir_ocorrencia: true, prioridade: 'critica' },
+      ] },
+    { id: 'suspensao', titulo: 'Suspensao dianteira', foto_ok: 'obrigatorio', max_fotos_ok: 3,
+      opcoes_problema: [
+        { id: 'amortecedor', nome: 'Amortecedor vazando', foto: 'obrigatorio', max_fotos: 2,
+          abrir_ocorrencia: true, prioridade: 'alta' },
+        { id: 'bandeja', nome: 'Folga na bandeja', foto: 'obrigatorio', max_fotos: 2,
+          abrir_ocorrencia: true, prioridade: 'media' },
+      ] },
+    { id: 'correia', titulo: 'Correia dentada', foto_ok: 'obrigatorio', max_fotos_ok: 2,
+      opcoes_problema: [
+        { id: 'ressecada', nome: 'Correia ressecada', foto: 'obrigatorio', max_fotos: 2,
+          abrir_ocorrencia: true, prioridade: 'critica' },
+      ] },
+    { id: 'filtros', titulo: 'Filtros de ar e oleo', foto_ok: 'obrigatorio', max_fotos_ok: 2,
+      opcoes_problema: [
+        { id: 'saturado', nome: 'Filtro saturado', foto: 'obrigatorio', max_fotos: 2,
+          abrir_ocorrencia: true, prioridade: 'media' },
+      ] },
+  ],
+}
+
+const modeloPreventiva = criarChecklist(
+  'preventiva-revisao', 'Preventiva — revisao periodica', 'compacto_leve',
+  // So o cargo de manutencao ve este modelo: e' o caso da secao 11.2.3.
+  [cgManutencao], true,
+  { finalidade: 'preventiva', estrutura: ESTRUTURA_PREVENTIVA },
+)
 
 // ------------------------------------------------------- categorias de uso
 // O que o colaborador pede (roadmap 10.3). Descreve o trabalho, nao o carro.
@@ -236,12 +276,12 @@ function criarPreventiva(veiculoId, modo, dados) {
   executar(
     `INSERT INTO preventivas (id, empresa_id, veiculo_id, modo, ultimo_servico_km, ultimo_servico_data,
                               proximo_km, proxima_data, alerta_antes_km, alerta_antes_dias,
-                              status, criado_em, atualizado_em)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'em_dia', ?, ?)`,
+                              template_id, status, criado_em, atualizado_em)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'em_dia', ?, ?)`,
     [novoId('preventiva'), empresaId, veiculoId, modo,
      dados.ultimoKm ?? null, dados.ultimaData ?? null,
      dados.proximoKm ?? null, dados.proximaData ?? null,
-     dados.alertaKm ?? 500, dados.alertaDias ?? 7, ts, ts],
+     dados.alertaKm ?? 500, dados.alertaDias ?? 7, dados.templateId ?? null, ts, ts],
   )
 }
 
@@ -249,7 +289,9 @@ const emDias = (n) => new Date(Date.now() + n * 86400000).toISOString().slice(0,
 
 criarPreventiva(v1, 'km', { ultimoKm: 31000, proximoKm: 51000, alertaKm: 1000 })
 criarPreventiva(v2, 'km', { ultimoKm: 300000, proximoKm: 315000, alertaKm: 2000 })  // vencida
-criarPreventiva(v3, 'data', { ultimaData: emDias(-170), proximaData: emDias(5), alertaDias: 7 })
+// Esta e' a que abre no aplicativo do mecanico: vencida e com modelo.
+criarPreventiva(v3, 'data', { ultimaData: emDias(-170), proximaData: emDias(-2), alertaDias: 7,
+  templateId: modeloPreventiva })
 criarPreventiva(v4, 'data', { ultimaData: emDias(-400), proximaData: emDias(-35), alertaDias: 10 }) // vencida
 criarPreventiva(v5, 'km', { ultimoKm: 68000, proximoKm: 88000, alertaKm: 1000 })
 

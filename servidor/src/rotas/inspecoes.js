@@ -11,7 +11,10 @@ import { registrarEvento } from '../nucleo/auditoria.js'
 import { exigirAutenticado } from '../seguranca/sessao.js'
 import { ehFrota } from '../seguranca/nivel.js'
 import { registrarKm, agrava } from './veiculos.js'
-import { avaliarInspecao, cargoLiberado, MOMENTOS } from '../../../compartilhado/template.js'
+import {
+  avaliarInspecao, cargoLiberado, conferirProximaPreventiva, MOMENTOS,
+} from '../../../compartilhado/template.js'
+import { encerrarCiclo } from '../nucleo/ciclo_preventiva.js'
 
 function politicas(empresaId) {
   const linha = consultarUm('SELECT politicas FROM empresas WHERE id = ?', [empresaId])
@@ -82,6 +85,54 @@ export function registrarRotasInspecoes(rotas) {
       })
     }
 
+    // Preventivas com modelo de checklist (roadmap 14.2). A preventiva vencida
+    // ou proxima vira tarefa: saida antes do servico, retorno depois. Sao os
+    // dois momentos obrigatorios, e o retorno e' que encerra a manutencao.
+    const preventivas = []
+    const emAberto = consultar(
+      `SELECT p.*, v.placa, v.marca, v.modelo, v.tipo, v.km_atual, t.id AS modelo_id
+         FROM preventivas p
+         JOIN veiculos v ON v.id = p.veiculo_id
+         JOIN templates t ON t.id = p.template_id
+        WHERE p.empresa_id = ? AND p.status <> 'realizada'
+          AND t.status = 'publicado' AND t.finalidade = 'preventiva'
+        ORDER BY CASE p.status WHEN 'vencida' THEN 0 ELSE 1 END, p.atualizado_em`,
+      [eu.empresa_id])
+
+    for (const prev of emAberto) {
+      const modelo = consultarUm('SELECT * FROM templates WHERE id = ?', [prev.template_id])
+      if (!modelo) continue
+      // Cargo vale aqui como em qualquer modelo: o checklist do mecanico so
+      // aparece para o mecanico (roadmap 11.2.3).
+      if (!cargoLiberado(JSON.parse(modelo.cargos_liberados), eu.cargo_id)) continue
+
+      modelos.set(modelo.id, {
+        id: modelo.id,
+        codigo: modelo.codigo,
+        nome: modelo.nome,
+        versao: modelo.versao,
+        finalidade: modelo.finalidade,
+        exige_assinatura: Boolean(modelo.exige_assinatura),
+        periodicidade: modelo.periodicidade,
+        dias_semana: JSON.parse(modelo.dias_semana || '[]'),
+        horario_limite: modelo.horario_limite,
+        estrutura: JSON.parse(modelo.estrutura),
+      })
+
+      preventivas.push({
+        preventiva_id: prev.id,
+        momento: prev.inspecao_saida ? 'retorno' : 'saida',
+        status: prev.status,
+        modo: prev.modo,
+        alvo: prev.modo === 'km' ? `${prev.proximo_km} km` : prev.proxima_data,
+        template_id: modelo.id,
+        veiculo: {
+          id: prev.veiculo_id, placa: prev.placa, marca: prev.marca,
+          modelo: prev.modelo, tipo: prev.tipo, km_atual: prev.km_atual,
+        },
+      })
+    }
+
     // Checklist diario avulso (roadmap 8.2). Quem sai com carro toda manha nao
     // pede veiculo: pega um no galpao e faz o checklist nele. Nao ha condutor
     // fixo, entao o aparelho precisa da lista de carros para a pessoa escolher.
@@ -120,6 +171,7 @@ export function registrarRotasInspecoes(rotas) {
         usa_veiculo_diario: Boolean(eu.usa_veiculo_diario),
       },
       tarefas,
+      preventivas,
       avulso,
       modelos: [...modelos.values()],
       politicas: { bloqueio_por_critica: p.bloqueio_por_critica !== false },
@@ -146,14 +198,37 @@ export function registrarRotasInspecoes(rotas) {
     const momento = String(ctx.corpo.momento || 'saida')
     if (!MOMENTOS.includes(momento)) throw erro.requisicao('Momento invalido: use saida ou retorno.')
 
-    // Dois caminhos (roadmap 8.2). Com solicitacao: saida e retorno amarrados a
-    // uma reserva. Sem solicitacao: checklist diario avulso, de quem sai com
-    // carro toda manha e escolhe o carro no galpao.
+    // Tres caminhos. Com SOLICITACAO: saida e retorno amarrados a uma reserva
+    // (roadmap 8.2). Com PREVENTIVA: saida antes do servico e retorno depois,
+    // e o retorno encerra a manutencao (14.2). Sem nenhum dos dois: checklist
+    // diario avulso, de quem sai com carro toda manha.
     const solicitacaoId = String(ctx.corpo.solicitacao_id || '')
+    const preventivaId = String(ctx.corpo.preventiva_id || '')
     let solicitacao = null
+    let preventiva = null
     let veiculo = null
 
-    if (solicitacaoId) {
+    if (solicitacaoId && preventivaId) {
+      throw erro.requisicao('Um checklist atende uma solicitacao ou uma preventiva, nunca as duas.')
+    }
+
+    if (preventivaId) {
+      preventiva = consultarUm(
+        `SELECT p.*, v.km_atual FROM preventivas p
+           JOIN veiculos v ON v.id = p.veiculo_id
+          WHERE p.id = ? AND p.empresa_id = ?`, [preventivaId, eu.empresa_id])
+      if (!preventiva) throw erro.naoEncontrado('Preventiva nao encontrada nesta empresa.')
+      if (preventiva.status === 'realizada') {
+        throw erro.conflito('Esta preventiva ja foi concluida.')
+      }
+      // Saida e retorno, nesta ordem e os dois obrigatorios (roadmap 14.2.1).
+      const esperado = preventiva.inspecao_saida ? 'retorno' : 'saida'
+      if (momento !== esperado) {
+        throw erro.conflito(`Esta preventiva espera o checklist de ${esperado}.`)
+      }
+      veiculo = consultarUm('SELECT * FROM veiculos WHERE id = ? AND empresa_id = ?',
+        [preventiva.veiculo_id, eu.empresa_id])
+    } else if (solicitacaoId) {
       solicitacao = consultarUm('SELECT * FROM solicitacoes WHERE id = ? AND empresa_id = ?',
         [solicitacaoId, eu.empresa_id])
       if (!solicitacao) throw erro.naoEncontrado('Solicitacao nao encontrada.')
@@ -212,11 +287,25 @@ export function registrarRotasInspecoes(rotas) {
       ? ctx.corpo.respostas : {}
     const assinatura = String(ctx.corpo.assinatura || '') || null
 
+    // Modelo de preventiva so roda dentro de uma preventiva, e preventiva so
+    // roda com modelo de preventiva. Trocar um pelo outro daria um checklist
+    // que pergunta a coisa errada — e, no retorno, encerraria manutencao
+    // nenhuma.
+    if (modeloLinha.finalidade === 'preventiva' && !preventiva) {
+      throw erro.requisicao('Este checklist executa uma preventiva. Abra pela preventiva do veiculo.')
+    }
+    if (preventiva && modeloLinha.finalidade !== 'preventiva') {
+      throw erro.requisicao('Preventiva exige um checklist de preventiva.')
+    }
+
     // RE-JULGAMENTO. O que o app calculou nao entra na conta.
     const juizo = avaliarInspecao(estrutura, respostas, {
       politicas: politicas(eu.empresa_id),
       exige_assinatura: Boolean(modeloLinha.exige_assinatura),
       assinatura,
+      finalidade: modeloLinha.finalidade,
+      momento,
+      proxima_preventiva: ctx.corpo.proxima_preventiva,
     })
     if (!juizo.pode_finalizar) {
       throw erro.requisicao(
@@ -237,20 +326,31 @@ export function registrarRotasInspecoes(rotas) {
 
       executar(
         `INSERT INTO inspecoes (id, empresa_id, numero, veiculo_id, usuario_id, template_id,
-                                solicitacao_id, momento, status, km_informado, iniciada_em,
-                                finalizada_em, resultado, assinatura, cliente_uuid, criado_em)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'finalizada', ?, ?, ?, ?, ?, ?, ?)`,
-        [id, eu.empresa_id, numero, veiculo.id, eu.id, modeloLinha.id, solicitacao?.id ?? null,
+                                solicitacao_id, preventiva_id, momento, status, km_informado,
+                                iniciada_em, finalizada_em, resultado, assinatura,
+                                cliente_uuid, criado_em)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'finalizada', ?, ?, ?, ?, ?, ?, ?)`,
+        [id, eu.empresa_id, numero, veiculo.id, eu.id, modeloLinha.id,
+         solicitacao?.id ?? null, preventiva?.id ?? null,
          momento, km ?? null, ctx.corpo.iniciada_em || ts, ts,
          juizo.resultado, assinatura, clienteUuid, ts])
 
       for (const [perguntaId, r] of Object.entries(respostas)) {
+        // No retorno de preventiva nao existe OK nem Ocorrencia: a resposta e'
+        // "foi feito manutencao?" mais o relatorio. `desfecho` fica em 'ok'
+        // porque a coluna e' obrigatoria e nada foi reprovado — o que importa
+        // esta em manutencao_feita.
+        const ehRetornoPreventiva = Boolean(preventiva) && momento === 'retorno'
         executar(
           `INSERT INTO respostas (id, empresa_id, inspecao_id, pergunta_id, desfecho,
-                                  opcao_id, relatorio, respondido_em)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-          [novoId('resposta'), eu.empresa_id, id, perguntaId, r.desfecho,
-           r.opcao_id || null, r.relatorio || null, r.respondido_em || ts])
+                                  opcao_id, relatorio, manutencao_feita, respondido_em)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [novoId('resposta'), eu.empresa_id, id, perguntaId,
+           ehRetornoPreventiva ? 'ok' : r.desfecho,
+           ehRetornoPreventiva ? null : (r.opcao_id || null),
+           r.relatorio || null,
+           ehRetornoPreventiva ? (r.manutencao_feita ? 1 : 0) : null,
+           r.respondido_em || ts])
       }
 
       // Cada ocorrencia julgada vira registro na fila da Frota.
@@ -270,6 +370,29 @@ export function registrarRotasInspecoes(rotas) {
       if (agrava(veiculo.status, juizo.estado_veiculo_previsto)) {
         executar('UPDATE veiculos SET status = ?, motivo_status = ?, atualizado_em = ? WHERE id = ?',
           [juizo.estado_veiculo_previsto, juizo.motivo, ts, veiculo.id])
+      }
+
+      // Preventiva: a saida so registra que comecou; o RETORNO encerra o ciclo
+      // e agenda a proxima, no mesmo ato (roadmap 14.2.3). Dentro da mesma
+      // transacao da inspecao: ou as duas coisas acontecem, ou nenhuma.
+      if (preventiva && momento === 'saida') {
+        executar('UPDATE preventivas SET inspecao_saida = ?, atualizado_em = ? WHERE id = ?',
+          [id, ts, preventiva.id])
+      } else if (preventiva) {
+        executar('UPDATE preventivas SET inspecao_retorno = ?, atualizado_em = ? WHERE id = ?',
+          [id, ts, preventiva.id])
+        const servicos = juizo.servicos || []
+        encerrarCiclo({
+          atual: preventiva,
+          empresaId: eu.empresa_id,
+          atorId: eu.id,
+          kmRealizado: km ?? preventiva.km_atual,
+          dataRealizada: ts.slice(0, 10),
+          servico: servicos.length
+            ? servicos.map((x) => x.titulo).join('; ')
+            : 'Preventiva executada sem intervencao em nenhum item.',
+          proximo: juizo.proxima_preventiva,
+        })
       }
 
       // Saida coloca a solicitacao em uso. O retorno e' fechado pela rota de

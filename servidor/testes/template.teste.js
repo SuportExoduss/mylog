@@ -8,6 +8,7 @@ const {
   conferirEstrutura, avaliarResposta, avaliarInspecao,
   cargoLiberado, perguntaPorId, opcaoPorId, descreverPendencia,
   conferirPeriodicidade, obrigatorioNoDia, classificarExecucao, PERIODICIDADES,
+  avaliarManutencao, conferirProximaPreventiva, FINALIDADES,
   PRIORIDADES, MODOS_FOTO, MOMENTOS, TIPOS_VEICULO, MOTIVOS_PENDENCIA,
 } = await import('../../compartilhado/template.js')
 
@@ -445,4 +446,123 @@ test('ritmo: sem horario limite, nada e atrasado', () => {
   assert.equal(classificarExecucao({ horario_limite: null }, new Date()), 'no_prazo')
   // Data ilegivel nao pode virar "atrasado" por acidente.
   assert.equal(classificarExecucao({ horario_limite: '08:00' }, 'nao e data'), 'no_prazo')
+})
+
+// -------------------------------------------- checklist de preventiva
+
+const PREVENTIVA = { finalidade: 'preventiva', momento: 'retorno' }
+const PROXIMA_OK = { modo: 'km', proximo_km: 120000 }
+
+test('preventiva: as finalidades sao duas — padrao e preventiva', () => {
+  assert.deepEqual(FINALIDADES, ['padrao', 'preventiva'])
+})
+
+test('preventiva: o retorno pergunta se houve manutencao, nao se esta OK', () => {
+  // Roadmap 14.2.2: no retorno nao ha OK nem Ocorrencia. A pergunta e' outra —
+  // "o que foi feito nesta peca?" — e por isso o julgamento e' outro.
+  const semResposta = avaliarManutencao(ESTRUTURA.perguntas[0], { desfecho: 'ok', fotos: 1 })
+  assert.equal(semResposta.respondida, false)
+  assert.deepEqual(semResposta.problemas, ['sem_resposta_manutencao'])
+
+  const naoMexeu = avaliarManutencao(ESTRUTURA.perguntas[0], { manutencao_feita: false, fotos: 1 })
+  assert.equal(naoMexeu.respondida, true)
+  assert.equal(naoMexeu.manutencao, false)
+  assert.deepEqual(naoMexeu.problemas, [])
+})
+
+test('preventiva: mexeu na peca e nao descreveu nao passa', () => {
+  // Mexer numa peca sem dizer o que foi feito produz registro que nao serve
+  // nem para a proxima manutencao nem para uma discussao de garantia.
+  const semTexto = avaliarManutencao(ESTRUTURA.perguntas[0], { manutencao_feita: true, fotos: 1 })
+  assert.ok(semTexto.problemas.includes('relatorio_obrigatorio'))
+
+  const curto = avaliarManutencao(ESTRUTURA.perguntas[0],
+    { manutencao_feita: true, fotos: 1, relatorio: 'ok' })
+  assert.ok(curto.problemas.includes('relatorio_obrigatorio'),
+    '"ok" nao descreve servico nenhum')
+
+  const bom = avaliarManutencao(ESTRUTURA.perguntas[0],
+    { manutencao_feita: true, fotos: 1, relatorio: 'Pastilha e disco trocados.' })
+  assert.deepEqual(bom.problemas, [])
+  assert.equal(bom.relatorio, 'Pastilha e disco trocados.')
+})
+
+test('preventiva: nao mexeu, o relatorio segue opcional', () => {
+  // Ninguem deveria ser obrigado a escrever "nada a fazer" treze vezes.
+  const r = avaliarManutencao(ESTRUTURA.perguntas[0], { manutencao_feita: false, fotos: 1 })
+  assert.deepEqual(r.problemas, [])
+  assert.equal(r.relatorio, null)
+})
+
+test('preventiva: a foto obrigatoria continua obrigatoria no retorno', () => {
+  const r = avaliarManutencao(ESTRUTURA.perguntas[0],
+    { manutencao_feita: false, fotos: 0 })
+  assert.ok(r.problemas.includes('foto_obrigatoria'),
+    'lateral_esquerda tem foto_ok obrigatorio')
+})
+
+test('preventiva: o retorno nao abre ocorrencia nem mexe no estado do veiculo', () => {
+  // O carro acabou de sair da manutencao. Quem decide se ele volta a rodar e'
+  // a Frota, com o dossie na mao — nao o proprio checklist (D31).
+  const r = avaliarInspecao(ESTRUTURA, {
+    lateral_esquerda: { manutencao_feita: true, fotos: 1, relatorio: 'Lataria martelada.' },
+    pneus: { manutencao_feita: true, fotos: 1, relatorio: 'Dois pneus trocados.' },
+    freios: { manutencao_feita: false },
+  }, { ...PREVENTIVA, proxima_preventiva: PROXIMA_OK })
+
+  assert.equal(r.pode_finalizar, true)
+  assert.deepEqual(r.ocorrencias, [])
+  assert.equal(r.estado_veiculo_previsto, 'disponivel')
+  assert.equal(r.itens_com_manutencao, 2)
+  assert.equal(r.servicos.length, 2)
+  assert.match(r.motivo, /2 item\(ns\) com manutencao/)
+})
+
+test('preventiva: sem dizer quando vence a proxima, nao encerra', () => {
+  // Concluir sem agendar deixaria a frota sem agenda justamente depois de
+  // fazer a manutencao (roadmap 14.1).
+  const respostas = {
+    lateral_esquerda: { manutencao_feita: false, fotos: 1 },
+    pneus: { manutencao_feita: false, fotos: 1 },
+    freios: { manutencao_feita: false },
+  }
+  const sem = avaliarInspecao(ESTRUTURA, respostas, PREVENTIVA)
+  assert.equal(sem.pode_finalizar, false)
+  assert.ok(sem.pendencias.some((p) => p.motivo === 'proxima_preventiva_obrigatoria'))
+
+  const com = avaliarInspecao(ESTRUTURA, respostas,
+    { ...PREVENTIVA, proxima_preventiva: PROXIMA_OK })
+  assert.equal(com.pode_finalizar, true)
+})
+
+test('preventiva: a proxima aceita KM ou data, e recusa o resto', () => {
+  assert.equal(conferirProximaPreventiva({ modo: 'km', proximo_km: 90000 }).valido, true)
+  assert.equal(conferirProximaPreventiva({ modo: 'data', proxima_data: '2027-03-15' }).valido, true)
+
+  assert.equal(conferirProximaPreventiva(null).valido, false)
+  assert.equal(conferirProximaPreventiva({ modo: 'km' }).valido, false)
+  assert.equal(conferirProximaPreventiva({ modo: 'km', proximo_km: 0 }).valido, false)
+  assert.equal(conferirProximaPreventiva({ modo: 'data', proxima_data: '15/03/2027' }).valido, false)
+  assert.equal(conferirProximaPreventiva({ modo: 'chute' }).valido, false)
+})
+
+test('preventiva: a SAIDA continua sendo o checklist convencional', () => {
+  // Roadmap 14.2: a saida registra o estado da peca ANTES do servico, e para
+  // isso serve o julgamento de sempre — inclusive abrir ocorrencia.
+  const r = avaliarInspecao(ESTRUTURA, {
+    ...TUDO_OK,
+    freios: { desfecho: 'ocorrencia', opcao_id: 'folga' },
+  }, { finalidade: 'preventiva', momento: 'saida' })
+
+  assert.equal(r.ocorrencias.length, 1)
+  assert.equal(r.maior_prioridade, 'alta')
+  assert.equal(r.estado_veiculo_previsto, 'com_pendencia')
+})
+
+test('preventiva: todo motivo novo de pendencia tem frase propria', () => {
+  for (const motivo of ['sem_resposta_manutencao', 'relatorio_obrigatorio',
+    'proxima_preventiva_obrigatoria']) {
+    const frase = descreverPendencia({ motivo, titulo: 'Pinca de freio' })
+    assert.ok(frase && !frase.startsWith('Pendencia em:'), `motivo sem frase: ${motivo}`)
+  }
 })

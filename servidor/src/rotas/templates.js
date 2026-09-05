@@ -8,7 +8,9 @@ import { erro } from '../nucleo/http.js'
 import { registrarEvento } from '../nucleo/auditoria.js'
 import { exigirAutenticado } from '../seguranca/sessao.js'
 import { exigirFrota } from '../seguranca/nivel.js'
-import { conferirEstrutura, conferirPeriodicidade, TIPOS_VEICULO, cargoLiberado } from '../../../compartilhado/template.js'
+import {
+  conferirEstrutura, conferirPeriodicidade, TIPOS_VEICULO, cargoLiberado, FINALIDADES,
+} from '../../../compartilhado/template.js'
 
 const CODIGO = /^[a-z0-9_-]{2,40}$/
 
@@ -48,11 +50,17 @@ export function registrarRotasTemplates(rotas) {
     const eu = exigirFrota(exigirAutenticado(ctx))
     const status = ctx.query.get('status')
 
+    // A tela de Modelos e a de Preventivas leem a mesma rota, cada uma pedindo
+    // a sua finalidade: sao dois cadastros com donos diferentes.
+    const finalidade = ctx.query.get('finalidade')
+
     let sql = `SELECT id, codigo, nome, tipo_veiculo, cargos_liberados, exige_assinatura,
+                      finalidade, periodicidade, dias_semana, dia_semana, horario_limite,
                       versao, status, publicado_em, atualizado_em, estrutura
                  FROM templates WHERE empresa_id = ?`
     const params = [eu.empresa_id]
     if (status) { sql += ' AND status = ?'; params.push(status) }
+    if (finalidade) { sql += ' AND finalidade = ?'; params.push(finalidade) }
     sql += ' ORDER BY codigo, versao DESC'
 
     // A lista nao precisa da estrutura inteira, so do tamanho dela.
@@ -62,6 +70,7 @@ export function registrarRotasTemplates(rotas) {
       return {
         ...resto,
         cargos_liberados: JSON.parse(linha.cargos_liberados),
+        dias_semana: JSON.parse(linha.dias_semana || '[]'),
         exige_assinatura: Boolean(linha.exige_assinatura),
         total_perguntas: estrutura.perguntas?.length ?? 0,
       }
@@ -114,6 +123,12 @@ export function registrarRotasTemplates(rotas) {
     const exigeAssinatura = ctx.corpo.exige_assinatura ? 1 : 0
     const ritmo = lerRitmo(ctx.corpo)
 
+    // Para que serve o modelo (roadmap 14.2). Preventiva executa manutencao:
+    // saida e retorno obrigatorios, relatorio por pergunta e conclusao da
+    // preventiva no fim.
+    const finalidade = String(ctx.corpo.finalidade || 'padrao')
+    if (!FINALIDADES.includes(finalidade)) throw erro.requisicao('Finalidade invalida.')
+
     if (!CODIGO.test(codigo)) {
       throw erro.requisicao('Codigo invalido. Use letras minusculas, numeros, hifen e _.')
     }
@@ -128,11 +143,12 @@ export function registrarRotasTemplates(rotas) {
     const ts = agora()
     executar(
       `INSERT INTO templates (id, empresa_id, codigo, nome, tipo_veiculo, cargos_liberados,
-                              exige_assinatura, periodicidade, dias_semana, dia_semana,
-                              horario_limite, versao, status, estrutura, criado_em, atualizado_em)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'rascunho', ?, ?, ?)`,
+                              exige_assinatura, finalidade, periodicidade, dias_semana,
+                              dia_semana, horario_limite, versao, status, estrutura,
+                              criado_em, atualizado_em)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'rascunho', ?, ?, ?)`,
       [id, eu.empresa_id, codigo, nome, tipoVeiculo, JSON.stringify(cargos), exigeAssinatura,
-       ritmo.periodicidade, JSON.stringify(ritmo.dias_semana), ritmo.dia_semana,
+       finalidade, ritmo.periodicidade, JSON.stringify(ritmo.dias_semana), ritmo.dia_semana,
        ritmo.horario_limite,
        JSON.stringify(ctx.corpo.estrutura || { perguntas: [] }), ts, ts],
     )
@@ -140,7 +156,7 @@ export function registrarRotasTemplates(rotas) {
       empresaId: eu.empresa_id, ator: eu, acao: 'checklist.criado',
       entidade: 'template', entidadeId: id,
       depois: {
-        codigo, nome, tipo_veiculo: tipoVeiculo, versao: 1,
+        codigo, nome, tipo_veiculo: tipoVeiculo, versao: 1, finalidade,
         periodicidade: ritmo.periodicidade, horario_limite: ritmo.horario_limite,
       }, ip: ctx.ip,
     })
@@ -239,11 +255,13 @@ export function registrarRotasTemplates(rotas) {
     const ts = agora()
     executar(
       `INSERT INTO templates (id, empresa_id, codigo, nome, tipo_veiculo, cargos_liberados,
-                              exige_assinatura, periodicidade, dias_semana, dia_semana,
-                              horario_limite, versao, status, estrutura, criado_em, atualizado_em)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'rascunho', ?, ?, ?)`,
+                              exige_assinatura, finalidade, periodicidade, dias_semana,
+                              dia_semana, horario_limite, versao, status, estrutura,
+                              criado_em, atualizado_em)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'rascunho', ?, ?, ?)`,
       [id, eu.empresa_id, base.codigo, base.nome, base.tipo_veiculo,
        JSON.stringify(base.cargos_liberados), base.exige_assinatura ? 1 : 0,
+       base.finalidade,
        // A nova versao herda o ritmo da anterior: mudar periodicidade sem
        // querer, so por criar uma versao, tiraria um checklist da cobranca.
        base.periodicidade, JSON.stringify(base.dias_semana ?? []), base.dia_semana ?? null,

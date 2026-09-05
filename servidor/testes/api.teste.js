@@ -116,6 +116,54 @@ function criarCategoria(empresaId, nome, veiculos) {
   return id
 }
 
+// Modelo de preventiva: liberado so para o cargo de manutencao, como o do
+// mecanico no roadmap 11.2.3. Foto obrigatoria nos dois momentos.
+const ESTRUTURA_PREVENTIVA = {
+  perguntas: [
+    { id: 'pinca', titulo: 'Pinca de freio', foto_ok: 'obrigatorio', max_fotos_ok: 3,
+      opcoes_problema: [
+        { id: 'pastilha', nome: 'Pastilha no limite', foto: 'obrigatorio', max_fotos: 2,
+          abrir_ocorrencia: true, prioridade: 'alta' },
+      ] },
+    { id: 'correia', titulo: 'Correia dentada', foto_ok: 'obrigatorio', max_fotos_ok: 2,
+      opcoes_problema: [
+        { id: 'ressecada', nome: 'Correia ressecada', foto: 'obrigatorio', max_fotos: 2,
+          abrir_ocorrencia: true, prioridade: 'critica' },
+      ] },
+  ],
+}
+
+function criarModeloPreventiva(empresaId, codigo, cargos) {
+  const id = novoId('template')
+  executar(
+    `INSERT INTO templates (id, empresa_id, codigo, nome, tipo_veiculo, cargos_liberados,
+                            exige_assinatura, finalidade, versao, status, estrutura,
+                            publicado_em, criado_em, atualizado_em)
+     VALUES (?, ?, ?, 'Preventiva de teste', 'compacto_leve', ?, 0, 'preventiva',
+             1, 'publicado', ?, ?, ?, ?)`,
+    [id, empresaId, codigo, JSON.stringify(cargos), JSON.stringify(ESTRUTURA_PREVENTIVA),
+     ts, ts, ts])
+  return id
+}
+
+function criarPreventivaComModelo(empresaId, veiculoId, templateId) {
+  const id = novoId('preventiva')
+  executar(
+    `INSERT INTO preventivas (id, empresa_id, veiculo_id, modo, proximo_km,
+                              alerta_antes_km, alerta_antes_dias, template_id,
+                              status, criado_em, atualizado_em)
+     VALUES (?, ?, ?, 'km', 11000, 500, 7, ?, 'vencida', ?, ?)`,
+    [id, empresaId, veiculoId, templateId, ts, ts])
+  return id
+}
+
+const cgMecanicoA = criarCargo(empresaA, 'Mecanico')
+// CPF proprio: 604.829.173-69 e' o que o teste de cadastro usa para criar um
+// usuario novo, e ocupa-lo aqui faria aquele teste falhar por conflito.
+const mecanicoA = criarUsuario(empresaA, 'Mecanico A', '11122233396', 'mecanico.a@teste.local',
+  cgMecanicoA, true)
+const modeloPreventivaA = criarModeloPreventiva(empresaA, 'preventiva-teste', [cgMecanicoA])
+
 const catA = criarCategoria(empresaA, 'Comercial A', [veiculoA, veiculoA2, veiculoA4])
 const catVazia = criarCategoria(empresaA, 'Sem carro nenhum', [])
 criarCategoria(empresaB, 'Comercial B', [veiculoB])
@@ -1285,4 +1333,221 @@ test('estatico: arquivo que nao existe responde 404, nao a pagina do painel', as
   const real = await pedir('/js/api.js')
   assert.equal(real.status, 200)
   assert.match(real.headers.get('content-type'), /javascript/)
+})
+
+// ------------------------------------ criterio: checklist de preventiva
+
+test('preventiva: so o cargo liberado ve a preventiva no aplicativo', async () => {
+  const preventivaA = criarPreventivaComModelo(empresaA, veiculoA2, modeloPreventivaA)
+  globalThis.__preventivaA = preventivaA
+
+  const mecanico = await entrar('mecanico.a@teste.local')
+  const frota = await entrar('frota.a@teste.local')
+
+  const doMecanico = await chamar('GET', '/api/app/inicio', { token: mecanico })
+  const minha = doMecanico.dados.preventivas.find((p) => p.preventiva_id === preventivaA)
+  assert.ok(minha, 'o mecanico precisa ver a preventiva vencida do carro dele')
+  assert.equal(minha.momento, 'saida', 'comeca pela saida')
+  assert.equal(minha.veiculo.placa, 'AAA2A22')
+
+  // A frota tem outro cargo: o modelo do mecanico nao aparece para ela.
+  const daFrota = await chamar('GET', '/api/app/inicio', { token: frota })
+  assert.ok(!daFrota.dados.preventivas.some((p) => p.preventiva_id === preventivaA),
+    'cargo nao liberado nao ve o modelo, nem sendo da frota')
+})
+
+test('preventiva: a saida e um checklist normal e abre ocorrencia', async () => {
+  // Roadmap 14.2: a saida registra o estado da peca ANTES do servico.
+  const mecanico = await entrar('mecanico.a@teste.local')
+  const preventivaA = globalThis.__preventivaA
+
+  const r = await chamar('POST', '/api/inspecoes', {
+    token: mecanico,
+    corpo: {
+      cliente_uuid: 'uuid-prev-saida', preventiva_id: preventivaA,
+      template_id: modeloPreventivaA, momento: 'saida', km_informado: 10800,
+      respostas: {
+        pinca: { desfecho: 'ocorrencia', opcao_id: 'pastilha', fotos: 1,
+          relatorio: 'Pastilha no limite, disco com sulco.' },
+        correia: { desfecho: 'ok', fotos: 1 },
+      },
+    },
+  })
+  assert.equal(r.status, 200, JSON.stringify(r.dados))
+  assert.equal(r.dados.resumo.ocorrencias.length, 1)
+  assert.equal(r.dados.resumo.maior_prioridade, 'alta')
+
+  // A preventiva registrou a saida, mas continua aberta.
+  const frota = await entrar('frota.a@teste.local')
+  const lista = await chamar('GET', '/api/preventivas', { token: frota })
+  const p = lista.dados.preventivas.find((x) => x.id === preventivaA)
+  assert.ok(p, 'a preventiva continua em aberto ate o retorno')
+  assert.equal(p.inspecao_saida, r.dados.inspecao.id)
+})
+
+test('preventiva: o retorno recusa saida na ordem errada', async () => {
+  const mecanico = await entrar('mecanico.a@teste.local')
+  const r = await chamar('POST', '/api/inspecoes', {
+    token: mecanico,
+    corpo: {
+      cliente_uuid: 'uuid-prev-saida-2', preventiva_id: globalThis.__preventivaA,
+      template_id: modeloPreventivaA, momento: 'saida',
+      respostas: { pinca: { desfecho: 'ok', fotos: 1 }, correia: { desfecho: 'ok', fotos: 1 } },
+    },
+  })
+  assert.equal(r.status, 409)
+  assert.match(r.dados.mensagem, /espera o checklist de retorno/)
+})
+
+test('preventiva: retorno sem dizer se houve manutencao nao passa', async () => {
+  const mecanico = await entrar('mecanico.a@teste.local')
+  const r = await chamar('POST', '/api/inspecoes', {
+    token: mecanico,
+    corpo: {
+      cliente_uuid: 'uuid-prev-ret-vazio', preventiva_id: globalThis.__preventivaA,
+      template_id: modeloPreventivaA, momento: 'retorno',
+      respostas: { pinca: { fotos: 1 }, correia: { fotos: 1 } },
+      proxima_preventiva: { modo: 'km', proximo_km: 21000 },
+    },
+  })
+  assert.equal(r.status, 400)
+  assert.match(r.dados.mensagem, /sem_resposta_manutencao/)
+})
+
+test('preventiva: mexeu na peca e nao descreveu nao passa', async () => {
+  const mecanico = await entrar('mecanico.a@teste.local')
+  const r = await chamar('POST', '/api/inspecoes', {
+    token: mecanico,
+    corpo: {
+      cliente_uuid: 'uuid-prev-ret-sem-texto', preventiva_id: globalThis.__preventivaA,
+      template_id: modeloPreventivaA, momento: 'retorno',
+      respostas: {
+        pinca: { manutencao_feita: true, fotos: 1 },
+        correia: { manutencao_feita: false, fotos: 1 },
+      },
+      proxima_preventiva: { modo: 'km', proximo_km: 21000 },
+    },
+  })
+  assert.equal(r.status, 400)
+  assert.match(r.dados.mensagem, /relatorio_obrigatorio/)
+})
+
+test('preventiva: sem a proxima, o retorno nao encerra', async () => {
+  // Concluir sem agendar deixaria a frota sem agenda de manutencao (14.1).
+  const mecanico = await entrar('mecanico.a@teste.local')
+  const r = await chamar('POST', '/api/inspecoes', {
+    token: mecanico,
+    corpo: {
+      cliente_uuid: 'uuid-prev-ret-sem-proxima', preventiva_id: globalThis.__preventivaA,
+      template_id: modeloPreventivaA, momento: 'retorno',
+      respostas: {
+        pinca: { manutencao_feita: true, fotos: 1, relatorio: 'Pastilha e disco trocados.' },
+        correia: { manutencao_feita: false, fotos: 1 },
+      },
+    },
+  })
+  assert.equal(r.status, 400)
+  assert.match(r.dados.mensagem, /proxima_preventiva_obrigatoria/)
+})
+
+test('preventiva: o retorno encerra o ciclo e agenda a proxima, num ato so', async () => {
+  const mecanico = await entrar('mecanico.a@teste.local')
+  const frota = await entrar('frota.a@teste.local')
+  const preventivaA = globalThis.__preventivaA
+
+  const r = await chamar('POST', '/api/inspecoes', {
+    token: mecanico,
+    corpo: {
+      cliente_uuid: 'uuid-prev-retorno', preventiva_id: preventivaA,
+      template_id: modeloPreventivaA, momento: 'retorno', km_informado: 10900,
+      respostas: {
+        pinca: { manutencao_feita: true, fotos: 1, relatorio: 'Pastilha e disco trocados.' },
+        correia: { manutencao_feita: false, fotos: 1, relatorio: 'Sem folga, dentro do prazo.' },
+      },
+      proxima_preventiva: { modo: 'km', proximo_km: 21000 },
+    },
+  })
+  assert.equal(r.status, 200, JSON.stringify(r.dados))
+  assert.equal(r.dados.resumo.itens_com_manutencao, 1)
+  // O retorno de preventiva nao abre ocorrencia nem mexe no estado do veiculo.
+  assert.deepEqual(r.dados.resumo.ocorrencias, [])
+  assert.equal(r.dados.resumo.estado_veiculo_previsto, 'disponivel')
+
+  const todas = await chamar('GET', '/api/preventivas?historico=1', { token: frota })
+  const concluida = todas.dados.preventivas.find((x) => x.id === preventivaA)
+  assert.equal(concluida.status, 'realizada')
+  assert.equal(concluida.inspecao_retorno, r.dados.inspecao.id)
+  assert.match(concluida.observacoes, /Pinca de freio/, 'o servico descreve o que foi mexido')
+
+  // E nasceu a proxima, com o alvo informado no aparelho.
+  const proxima = todas.dados.preventivas.find(
+    (x) => x.veiculo_id === concluida.veiculo_id && x.status !== 'realizada')
+  assert.ok(proxima, 'concluir e agendar sao o mesmo ato')
+  assert.equal(proxima.proximo_km, 21000)
+  assert.equal(proxima.template_id, modeloPreventivaA,
+    'o modelo acompanha o ciclo: ninguem reconfigura a cada volta')
+})
+
+test('preventiva: modelo de preventiva nao roda solto, e checklist padrao nao encerra preventiva', async () => {
+  const mecanico = await entrar('mecanico.a@teste.local')
+
+  // Modelo de preventiva sem preventiva por tras.
+  const solto = await chamar('POST', '/api/inspecoes', {
+    token: mecanico,
+    corpo: {
+      cliente_uuid: 'uuid-prev-solto', veiculo_id: veiculoA2,
+      template_id: modeloPreventivaA, momento: 'saida',
+      respostas: { pinca: { desfecho: 'ok', fotos: 1 }, correia: { desfecho: 'ok', fotos: 1 } },
+    },
+  })
+  assert.equal(solto.status, 400)
+  assert.match(solto.dados.mensagem, /Abra pela preventiva/)
+
+  // Preventiva com modelo padrao.
+  const outra = criarPreventivaComModelo(empresaA, veiculoA4, modeloPreventivaA)
+  const padrao = consultarUm(
+    `SELECT id FROM templates WHERE empresa_id = ? AND codigo = 'compacto'`, [empresaA])
+  const trocado = await chamar('POST', '/api/inspecoes', {
+    token: mecanico,
+    corpo: {
+      cliente_uuid: 'uuid-prev-trocado', preventiva_id: outra,
+      template_id: padrao.id, momento: 'saida',
+      respostas: { lataria: { desfecho: 'ok', fotos: 1 }, pneus: { desfecho: 'ok', fotos: 1 } },
+    },
+  })
+  assert.equal(trocado.status, 400)
+  assert.match(trocado.dados.mensagem, /exige um checklist de preventiva/)
+})
+
+test('preventiva: um checklist atende uma coisa so', async () => {
+  const mecanico = await entrar('mecanico.a@teste.local')
+  const r = await chamar('POST', '/api/inspecoes', {
+    token: mecanico,
+    corpo: {
+      cliente_uuid: 'uuid-prev-dois-donos', preventiva_id: globalThis.__preventivaA,
+      solicitacao_id: 'qualquer', template_id: modeloPreventivaA, momento: 'saida',
+      respostas: {},
+    },
+  })
+  assert.equal(r.status, 400)
+  assert.match(r.dados.mensagem, /nunca as duas/)
+})
+
+test('preventiva: o cadastro so aceita modelo de preventiva publicado', async () => {
+  const frota = await entrar('frota.a@teste.local')
+  const padrao = consultarUm(
+    `SELECT id FROM templates WHERE empresa_id = ? AND codigo = 'compacto'`, [empresaA])
+
+  const comPadrao = await chamar('POST', '/api/preventivas', {
+    token: frota,
+    corpo: { veiculo_id: veiculoA, modo: 'km', proximo_km: 999999, template_id: padrao.id },
+  })
+  assert.equal(comPadrao.status, 400)
+  assert.match(comPadrao.dados.mensagem, /checklist de preventiva/)
+
+  const inexistente = await chamar('POST', '/api/preventivas', {
+    token: frota,
+    corpo: { veiculo_id: veiculoA, modo: 'km', proximo_km: 999999, template_id: 'nao_existe' },
+  })
+  assert.equal(inexistente.status, 404)
 })

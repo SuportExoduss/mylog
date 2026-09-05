@@ -10,6 +10,7 @@ import { registrarEvento } from '../nucleo/auditoria.js'
 import { exigirAutenticado } from '../seguranca/sessao.js'
 import { exigirFrota } from '../seguranca/nivel.js'
 import { avaliarPreventiva, avaliarPreventivas, descreverFolga } from '../nucleo/preventivas.js'
+import { encerrarCiclo } from '../nucleo/ciclo_preventiva.js'
 
 const MODOS = ['km', 'data']
 const DATA_ISO = /^\d{4}-\d{2}-\d{2}$/
@@ -54,6 +55,24 @@ function validarAlvo({ modo, proximo_km, proxima_data }, kmAtual) {
   return { proximo_km: null, proxima_data: data }
 }
 
+// Modelo que executa a preventiva (roadmap 14.2). Precisa existir na empresa,
+// estar publicado e ser de finalidade preventiva — um checklist padrao aqui
+// perguntaria a coisa errada e nao encerraria manutencao nenhuma.
+function validarModelo(empresaId, templateId) {
+  if (!templateId) return null
+  const modelo = consultarUm(
+    `SELECT id, nome, finalidade, status FROM templates WHERE id = ? AND empresa_id = ?`,
+    [String(templateId), empresaId])
+  if (!modelo) throw erro.naoEncontrado('Checklist nao encontrado nesta empresa.')
+  if (modelo.finalidade !== 'preventiva') {
+    throw erro.requisicao('Escolha um checklist de preventiva, nao um checklist padrao.')
+  }
+  if (modelo.status !== 'publicado') {
+    throw erro.conflito('Este checklist ainda e rascunho. Publique antes de usar na preventiva.')
+  }
+  return modelo
+}
+
 export function registrarRotasPreventivas(rotas) {
   // ------------------------------------------------------------------ lista
   rotas.get('/api/preventivas', async (ctx) => {
@@ -64,10 +83,12 @@ export function registrarRotasPreventivas(rotas) {
     const veiculoId = ctx.query.get('veiculo_id')
     const incluirRealizadas = ctx.query.get('historico') === '1'
 
-    let sql = `SELECT p.*, v.placa, v.modelo, v.marca, v.km_atual, u.nome AS concluida_por_nome
+    let sql = `SELECT p.*, v.placa, v.modelo, v.marca, v.km_atual, u.nome AS concluida_por_nome,
+                      t.nome AS checklist_nome
                  FROM preventivas p
                  JOIN veiculos v ON v.id = p.veiculo_id
                  LEFT JOIN usuarios u ON u.id = p.concluida_por
+                 LEFT JOIN templates t ON t.id = p.template_id
                 WHERE p.empresa_id = ?`
     const params = [eu.empresa_id]
     if (!incluirRealizadas && !status) sql += ` AND p.status <> 'realizada'`
@@ -111,16 +132,19 @@ export function registrarRotasPreventivas(rotas) {
     const modo = String(ctx.corpo.modo || '')
     const alvo = validarAlvo({ modo, ...ctx.corpo }, veiculo.km_atual)
 
+    const modelo = validarModelo(eu.empresa_id, ctx.corpo.template_id)
+
     const id = novoId('preventiva')
     const ts = agora()
     executar(
       `INSERT INTO preventivas (id, empresa_id, veiculo_id, modo, ultimo_servico_km, ultimo_servico_data,
                                 proximo_km, proxima_data, alerta_antes_km, alerta_antes_dias,
-                                status, observacoes, criado_em, atualizado_em)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'em_dia', ?, ?, ?)`,
+                                template_id, status, observacoes, criado_em, atualizado_em)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'em_dia', ?, ?, ?)`,
       [id, eu.empresa_id, veiculo.id, modo, veiculo.km_atual, ts.slice(0, 10),
        alvo.proximo_km, alvo.proxima_data,
        Number(ctx.corpo.alerta_antes_km || 500), Number(ctx.corpo.alerta_antes_dias || 7),
+       modelo?.id ?? null,
        String(ctx.corpo.observacoes || '').trim() || null, ts, ts],
     )
     avaliarPreventivas(eu.empresa_id)
@@ -157,12 +181,16 @@ export function registrarRotasPreventivas(rotas) {
     const alertaDias = ctx.corpo.alerta_antes_dias === undefined
       ? antes.alerta_antes_dias : Number(ctx.corpo.alerta_antes_dias)
 
+    const modelo = ctx.corpo.template_id === undefined
+      ? { id: antes.template_id }
+      : validarModelo(eu.empresa_id, ctx.corpo.template_id)
+
     executar(
       `UPDATE preventivas SET modo = ?, proximo_km = ?, proxima_data = ?,
-              alerta_antes_km = ?, alerta_antes_dias = ?, atualizado_em = ?
+              alerta_antes_km = ?, alerta_antes_dias = ?, template_id = ?, atualizado_em = ?
         WHERE id = ? AND empresa_id = ?`,
-      [modo, alvo.proximo_km, alvo.proxima_data, alertaKm, alertaDias, agora(),
-       antes.id, eu.empresa_id],
+      [modo, alvo.proximo_km, alvo.proxima_data, alertaKm, alertaDias,
+       modelo?.id ?? null, agora(), antes.id, eu.empresa_id],
     )
     avaliarPreventivas(eu.empresa_id)
 
@@ -205,32 +233,16 @@ export function registrarRotasPreventivas(rotas) {
       proxima_data: ctx.corpo.proxima_data,
     }, kmDepois)
 
-    const ts = agora()
-    const idProxima = novoId('preventiva')
-
+    let idProxima = null
     transacao(() => {
-      executar(
-        `UPDATE preventivas SET status = 'realizada', concluida_por = ?, concluida_em = ?,
-                ultimo_servico_km = ?, ultimo_servico_data = ?, observacoes = ?, atualizado_em = ?
-          WHERE id = ? AND empresa_id = ?`,
-        [eu.id, ts, Math.trunc(kmRealizado), dataRealizada, servico, ts, atual.id, eu.empresa_id],
-      )
-      // A execucao da manutencao tambem e' leitura de hodometro.
-      if (Math.trunc(kmRealizado) > Number(atual.km_atual)) {
-        executar('UPDATE veiculos SET km_atual = ?, atualizado_em = ? WHERE id = ?',
-          [Math.trunc(kmRealizado), ts, atual.veiculo_id])
-      }
-      executar(
-        `INSERT INTO preventivas (id, empresa_id, veiculo_id, modo, ultimo_servico_km, ultimo_servico_data,
-                                  proximo_km, proxima_data, alerta_antes_km, alerta_antes_dias,
-                                  status, criado_em, atualizado_em)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'em_dia', ?, ?)`,
-        [idProxima, eu.empresa_id, atual.veiculo_id, proximoModo,
-         Math.trunc(kmRealizado), dataRealizada,
-         proximoAlvo.proximo_km, proximoAlvo.proxima_data,
-         Number(ctx.corpo.alerta_antes_km ?? atual.alerta_antes_km ?? 500),
-         Number(ctx.corpo.alerta_antes_dias ?? atual.alerta_antes_dias ?? 7), ts, ts],
-      )
+      // Mesmo caminho que o checklist de preventiva usa ao finalizar o retorno
+      // (roadmap 14.2.3): duas portas, um ato so.
+      idProxima = encerrarCiclo({
+        atual, empresaId: eu.empresa_id, atorId: eu.id,
+        kmRealizado, dataRealizada, servico,
+        proximo: { modo: proximoModo, ...proximoAlvo },
+        alertas: { km: ctx.corpo.alerta_antes_km, dias: ctx.corpo.alerta_antes_dias },
+      }).idProxima
     })
     avaliarPreventivas(eu.empresa_id)
 

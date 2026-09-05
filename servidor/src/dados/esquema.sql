@@ -132,6 +132,11 @@ CREATE TABLE IF NOT EXISTS templates (
   tipo_veiculo     TEXT NOT NULL,
   cargos_liberados TEXT NOT NULL DEFAULT '["*"]',
   exige_assinatura INTEGER NOT NULL DEFAULT 0,
+  -- Para que serve o modelo (roadmap 14.2):
+  --   padrao     -> checklist do dia a dia
+  --   preventiva -> executa uma manutencao: saida e retorno OBRIGATORIOS,
+  --                 relatorio por pergunta, e o retorno encerra a preventiva
+  finalidade       TEXT NOT NULL DEFAULT 'padrao',
   -- Ritmo do modelo (roadmap 11.2.1). "avulso" nao cobra nada.
   periodicidade    TEXT NOT NULL DEFAULT 'avulso',
   -- avulso|diario|semanal|mensal
@@ -199,6 +204,9 @@ CREATE TABLE IF NOT EXISTS inspecoes (
   finalizada_em  TEXT,
   resultado      TEXT,                            -- aprovado|com_pendencia|reprovado
   assinatura     TEXT,
+  -- Preventiva que esta inspecao executa (roadmap 14.2). Nula no checklist
+  -- comum. E' por ela que o retorno sabe qual manutencao esta encerrando.
+  preventiva_id  TEXT REFERENCES preventivas(id),
   cliente_uuid   TEXT,                            -- idempotencia da fila offline
   -- Numero sequencial por empresa. Identificador opaco nao serve para conversa
   -- de radio; o PROLOG usa "Codigo checklist" e a operacao cita esse numero.
@@ -219,7 +227,11 @@ CREATE TABLE IF NOT EXISTS respostas (
   pergunta_id   TEXT NOT NULL,
   desfecho      TEXT NOT NULL,      -- ok | ocorrencia
   opcao_id      TEXT,               -- opcao de problema escolhida
-  relatorio     TEXT,               -- texto livre quando escreveu em vez de escolher
+  relatorio     TEXT,               -- texto livre: no padrao substitui a opcao;
+                                    -- na preventiva descreve o que foi visto/feito
+  -- So no retorno de preventiva: 1 = mexeu na peca, 0 = nao mexeu, NULL = nao
+  -- se aplica. E' o campo que separa "conferi" de "consertei".
+  manutencao_feita INTEGER,
   respondido_em TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS ix_respostas_inspecao ON respostas(inspecao_id);
@@ -280,6 +292,11 @@ CREATE TABLE IF NOT EXISTS preventivas (
   status              TEXT NOT NULL DEFAULT 'em_dia',
   -- em_dia|proxima|muito_proxima|vencida|realizada
   observacoes         TEXT,
+  -- Modelo de checklist que executa esta preventiva, quando houver. Sem ele a
+  -- preventiva ainda pode ser concluida pelo painel, como antes.
+  template_id         TEXT REFERENCES templates(id),
+  inspecao_saida      TEXT REFERENCES inspecoes(id),
+  inspecao_retorno    TEXT REFERENCES inspecoes(id),
   concluida_por       TEXT REFERENCES usuarios(id),
   concluida_em        TEXT,
   criado_em           TEXT NOT NULL,
