@@ -1062,6 +1062,7 @@ Valem para todas as telas de lista:
 | F2 — Web ADM | Usuários, veículos, painel, editor de checklist | **feita** — reescrita na v3.0 |
 | F3 — Aplicativo de campo | Login, checklist, evidências, offline | **feita** — reescrita na v3.0 |
 | F4 — Regras | Prioridade, bloqueio, ocorrências | **feita** |
+| F4.1 — v3.1 | Categoria de uso, checklist diário avulso, ritmo do modelo, checklists feitos e planilha | **feita** |
 | F5 — Preventivas | Agenda por KM/data, reagendamento, alertas | **feita** |
 | F6 — Relatórios | Dossiês de impressão, comparativo, frota | **feita** |
 | F7 — Piloto | Rodar em paralelo com o PROLOG | pendente — depende da empresa |
@@ -1266,7 +1267,16 @@ exercitava o caminho errado e passaria de qualquer jeito.
 - captura de foto e assinatura — IndexedDB, câmera e canvas de verdade;
 - qualquer coisa que dependa de geometria (o menu que abre para cima perto do
   rodapé) — sem layout, `getBoundingClientRect` devolve zeros;
-- CSS: contraste, tema claro/escuro, quebra de página na impressão.
+- CSS: contraste, tema claro/escuro, quebra de página na impressão;
+- **o service worker**, e com ele todo o modo offline do app de campo.
+
+> Sobre o service worker: o navegador embutido usado nos testes recusa
+> qualquer registro — um SW de uma linha falha com a mesma mensagem que o
+> nosso. Foi conferido que os 11 arquivos da casca respondem 200 (o que
+> importa, porque `cache.addAll` é atômico: um único 404 derruba a instalação
+> inteira). Mas **o offline precisa ser testado num navegador de verdade,
+> com o modo avião ligado**, antes do piloto. Nada aqui prova que ele
+> funciona.
 
 Para esses três, **o passe manual no navegador continua obrigatório** a cada
 mudança:
