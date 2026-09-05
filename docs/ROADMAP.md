@@ -891,7 +891,98 @@ depois": é assim que uma frota perde a agenda de manutenção.
 ela vira "realizada" e nasce a próxima. O histórico de manutenção do veículo
 fica legível, com KM, data, serviço e responsável de cada execução.
 
-### 14.2 Reagendamento
+### 14.2 Checklist de preventiva — a execução da manutenção
+
+A preventiva deixa de ser só uma data no calendário: ela é **executada por um
+checklist próprio**, criado na seção de Preventivas. Concluir a preventiva e
+finalizar o checklist de retorno passam a ser o mesmo ato.
+
+#### 14.2.1 O que o difere do checklist padrão
+
+| | Checklist padrão | Checklist de preventiva |
+|---|---|---|
+| Momentos | Saída sempre; retorno quando há solicitação | **Saída e retorno, os dois obrigatórios** |
+| O que a saída registra | Estado do veículo antes de rodar | Estado da peça **antes do serviço** |
+| O que o retorno registra | Estado na devolução | **O que foi feito** em cada peça |
+| Relatório escrito | Não existe | Campo em toda pergunta |
+| Ao finalizar | Encerra a inspeção | Encerra a preventiva e **agenda a próxima** |
+
+O resto é igual: tipo de veículo, cargos liberados, assinatura, foto de
+exibição, modos de captura e opções de problema são configurados na criação do
+modelo exatamente como no checklist convencional. É o mesmo editor.
+
+#### 14.2.2 A tela do retorno
+
+O retorno é a parte nova. Ele repete as mesmas perguntas da saída, mas o que
+interessa nele não é "está OK?" — é "o que foi feito aqui?".
+
+```
+     pinça de freio                              título da pergunta
+
+     +----------------------------------+
+     |     foto de exibição             |        exemplo de como fotografar
+     |     (exemplo da região)          |
+     +----------------------------------+
+
+              [   Próximo   ]                    abre a câmera
+```
+
+Tirada a foto, **ela substitui a foto de exemplo** — quem confere passa a ver o
+que foi registrado, não mais o modelo:
+
+```
+     pinça de freio
+
+     +----------------------------------+
+     |     A FOTO QUE ACABOU DE         |
+     |     SER TIRADA                   |
+     +----------------------------------+
+
+     Foi feito manutenção?
+          [  Não  ]        [  Sim  ]
+
+     +----------------------------------+
+     |  relatório desta foto            |
+     +----------------------------------+
+
+   [Tirar novamente]  [+ foto]  [Próximo]
+```
+
+**O relatório é obrigatório quando a resposta é "sim".** Mexer numa peça e não
+descrever o que foi feito produz um registro que não serve para nada — nem para
+a próxima manutenção, nem para uma discussão de garantia. Quando a resposta é
+"não", o campo continua ali, opcional.
+
+#### 14.2.3 Antes da assinatura: quando é a próxima
+
+Ao finalizar o **retorno**, antes da assinatura digital, entra uma tela a mais:
+
+> **Quando vence a próxima preventiva deste veículo?**
+> ( ) Por quilometragem → KM-alvo
+> ( ) Por data → data-alvo
+
+São as mesmas duas opções do cadastro de preventiva (14.1), pedidas na hora em
+que a informação existe: quem acabou de fazer o serviço é quem sabe quando ele
+precisa ser refeito. Perguntar depois, no painel, é perguntar a quem não estava
+lá.
+
+Finalizado o retorno, o sistema, num ato só:
+
+1. grava a inspeção de retorno;
+2. marca a preventiva como **realizada**, com data, KM e responsável;
+3. **cria a próxima** com o alvo informado.
+
+É a regra da seção 14.1 — "concluir e agendar a próxima são o mesmo ato" —
+agora acontecendo onde o serviço acontece.
+
+#### 14.2.4 Quem executa
+
+O mesmo mecanismo de sempre: o modelo declara os **cargos liberados**, e o
+checklist só aparece para quem tem o cargo. Um modelo de preventiva liberado só
+para "Analista de manutenção" não aparece para mais ninguém — nem para o resto
+da Frota (11.2.3).
+
+### 14.3 Reagendamento
 
 | Caso | Ação |
 |---|---|
@@ -900,7 +991,7 @@ fica legível, com KM, data, serviço e responsável de cada execução.
 | Mudança excepcional | A Frota altera **com motivo**, e vai para a auditoria |
 | Manutenção atrasada | Status "Vencida" permanece até o registro de conclusão |
 
-### 14.3 Estados e sinais no painel
+### 14.4 Estados e sinais no painel
 
 | Estado | Visual | Ação |
 |---|---|---|
@@ -1306,11 +1397,61 @@ mudança:
 | Frota | Status, ocorrências e indicadores |
 | Auditoria | Alterações críticas de cadastro e operação |
 | Histórico do usuário | Tudo que um colaborador fez, com data e hora |
+| **Dossiê de preventiva** | Antes × depois de cada peça, com foto dos dois lados — ver 27.1 |
 | **Resumo de checklists (planilha)** | Uma linha por execução, no leiaute do PROLOG — ver 11.10 |
 
 Todos os relatórios acima são **HTML pronto para imprimir**, abertos pelo
 navegador (decisão D28). O resumo de checklists é a exceção: sai como **CSV**,
 porque não é para ler, é para filtrar e somar em planilha.
+
+### 27.1 Dossiê de preventiva
+
+O documento que prova o serviço. Estruturado a partir do PDF que a operação já
+lê hoje no PROLOG, com uma diferença: **as fotos vêm em duas colunas, antes e
+depois**.
+
+O que cada bloco traz:
+
+| Bloco | Conteúdo |
+|---|---|
+| Cabeçalho | Nome do modelo · momento · **número do checklist** · colaborador |
+| Veículo | Placa, marca e modelo, tipo, odômetro no início e no fim |
+| Responsável | Nome, **CPF mascarado**, data de envio, duração da execução |
+| Contagens | Ocorrências por prioridade, conformes, perguntas respondidas |
+| Preventiva | Alvo que venceu, o que foi executado, **alvo da próxima** |
+| Pergunta a pergunta | Numeradas 01, 02, 03… com a coluna ANTES e a coluna DEPOIS |
+| Assinatura | Traçado digital de quem executou |
+| Rodapé | Quem gerou, quando, e a paginação |
+
+Cada pergunta ocupa um bloco que não se parte entre páginas:
+
+```
+  03   Pinça de freio
+
+  ┌────────────────────────┬────────────────────────┐
+  │  ANTES — saída         │  DEPOIS — retorno      │
+  ├────────────────────────┼────────────────────────┤
+  │  [foto]  [foto]        │  [foto]                │
+  │                        │                        │
+  │  Ocorrência: desgaste  │  Manutenção: SIM       │
+  │  PRIORIDADE ALTA       │                        │
+  │                        │  "Pastilha e disco     │
+  │  "Pastilha no limite,  │   trocados, pinça      │
+  │   pinça com folga."    │   revisada."           │
+  └────────────────────────┴────────────────────────┘
+```
+
+Duas escolhas herdadas do PROLOG, porque estão certas:
+
+- **CPF mascarado** (`559.***.***-04`). O documento circula: vai para a
+  oficina, para o seguro, para o cliente. O CPF inteiro num papel que anda não
+  serve a ninguém — os quatro dígitos bastam para conferir quem é.
+- **Rodapé em toda página**, com quem gerou, quando, e "página X de Y". Um
+  documento impresso se separa; a página solta precisa dizer de onde veio.
+
+O arquivo final é PDF, gerado pelo **botão de impressão do navegador** — o
+mesmo caminho dos outros relatórios (decisão D28). Não há biblioteca de PDF no
+servidor, e não há dependência a instalar.
 
 ---
 
