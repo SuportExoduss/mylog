@@ -265,6 +265,43 @@ a { color: var(--marca); }
 .envolve { flex-wrap: wrap; }
 
 .esp-t-1 { margin-top: var(--e-1); }
+
+/* Dias da semana obrigatorios (roadmap 11.2.1). Sete caixas na horizontal:
+   a semana e' lida de uma vez, nao item por item numa lista vertical. */
+.dias-semana { display: flex; gap: var(--e-1); flex-wrap: wrap; }
+.dia-semana {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: var(--e-1) var(--e-2);
+  border: 1px solid var(--borda);
+  border-radius: var(--r-2);
+  font-size: var(--t-mini);
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: var(--texto-medio);
+  cursor: pointer;
+}
+.dia-semana:has(input:checked) {
+  border-color: var(--marca);
+  background: var(--marca-tinta);
+  color: var(--marca);
+  font-weight: var(--peso-forte);
+}
+.dia-semana input { accent-color: var(--marca); }
+
+/* Texto que veio do banco e nao se edita aqui — o motivo do pedido na tela de
+   liberacao, por exemplo. Parece campo, mas nao aceita foco nem digitacao:
+   quem le precisa saber, pela forma, que nao ha nada para preencher. */
+.leitura {
+  padding: var(--e-2) var(--e-3);
+  background: var(--superficie-2);
+  border: 1px solid var(--borda);
+  border-radius: var(--r-2);
+  color: var(--texto-medio);
+  font-size: var(--t-pequeno);
+  line-height: var(--entrelinha-base);
+}
 .esp-t-3 { margin-top: var(--e-3); }
 .esp-t-4 { margin-top: var(--e-4); }
 .esp-t-5 { margin-top: var(--e-5); }
@@ -477,6 +514,56 @@ a { color: var(--marca); }
   box-shadow: inset 3px 0 0 var(--marca);
 }
 
+/* Submenu do item "Checklists" (roadmap 11.8). Abre ao passar o mouse e
+   tambem quando a tela filha esta ativa — teclado e toque nao tem "hover", e
+   um menu que so responde ao mouse deixa gente de fora. */
+.nav-grupo { position: relative; }
+
+.nav-filhos {
+  display: grid;
+  grid-template-rows: 0fr;
+  overflow: hidden;
+  transition: grid-template-rows var(--mov-rapido) var(--mov-curva);
+}
+.nav-grupo:hover .nav-filhos,
+.nav-grupo:focus-within .nav-filhos,
+.nav-grupo.aberto .nav-filhos { grid-template-rows: 1fr; }
+
+/* O unico filho do grid precisa de min-height:0 para poder encolher ate zero.
+   E precisa ser UM so: 0fr/1fr define uma faixa, e irmaos soltos cairiam em
+   faixas implicitas que nao encolhem. */
+.nav-filhos-interno { min-height: 0; overflow: hidden; }
+
+.nav button.nav-filho {
+  display: block;
+  padding-left: var(--e-5);
+  font-weight: var(--peso-normal);
+}
+.nav button.nav-filho.ativo { box-shadow: inset 3px 0 0 var(--marca); }
+
+.nav-filho-rotulo { display: block; }
+
+/* A dica explica o que separa as duas linhas: uma e' operacao, a outra e'
+   cadastro. Sem ela o submenu vira dois nomes parecidos. */
+.nav-filho-dica {
+  display: block;
+  font-size: var(--t-mini);
+  color: var(--texto-fraco);
+  font-weight: var(--peso-normal);
+}
+.nav button.nav-filho.ativo .nav-filho-dica { color: var(--marca); }
+
+/* O pai indica que ha mais coisa embaixo sem gritar. */
+.nav button.nav-pai::after {
+  content: '▾';
+  margin-left: auto;
+  font-size: 10px;
+  opacity: .5;
+  transition: transform var(--mov-rapido) var(--mov-curva);
+}
+.nav-grupo:hover .nav-pai::after,
+.nav-grupo.aberto .nav-pai::after { transform: rotate(180deg); opacity: 1; }
+
 .nav-selo {
   margin-left: auto;
   background: var(--critico);
@@ -645,6 +732,52 @@ a { color: var(--marca); }
 .filtros input { min-width: 240px; }
 .filtros input:focus, .filtros select:focus { border-color: var(--marca); box-shadow: var(--anel-foco); }
 
+/* Filtro de periodo (roadmap 11.9): de/ate, navegacao por mes e atalhos.
+   A regra `.filtros input { min-width: 240px }` acima serve para busca por
+   texto; um campo de data com 240px e' um vazio enorme ao lado do calendario. */
+.filtros--periodo { align-items: center; gap: var(--e-3); }
+.filtros--periodo input[type="date"] { min-width: 0; width: auto; }
+
+.periodo {
+  display: flex;
+  align-items: center;
+  gap: var(--e-1);
+  padding: 2px;
+  border: 1px solid var(--borda);
+  border-radius: var(--r-2);
+  background: var(--superficie);
+}
+.periodo-campos {
+  display: flex;
+  align-items: center;
+  gap: var(--e-2);
+  padding: 0 var(--e-2);
+}
+.periodo-campos label {
+  font-size: var(--t-mini);
+  color: var(--texto-fraco);
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+.periodo .botao--icone { border: none; }
+
+/* So aparece quando o intervalo e' exatamente um mes inteiro — e' o retorno
+   visual de quem clicou nas setas de mes. */
+.periodo-mes {
+  padding-right: var(--e-3);
+  font-size: var(--t-pequeno);
+  color: var(--texto-medio);
+  font-weight: var(--peso-medio);
+}
+.periodo-mes:empty { display: none; }
+
+.atalhos { display: flex; gap: var(--e-1); flex-wrap: wrap; }
+
+.botao--pequeno {
+  padding: var(--e-1) var(--e-2);
+  font-size: var(--t-mini);
+}
+
 .tabela-caixa {
   background: var(--superficie);
   border: 1px solid var(--borda);
@@ -752,6 +885,30 @@ tbody tr:hover { background: var(--superficie-2); }
   animation: subir var(--mov-base) var(--mov-curva);
 }
 .modal h3 { margin: 0; font-size: var(--t-medio); letter-spacing: -.015em; }
+
+/* Lista de caixas de marcar dentro de um modal — usada para dizer quais
+   veiculos atendem uma categoria. Rola sozinha: uma frota de 42 carros nao
+   cabe na tela, e deixar o modal inteiro rolar esconderia os botoes. */
+.modal--alto { max-width: 560px; }
+
+.escolhas {
+  max-height: 46vh;
+  overflow: auto;
+  margin: var(--e-3) 0;
+  border: 1px solid var(--borda);
+  border-radius: var(--r-2);
+}
+.escolha {
+  display: flex;
+  align-items: center;
+  gap: var(--e-2);
+  padding: var(--e-2) var(--e-3);
+  cursor: pointer;
+  border-bottom: 1px solid var(--borda);
+}
+.escolha:last-child { border-bottom: none; }
+.escolha:hover { background: var(--superficie-2); }
+.escolha input { accent-color: var(--marca); width: 16px; height: 16px; }
 .modal-sub {
   margin: var(--e-1) 0 var(--e-4);
   color: var(--texto-fraco);

@@ -11,7 +11,14 @@ const MODOS = [
   { valor: 'data', rotulo: 'Por data' },
 ]
 
-const hojeISO = () => new Date().toISOString().slice(0, 10)
+// Data LOCAL: e' o valor que preenche um <input type="date">, e esse campo
+// nunca fala UTC. Com `toISOString()`, quem registrasse uma execucao as 21h no
+// Brasil veria a data de amanha ja preenchida.
+const hojeISO = () => {
+  const d = new Date()
+  const p = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+}
 
 function alvoDe(p) {
   if (p.modo === 'km') return `${numero(p.proximo_km)} km`

@@ -161,6 +161,12 @@ async function entrar(email, senha = SENHA) {
 
 const daquiAHoras = (h) => new Date(Date.now() + h * 3600000).toISOString()
 
+// AAAA-MM-DD no fuso de quem roda o teste — a mesma conta que o servidor faz.
+function diaLocal(d = new Date()) {
+  const p = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+}
+
 // Pedir carro passou a ser: escolher CATEGORIA. Liberar passou a ser: escolher
 // a PLACA. Os testes falam a mesma lingua do fluxo (roadmap 10.4).
 async function pedir(token, { categoria = catA, inicio, fim, motivo }) {
@@ -962,9 +968,9 @@ test('execucoes: a tela abre no dia de hoje sem ninguem pedir', async () => {
   const frota = await entrar('frota.a@teste.local')
   const r = await chamar('GET', '/api/execucoes', { token: frota })
   assert.equal(r.status, 200)
-  const hoje = new Date().toISOString().slice(0, 10)
-  assert.equal(r.dados.periodo.de, hoje)
-  assert.equal(r.dados.periodo.ate, hoje)
+  // Dia LOCAL: e' o dia de quem olha a tela, nao o dia em UTC.
+  assert.equal(r.dados.periodo.de, diaLocal())
+  assert.equal(r.dados.periodo.ate, diaLocal())
   assert.ok(r.dados.execucoes.length > 0, 'os checklists dos testes foram feitos hoje')
 })
 
@@ -985,7 +991,7 @@ test('execucoes: filtro de cargo e de periodo', async () => {
   const doCargo = await chamar('GET', `/api/execucoes?cargo_id=${cgMotoristaA}`, { token: frota })
   assert.ok(doCargo.dados.execucoes.every((e) => e.cargo_id === cgMotoristaA))
 
-  const ontem = new Date(Date.now() - 86400000).toISOString().slice(0, 10)
+  const ontem = diaLocal(new Date(Date.now() - 86400000))
   const vazio = await chamar('GET', `/api/execucoes?de=${ontem}&ate=${ontem}`, { token: frota })
   assert.equal(vazio.dados.execucoes.length, 0, 'nada foi feito ontem nestes testes')
 
@@ -1152,4 +1158,27 @@ test('ritmo: o modelo guarda periodicidade e horario limite', async () => {
   assert.equal(nova.status, 200, JSON.stringify(nova.dados))
   assert.equal(nova.dados.template.periodicidade, 'diario')
   assert.equal(nova.dados.template.horario_limite, '08:30')
+})
+
+test('execucoes: o dia do filtro e o dia de quem olha, nao o dia em UTC', async () => {
+  // O banco guarda UTC; quem filtra pensa no dia dele. No Brasil (UTC-3),
+  // montar a borda como "AAAA-MM-DDT00:00:00Z" jogaria tudo que foi feito
+  // depois das 21h para o dia seguinte — tres horas de todo dia caindo no
+  // balde errado, justamente no fim de turno.
+  const frota = await entrar('frota.a@teste.local')
+
+  // Uma inspecao gravada as 22h de HOJE, em hora local.
+  const agora = new Date()
+  const noiteLocal = new Date(
+    agora.getFullYear(), agora.getMonth(), agora.getDate(), 22, 30, 0)
+  const alvo = consultarUm(
+    'SELECT id FROM inspecoes WHERE empresa_id = ? ORDER BY criado_em LIMIT 1', [empresaA])
+  assert.ok(alvo, 'os testes acima ja produziram inspecoes')
+  executar('UPDATE inspecoes SET iniciada_em = ?, finalizada_em = ? WHERE id = ?',
+    [noiteLocal.toISOString(), noiteLocal.toISOString(), alvo.id])
+
+  const r = await chamar('GET', '/api/execucoes', { token: frota })
+  assert.equal(r.dados.periodo.de, diaLocal(agora), 'o padrao e o dia local, nao o dia em UTC')
+  assert.ok(r.dados.execucoes.some((e) => e.id === alvo.id),
+    'checklist das 22h precisa aparecer no dia em que foi feito')
 })

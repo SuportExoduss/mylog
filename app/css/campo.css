@@ -166,6 +166,22 @@ button, input, textarea { font: inherit; color: inherit; }
 .tarefa-checklist { margin-top: var(--e-1); font-size: 13px; color: var(--texto-fraco); }
 .tarefa-alerta { margin-top: var(--e-2); font-size: 14px; font-weight: 600; color: var(--critico); }
 
+/* Titulo de secao na tela inicial — separa "o que a frota liberou para voce"
+   de "o carro que voce vai pegar hoje". Sao dois fluxos (roadmap 8.2), e sem
+   a separacao o motorista nao sabe qual cartao e' o dele. */
+.secao-campo {
+  margin: var(--e-5) 0 0;
+  font-size: 15px;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--texto-fraco);
+}
+.secao-campo-dica { margin: 2px 0 var(--e-2); font-size: 14px; color: var(--texto-fraco); }
+
+/* O checklist do dia nao e' uma reserva: a barra lateral muda de cor para a
+   pessoa nao procurar horario de devolucao que nao existe. */
+.tarefa--avulsa { border-left-color: var(--texto-fraco); }
+
 /* --------------------------------------------------------------- execucao */
 
 .execucao { flex: 1; display: flex; flex-direction: column; min-height: 100dvh; }

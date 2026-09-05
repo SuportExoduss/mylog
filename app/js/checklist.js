@@ -112,7 +112,9 @@ export function painelAssinatura({ aoAssinar }) {
 
 // ------------------------------------------------------------- execucao
 
-// tarefa: { solicitacao_id, momento, template_id, veiculo, janela_fim, atrasada }
+// tarefa: { solicitacao_id, veiculo_id, momento, template_id, veiculo, janela_fim, atrasada }
+// solicitacao_id vem nulo no checklist diario avulso; nesse caso o servidor
+// identifica o carro por veiculo_id (roadmap 8.2).
 // modelo: { id, nome, versao, exige_assinatura, estrutura }
 export function executarChecklist({ tarefa, modelo, aoConcluir, aoSair }) {
   const clienteUuid = uuid()
@@ -533,7 +535,8 @@ export function executarChecklist({ tarefa, modelo, aoConcluir, aoSair }) {
           disabled: !juizo.pode_finalizar,
           aoClick: () => aoConcluir({
             cliente_uuid: clienteUuid,
-            solicitacao_id: tarefa.solicitacao_id,
+            solicitacao_id: tarefa.solicitacao_id || null,
+            veiculo_id: tarefa.veiculo?.id || tarefa.veiculo_id || null,
             template_id: modelo.id,
             momento: tarefa.momento,
             km_informado: km,

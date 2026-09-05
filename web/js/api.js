@@ -69,10 +69,15 @@ export const api = {
   // ---------------------------------------------------------- solicitacoes
   solicitacoes: (filtros) => pedir('GET', comQuery('/api/solicitacoes', filtros)),
   solicitacao: (id) => pedir('GET', `/api/solicitacoes/${id}`),
-  veiculosLivres: (janela_inicio, janela_fim) =>
-    pedir('GET', comQuery('/api/solicitacoes/disponiveis', { janela_inicio, janela_fim })),
+  // Lista de placas livres numa janela. So a Frota chama: e' na liberacao que
+  // o pedido ganha carro (roadmap 10.4).
+  veiculosLivres: (janela_inicio, janela_fim, categoria_id) =>
+    pedir('GET', comQuery('/api/solicitacoes/disponiveis',
+      { janela_inicio, janela_fim, categoria_id })),
   criarSolicitacao: (dados) => pedir('POST', '/api/solicitacoes', dados),
-  aprovarSolicitacao: (id) => pedir('POST', `/api/solicitacoes/${id}/aprovar`, {}),
+  // Aprovar E escolher a placa sao o mesmo ato.
+  aprovarSolicitacao: (id, veiculo_id, motivo_categoria) =>
+    pedir('POST', `/api/solicitacoes/${id}/aprovar`, { veiculo_id, motivo_categoria }),
   recusarSolicitacao: (id, motivo) => pedir('POST', `/api/solicitacoes/${id}/recusar`, { motivo }),
   cancelarSolicitacao: (id) => pedir('POST', `/api/solicitacoes/${id}/cancelar`, {}),
 
@@ -105,4 +110,19 @@ export const api = {
   inspecao: (id) => pedir('GET', `/api/inspecoes/${id}`),
 
   auditoria: (filtros) => pedir('GET', comQuery('/api/auditoria', filtros)),
+
+  // ------------------------------------------------------ categorias de uso
+  categorias: (filtros) => pedir('GET', comQuery('/api/categorias', filtros)),
+  criarCategoria: (dados) => pedir('POST', '/api/categorias', dados),
+  salvarCategoria: (id, dados) => pedir('PATCH', `/api/categorias/${id}`, dados),
+  removerCategoria: (id) => pedir('DELETE', `/api/categorias/${id}`),
+  veiculosDaCategoria: (id) => pedir('GET', `/api/categorias/${id}/veiculos`),
+  definirVeiculosDaCategoria: (id, veiculos) =>
+    pedir('PUT', `/api/categorias/${id}/veiculos`, { veiculos }),
+
+  // ------------------------------------------------------ checklists feitos
+  execucoes: (filtros) => pedir('GET', comQuery('/api/execucoes', filtros)),
+  // A exportacao nao passa por `pedir`: e' um download, nao JSON. Devolve a
+  // URL para a tela abrir, levando os MESMOS filtros que estao na tela.
+  urlPlanilha: (filtros) => comQuery('/api/execucoes.csv', filtros),
 }

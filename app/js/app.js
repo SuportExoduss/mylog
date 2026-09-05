@@ -11,6 +11,7 @@ const raiz = document.getElementById('app')
 const estado = {
   usuario: null,
   tarefas: [],
+  avulso: [],
   modelos: [],
   politicas: {},
   doCache: false,
@@ -175,11 +176,11 @@ function telaInicio() {
       'atencao'))
   }
 
-  if (!estado.tarefas.length) {
+  if (!estado.tarefas.length && !estado.avulso.length) {
     corpo.push(elemento('div', { classe: 'vazio' }, [
       elemento('p', { texto: 'Nenhum veiculo aguardando checklist.' }),
       elemento('p', { classe: 'vazio-dica',
-        texto: 'Quando a frota aprovar uma solicitacao sua, ela aparece aqui.' }),
+        texto: 'Quando a frota liberar um veiculo para voce, ele aparece aqui com a placa.' }),
     ]))
   }
 
@@ -214,6 +215,40 @@ function telaInicio() {
     ]))
   }
 
+  // Checklist diario avulso (roadmap 8.2). Quem sai com carro toda manha nao
+  // pede veiculo: pega um no galpao. Como nao ha condutor fixo, ele escolhe a
+  // placa aqui — e' o unico lugar do sistema onde o colaborador escolhe carro,
+  // e so porque o carro ja esta na mao dele.
+  if (estado.avulso.length) {
+    corpo.push(elemento('h2', { classe: 'secao-campo', texto: 'Checklist do dia' }))
+    corpo.push(elemento('p', { classe: 'secao-campo-dica',
+      texto: 'Escolha o veiculo que voce vai usar hoje.' }))
+
+    for (const item of estado.avulso) {
+      const modelo = modeloPorId(item.templates[0])
+      corpo.push(elemento('button', {
+        classe: 'tarefa tarefa--avulsa',
+        type: 'button',
+        aoClick: () => abrirAvulso(item),
+      }, [
+        elemento('div', { classe: 'tarefa-topo' }, [
+          elemento('span', { classe: 'tarefa-placa dado', texto: item.veiculo.placa }),
+          elemento('span', { classe: 'tarefa-momento tarefa-momento--saida', texto: 'DIARIO' }),
+        ]),
+        elemento('div', { classe: 'tarefa-modelo',
+          texto: `${item.veiculo.marca || ''} ${item.veiculo.modelo}`.trim() }),
+        item.veiculo.status === 'com_pendencia'
+          ? elemento('div', { classe: 'tarefa-alerta', texto: 'Este carro tem ocorrencia em aberto' })
+          : null,
+        modelo
+          ? elemento('div', { classe: 'tarefa-checklist',
+              texto: `${modelo.nome} · ${modelo.estrutura.perguntas.length} perguntas`
+                + (modelo.horario_limite ? ` · ate ${modelo.horario_limite}` : '') })
+          : null,
+      ].filter(Boolean)))
+    }
+  }
+
   tela({
     titulo: `Ola, ${estado.usuario.nome.split(' ')[0]}`,
     subtitulo: estado.usuario.cargo_nome || 'MyLog',
@@ -239,6 +274,28 @@ function abrirTarefa(tarefa) {
 }
 
 // ------------------------------------------------------------- conclusao
+
+// Checklist avulso: nao ha solicitacao por tras, entao a "tarefa" e' montada
+// aqui a partir do carro escolhido. Momento e' sempre saida — nao existe
+// devolucao de um carro que ninguem reservou (roadmap 11.5).
+function abrirAvulso(item) {
+  const modelo = modeloPorId(item.templates[0])
+  if (!modelo) return
+  const tarefa = {
+    solicitacao_id: null,
+    veiculo_id: item.veiculo.id,
+    veiculo: item.veiculo,
+    momento: 'saida',
+    template_id: modelo.id,
+    politicas: estado.politicas,
+  }
+  raiz.replaceChildren(executarChecklist({
+    tarefa,
+    modelo,
+    aoSair: telaInicio,
+    aoConcluir: (inspecao) => concluir(tarefa, inspecao),
+  }))
+}
 
 async function concluir(tarefa, inspecao) {
   await fila.enfileirar({
@@ -391,6 +448,7 @@ async function carregar() {
 
   estado.usuario = r.dados.usuario || estado.usuario
   estado.tarefas = r.dados.tarefas || []
+  estado.avulso = r.dados.avulso || []
   estado.modelos = r.dados.modelos || []
   estado.politicas = r.dados.politicas || {}
   estado.doCache = r.doCache
@@ -423,6 +481,7 @@ async function iniciar() {
     if (r.dados?.usuario) {
       estado.usuario = r.dados.usuario
       estado.tarefas = r.dados.tarefas || []
+      estado.avulso = r.dados.avulso || []
       estado.modelos = r.dados.modelos || []
       estado.politicas = r.dados.politicas || {}
       estado.doCache = true

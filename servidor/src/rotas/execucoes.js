@@ -14,15 +14,37 @@ import { classificarExecucao, MOMENTOS } from '../../../compartilhado/template.j
 const LIMITE_PAGINA = 500
 
 // Datas chegam como AAAA-MM-DD (a tela usa <input type="date">). O dia inteiro
-// vai de 00:00:00 ate 23:59:59.999 — comparar com "<= data" perderia tudo que
-// foi feito depois da meia-noite do proprio dia.
+// vai da meia-noite ate 23:59:59.999 — comparar com "<= data" perderia tudo
+// que foi feito depois da meia-noite do proprio dia.
+//
+// As bordas sao construidas em hora LOCAL e so entao convertidas para UTC. O
+// banco guarda ISO-8601 em UTC, mas quem filtra pensa no dia dele: no Brasil
+// (UTC-3), montar a borda como "AAAA-MM-DDT00:00:00Z" jogaria tudo que foi
+// feito depois das 21h para o dia seguinte — tres horas de todo dia caindo no
+// balde errado, justamente o fim de turno.
+function bordaLocal(data, fimDoDia) {
+  const [ano, mes, dia] = data.split('-').map(Number)
+  return fimDoDia
+    ? new Date(ano, mes - 1, dia, 23, 59, 59, 999).toISOString()
+    : new Date(ano, mes - 1, dia, 0, 0, 0, 0).toISOString()
+}
+
+function hojeLocal() {
+  const d = new Date()
+  const p = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+}
+
 function faixaDoDia(de, ate) {
   const valida = (v) => /^\d{4}-\d{2}-\d{2}$/.test(String(v || ''))
-  const hoje = new Date().toISOString().slice(0, 10)
-  const inicio = valida(de) ? de : hoje
+  const inicio = valida(de) ? de : hojeLocal()
   const fim = valida(ate) ? ate : inicio
   if (fim < inicio) throw erro.requisicao('A data final e anterior a inicial.')
-  return { de: inicio, ate: fim, inicioIso: `${inicio}T00:00:00.000Z`, fimIso: `${fim}T23:59:59.999Z` }
+  return {
+    de: inicio, ate: fim,
+    inicioIso: bordaLocal(inicio, false),
+    fimIso: bordaLocal(fim, true),
+  }
 }
 
 const CAMPOS = `i.id, i.numero, i.momento, i.resultado, i.km_informado,

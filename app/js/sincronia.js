@@ -90,7 +90,10 @@ async function enviarUma(item) {
     credentials: 'same-origin',
     body: JSON.stringify({
       cliente_uuid: item.cliente_uuid,
-      solicitacao_id: item.solicitacao_id,
+      // Um dos dois identifica o carro: solicitacao (pedido liberado) ou
+      // veiculo direto (checklist diario avulso, roadmap 8.2).
+      solicitacao_id: item.solicitacao_id || null,
+      veiculo_id: item.veiculo_id || null,
       template_id: item.template_id,
       momento: item.momento,
       respostas: item.respostas,

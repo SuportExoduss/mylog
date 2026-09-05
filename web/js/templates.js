@@ -54,6 +54,62 @@ async function novoChecklist(contexto) {
   const listaCargos = elemento('div', { classe: 'oculto' }, caixasCargo.map((x) => x.no))
   todos.addEventListener('change', () => listaCargos.classList.toggle('oculto', todos.checked))
 
+  // Ritmo do modelo (roadmap 11.2.1). Avulso e' o padrao: um checklist que
+  // ninguem configurou nao deveria comecar cobrando falta de ninguem.
+  const periodicidade = elemento('select', {}, [
+    { valor: 'avulso', rotulo: 'Avulso — feito quando precisa' },
+    { valor: 'diario', rotulo: 'Diario — nos dias marcados' },
+    { valor: 'semanal', rotulo: 'Semanal' },
+    { valor: 'mensal', rotulo: 'Mensal' },
+  ].map((o) => elemento('option', { value: o.valor, texto: o.rotulo })))
+
+  const DIAS = [
+    { n: 1, nome: 'seg' }, { n: 2, nome: 'ter' }, { n: 3, nome: 'qua' },
+    { n: 4, nome: 'qui' }, { n: 5, nome: 'sex' }, { n: 6, nome: 'sab' }, { n: 0, nome: 'dom' },
+  ]
+  // Segunda a sexta ja marcados: e' o ritmo real da operacao — o relatorio do
+  // PROLOG tem ~170 checklists por dia util contra 62 no sabado e 13 no
+  // domingo. O padrao certo poupa o erro mais provavel.
+  const caixasDia = DIAS.map((d) => {
+    const caixa = elemento('input', { type: 'checkbox', value: String(d.n) })
+    caixa.checked = d.n >= 1 && d.n <= 5
+    return { ...d, caixa, no: elemento('label', { classe: 'dia-semana' }, [caixa, d.nome]) }
+  })
+  const campoDias = elemento('div', { classe: 'campo oculto' }, [
+    elemento('label', { texto: 'Obrigatorio em quais dias' }),
+    elemento('div', { classe: 'dias-semana' }, caixasDia.map((d) => d.no)),
+  ])
+
+  const diaSemana = elemento('select', {},
+    DIAS.map((d) => elemento('option', { value: String(d.n), texto: d.nome })))
+  const campoDiaSemana = elemento('div', { classe: 'campo oculto' }, [
+    elemento('label', { texto: 'Vence em que dia da semana' }), diaSemana,
+  ])
+
+  const temPrazo = elemento('input', { type: 'checkbox' })
+  const horario = elemento('input', { type: 'time', value: '08:30' })
+  const campoHorario = elemento('div', { classe: 'campo oculto' }, [
+    elemento('label', { texto: 'Horario limite' }), horario,
+    elemento('div', { classe: 'campo-dica',
+      texto: 'Feito depois disso entra como atrasado. Nao impede de fazer: checklist atrasado ainda e melhor que checklist nenhum.' }),
+  ])
+  const linhaPrazo = elemento('div', { classe: 'campo oculto' }, [
+    elemento('label', { classe: 'campo-linha' }, [temPrazo, 'Tem horario limite para ser realizado?']),
+  ])
+
+  function ajustarRitmo() {
+    const p = periodicidade.value
+    campoDias.classList.toggle('oculto', p !== 'diario')
+    campoDiaSemana.classList.toggle('oculto', p !== 'semanal')
+    // Prazo so faz sentido para quem e' cobrado. Avulso ninguem cobra, entao a
+    // pergunta nem aparece — e o servidor recusa se vier assim mesmo.
+    linhaPrazo.classList.toggle('oculto', p === 'avulso')
+    if (p === 'avulso') temPrazo.checked = false
+    campoHorario.classList.toggle('oculto', p === 'avulso' || !temPrazo.checked)
+  }
+  periodicidade.addEventListener('change', ajustarRitmo)
+  temPrazo.addEventListener('change', ajustarRitmo)
+
   // O codigo acompanha o nome ate alguem digitar um codigo proprio.
   let codigoTocado = false
   codigo.addEventListener('input', () => { codigoTocado = true })
@@ -79,6 +135,13 @@ async function novoChecklist(contexto) {
           nome: nome.value.trim(), codigo: codigo.value.trim().toLowerCase(),
           tipo_veiculo: tipo.value, cargos_liberados: selecionados,
           exige_assinatura: assinatura.checked,
+          periodicidade: periodicidade.value,
+          dias_semana: periodicidade.value === 'diario'
+            ? caixasDia.filter((d) => d.caixa.checked).map((d) => d.n)
+            : [],
+          dia_semana: periodicidade.value === 'semanal' ? Number(diaSemana.value) : null,
+          horario_limite: temPrazo.checked && periodicidade.value !== 'avulso'
+            ? horario.value : null,
           estrutura: { perguntas: [] },
         })
         area.replaceChildren()
@@ -113,6 +176,15 @@ async function novoChecklist(contexto) {
     elemento('div', { classe: 'campo' }, [
       elemento('label', { classe: 'campo-linha' }, [assinatura, 'Exigir assinatura digital ao finalizar']),
     ]),
+    elemento('div', { classe: 'campo' }, [
+      elemento('label', { texto: 'Com que frequencia' }), periodicidade,
+      elemento('div', { classe: 'campo-dica',
+        texto: 'Avulso nao cobra ninguem. As demais entram na conta de quem usa veiculo todos os dias.' }),
+    ]),
+    campoDias,
+    campoDiaSemana,
+    linhaPrazo,
+    campoHorario,
     elemento('div', { classe: 'modal-acoes' }, [
       elemento('button', { classe: 'botao botao--suave', type: 'button', texto: 'Cancelar',
         aoClick: () => area.replaceChildren() }),
@@ -181,6 +253,9 @@ export async function telaTemplates(raiz, contexto) {
             elemento('div', { classe: 'card-detalhe' }, [
               selo(t.status, TOM_STATUS_TEMPLATE[t.status]),
               t.exige_assinatura ? selo('assinatura', 's-neutro') : null,
+              t.periodicidade && t.periodicidade !== 'avulso'
+                ? selo(t.periodicidade, 's-marca') : null,
+              t.horario_limite ? selo(`ate ${t.horario_limite}`, 's-atencao') : null,
             ].filter(Boolean)),
             elemento('div', { classe: 'celula-fraca esp-t-1',
               texto: `${t.total_perguntas} pergunta(s)` }),

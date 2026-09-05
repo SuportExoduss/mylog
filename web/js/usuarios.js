@@ -70,11 +70,18 @@ async function formularioNovoUsuario(recarregar) {
                  { valor: 'sim', rotulo: 'Sim — equipe da frota' }],
         valor: 'nao',
         dica: 'Quem acessa o painel cadastra, aprova solicitacao e trata ocorrencia.' },
+      { nome: 'usa_veiculo_diario', rotulo: 'Usa veiculo todos os dias?', tipo: 'select',
+        opcoes: [{ valor: 'nao', rotulo: 'Nao — pede carro quando precisa' },
+                 { valor: 'sim', rotulo: 'Sim — sai com carro toda manha' }],
+        valor: 'nao',
+        dica: 'Quem usa todo dia faz checklist diario sem pedir veiculo, e nao devolve. Quem nao usa pede, e ai a devolucao exige checklist de retorno.' },
     ],
     confirmar: 'Criar cadastro',
     aoConfirmar: async (v) => {
       const { usuario, senha_inicial } = await api.criarUsuario({
-        ...v, acessa_painel: v.acessa_painel === 'sim',
+        ...v,
+        acessa_painel: v.acessa_painel === 'sim',
+        usa_veiculo_diario: v.usa_veiculo_diario === 'sim',
       })
       await recarregar()
       mostrarSenha({
@@ -99,9 +106,18 @@ async function editarUsuario(usuario, recarregar) {
         opcoes: [{ valor: 'nao', rotulo: 'Nao — somente aplicativo' },
                  { valor: 'sim', rotulo: 'Sim — equipe da frota' }],
         dica: 'Trocar o nivel encerra as sessoes abertas desta pessoa.' },
+      { nome: 'usa_veiculo_diario', rotulo: 'Usa veiculo todos os dias?', tipo: 'select',
+        opcoes: [{ valor: 'nao', rotulo: 'Nao — pede carro quando precisa' },
+                 { valor: 'sim', rotulo: 'Sim — sai com carro toda manha' }],
+        valor: usuario.usa_veiculo_diario ? 'sim' : 'nao',
+        dica: 'Quem usa todo dia faz checklist diario sem pedir veiculo, e nao devolve. Quem nao usa pede, e ai a devolucao exige checklist de retorno.' },
     ],
     aoConfirmar: async (v) => {
-      await api.atualizarUsuario(usuario.id, { ...v, acessa_painel: v.acessa_painel === 'sim' })
+      await api.atualizarUsuario(usuario.id, {
+        ...v,
+        acessa_painel: v.acessa_painel === 'sim',
+        usa_veiculo_diario: v.usa_veiculo_diario === 'sim',
+      })
       notificar('Cadastro atualizado.')
       await recarregar()
     },
@@ -361,8 +377,15 @@ export async function telaUsuarios(raiz, contexto) {
         ]),
         elemento('td', { classe: 'celula-fraca dado', texto: cpfFormatado(u.cpf) }),
         elemento('td', { classe: 'celula-fraca', texto: u.cargo_nome || '—' }),
-        elemento('td', {}, [selo(u.acessa_painel ? 'Frota' : 'Colaborador',
-          u.acessa_painel ? 's-marca' : 's-neutro')]),
+        elemento('td', {}, [
+          elemento('div', { classe: 'card-detalhe' }, [
+            selo(u.acessa_painel ? 'Frota' : 'Colaborador',
+              u.acessa_painel ? 's-marca' : 's-neutro'),
+            // Quem usa carro todo dia entra na cobranca de checklist diario
+            // (roadmap 8.2). Precisa ser legivel sem abrir o cadastro.
+            u.usa_veiculo_diario ? selo('carro todo dia', 's-neutro') : null,
+          ].filter(Boolean)),
+        ]),
         elemento('td', {}, [
           selo(ROTULO_STATUS_USUARIO[u.status], TOM_STATUS_USUARIO[u.status]),
           u.status === 'pendente'

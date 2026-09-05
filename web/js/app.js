@@ -7,6 +7,8 @@ import { telaSolicitacoes } from './solicitacoes.js'
 import { telaOcorrencias, telaAuditoria } from './ocorrencias.js'
 import { telaPreventivas } from './preventivas.js'
 import { telaTemplates } from './templates.js'
+import { telaExecucoes } from './execucoes.js'
+import { telaCategorias } from './categorias.js'
 import { telaUsuarios } from './usuarios.js'
 
 // "frota" = so a equipe da frota alcanca. "todos" = qualquer usuario ativo.
@@ -16,7 +18,19 @@ const TELAS = [
   { chave: 'solicitacoes', rotulo: 'Solicitacoes', quem: 'todos', montar: telaSolicitacoes },
   { chave: 'ocorrencias', rotulo: 'Ocorrencias', quem: 'frota', montar: telaOcorrencias },
   { chave: 'preventivas', rotulo: 'Preventivas', quem: 'frota', montar: telaPreventivas },
-  { chave: 'templates', rotulo: 'Checklists', quem: 'frota', montar: telaTemplates },
+  // "Checklists" abre duas linhas ao passar o mouse (roadmap 11.8). Sao coisas
+  // diferentes empilhadas na mesma palavra: FEITOS e' operacao, aberta todo
+  // dia; MODELOS e' cadastro, mexido de vez em quando.
+  { chave: 'execucoes',
+    rotulo: 'Checklists',
+    quem: 'todos',
+    montar: telaExecucoes,
+    filhos: [
+      { chave: 'execucoes', rotulo: 'Checklists feitos', dica: 'o que aconteceu' },
+      { chave: 'templates', rotulo: 'Modelos de checklist', dica: 'o que deve acontecer', quem: 'frota' },
+    ] },
+  { chave: 'templates', rotulo: 'Modelos de checklist', quem: 'frota', montar: telaTemplates, oculto: true },
+  { chave: 'categorias', rotulo: 'Categorias de uso', quem: 'frota', montar: telaCategorias, oculto: true },
   { chave: 'usuarios', rotulo: 'Usuarios', quem: 'frota', montar: telaUsuarios },
   { chave: 'auditoria', rotulo: 'Auditoria', quem: 'frota', montar: telaAuditoria },
 ]
@@ -32,19 +46,63 @@ const contexto = {
 
 // ------------------------------------------------------------- navegacao
 
+function podeVer(tela) {
+  return tela.quem === 'todos' || contexto.ehFrota
+}
+
+// Inclui as telas ocultas: elas existem para navegar, so nao ganham botao
+// proprio no menu (chega-se a elas pelo submenu ou por um link de outra tela).
 function telasVisiveis() {
-  return TELAS.filter((tela) => tela.quem === 'todos' || contexto.ehFrota)
+  return TELAS.filter(podeVer)
+}
+
+function filhosVisiveis(tela) {
+  return (tela.filhos || []).filter(podeVer)
 }
 
 function desenharNavegacao() {
   const nav = document.getElementById('nav')
   limpar(nav)
+
   for (const tela of telasVisiveis()) {
-    nav.append(elemento('button', {
-      classe: tela.chave === estado.telaAtual ? 'ativo' : '',
+    if (tela.oculto) continue
+
+    const filhos = filhosVisiveis(tela)
+    // Uma linha so quando o submenu nao acrescenta nada: item com um unico
+    // filho e' menu que existe para nao dizer nada.
+    if (filhos.length < 2) {
+      nav.append(elemento('button', {
+        classe: tela.chave === estado.telaAtual ? 'ativo' : '',
+        texto: tela.rotulo,
+        aoClick: () => navegar(tela.chave),
+      }))
+      continue
+    }
+
+    const ativo = filhos.some((f) => f.chave === estado.telaAtual)
+    const gatilho = elemento('button', {
+      classe: `nav-pai${ativo ? ' ativo' : ''}`,
+      'aria-expanded': String(ativo),
       texto: tela.rotulo,
-      aoClick: () => navegar(tela.chave),
-    }))
+      // Clicar tambem abre: teclado e toque nao tem "passar o mouse".
+      aoClick: () => navegar(filhos[0].chave),
+    })
+
+    // O envoltorio interno existe por causa da animacao: `grid-template-rows`
+    // de 0fr para 1fr define UMA faixa. Com dois botoes soltos, o segundo cai
+    // numa faixa implicita e os dois se sobrepoem quando fechado.
+    const lista = elemento('div', { classe: 'nav-filhos' }, [
+      elemento('div', { classe: 'nav-filhos-interno' }, filhos.map((filho) =>
+      elemento('button', {
+        classe: `nav-filho${filho.chave === estado.telaAtual ? ' ativo' : ''}`,
+        aoClick: (evento) => { evento.stopPropagation(); navegar(filho.chave) },
+      }, [
+        elemento('span', { classe: 'nav-filho-rotulo', texto: filho.rotulo }),
+        filho.dica ? elemento('span', { classe: 'nav-filho-dica', texto: filho.dica }) : null,
+      ]))),
+    ])
+
+    nav.append(elemento('div', { classe: `nav-grupo${ativo ? ' aberto' : ''}` }, [gatilho, lista]))
   }
 }
 
