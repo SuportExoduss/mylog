@@ -5,7 +5,9 @@
 // a direita. Quem preenche isso esta de pe no patio, com pressa e as vezes de
 // luva; cada toque a mais e' um checklist que nao vai ser feito direito.
 import { fotos, uuid } from './armazem.js'
-import { avaliarInspecao, avaliarResposta, descreverPendencia } from '../../compartilhado/template.js'
+import {
+  avaliarInspecao, avaliarResposta, descreverPendencia, MINIMO_RELATORIO,
+} from '../../compartilhado/template.js'
 
 export function elemento(tag, atributos = {}, filhos = []) {
   const el = document.createElement(tag)
@@ -125,6 +127,12 @@ export function executarChecklist({ tarefa, modelo, aoConcluir, aoSair }) {
   let assinatura = null
   let indice = -1   // -1 = tela de quilometragem
 
+  // Retorno de preventiva (roadmap 14.2.2): a tela e' outra. Nao ha OK nem
+  // Ocorrencia — ha uma foto do que ficou, "foi feito manutencao?" e o
+  // relatorio daquela peca.
+  const ehRetornoPreventiva = modelo.finalidade === 'preventiva' && tarefa.momento === 'retorno'
+  let proximaPreventiva = null
+
   const raiz = elemento('div', { classe: 'execucao' })
 
   const momentoRotulo = tarefa.momento === 'saida' ? 'SAIDA' : 'RETORNO'
@@ -211,6 +219,26 @@ export function executarChecklist({ tarefa, modelo, aoConcluir, aoSair }) {
 
   // --------------------------------------------------- captura de fotos
 
+  // As fotos vivem no IndexedDB; para mostrar uma na tela e' preciso um
+  // endereco de blob. Guardamos por id de foto, e nao so a ultima, porque
+  // "tirar novamente" descarta uma e volta para a anterior.
+  const enderecoDaFoto = new Map()
+
+  function ultimaFotoUrl(perguntaId) {
+    const ids = respostas[perguntaId]?.fotos_ids || []
+    for (let i = ids.length - 1; i >= 0; i -= 1) {
+      const url = enderecoDaFoto.get(ids[i])
+      if (url) return url
+    }
+    return null
+  }
+
+  async function fotos_remover(id) {
+    await fotos.remover(id)
+    const url = enderecoDaFoto.get(id)
+    if (url) { URL.revokeObjectURL(url); enderecoDaFoto.delete(id) }
+  }
+
   async function guardarFoto(arquivo, perguntaId) {
     const comprimida = await comprimir(arquivo)
     const id = `${clienteUuid}:${perguntaId}:${Date.now()}`
@@ -218,6 +246,14 @@ export function executarChecklist({ tarefa, modelo, aoConcluir, aoSair }) {
       id, cliente_uuid: clienteUuid, pergunta_id: perguntaId,
       blob: comprimida, bytes: comprimida.size, capturado_em: new Date().toISOString(),
     })
+    // O endereco e' so para MOSTRAR a foto na tela. Se falhar, a foto ja esta
+    // guardada e vai subir do mesmo jeito: perder a previa e' aceitavel,
+    // perder a foto nao.
+    try {
+      enderecoDaFoto.set(id, URL.createObjectURL(comprimida))
+    } catch {
+      /* segue sem previa */
+    }
     return id
   }
 
@@ -269,6 +305,11 @@ export function executarChecklist({ tarefa, modelo, aoConcluir, aoSair }) {
     pedirFoto({ daGaleria }).then(async (arquivo) => {
       if (!arquivo) return
       const id = await guardarFoto(arquivo, pergunta.id)
+      // A resposta pode ainda nao existir: no retorno de preventiva a foto vem
+      // ANTES de qualquer decisao. Sem esta guarda, capturar() quebra.
+      if (!respostas[pergunta.id]) {
+        respostas[pergunta.id] = { fotos_ids: [], respondido_em: new Date().toISOString() }
+      }
       respostas[pergunta.id].fotos_ids.push(id)
       folhaAtual()?.remove()
       aposFoto({ pergunta, maximo, aoTerminar })
@@ -460,6 +501,181 @@ export function executarChecklist({ tarefa, modelo, aoConcluir, aoSair }) {
     )
   }
 
+  // Tela do retorno de preventiva. O caminho e' o que o roadmap 14.2.2
+  // descreve: foto de exemplo -> Proximo abre a camera -> a foto tirada
+  // OCUPA O LUGAR do exemplo -> "foi feito manutencao?" -> relatorio -> os
+  // mesmos tres botoes de sempre.
+  //
+  // Trocar o exemplo pela foto tirada nao e' enfeite: quem confere precisa ver
+  // o que foi registrado, nao o modelo do que deveria ser registrado.
+  // Captura sem a folha de opcoes: no retorno de preventiva a foto tirada vai
+  // direto para o lugar do exemplo, como o roadmap 14.2.2 descreve. A folha do
+  // checklist padrao existe para dar saida quando a camera nao responde; aqui
+  // essa saida e' o proprio botao, que pode ser tocado de novo.
+  function capturarDireto(pergunta, aoTerminar) {
+    pedirFoto({}).then(async (arquivo) => {
+      if (!arquivo) return
+      const id = await guardarFoto(arquivo, pergunta.id)
+      if (!respostas[pergunta.id]) {
+        respostas[pergunta.id] = {
+          desfecho: 'ok', fotos_ids: [], manutencao_feita: null, relatorio: '',
+          respondido_em: new Date().toISOString(),
+        }
+      }
+      respostas[pergunta.id].fotos_ids.push(id)
+      aoTerminar()
+    })
+  }
+
+  // Tela do retorno de preventiva (roadmap 14.2.2):
+  //   foto de exemplo -> Proximo abre a camera -> a foto tirada OCUPA O LUGAR
+  //   do exemplo -> "foi feito manutencao?" -> relatorio -> tres botoes.
+  //
+  // Trocar o exemplo pela foto tirada nao e' enfeite: quem confere precisa ver
+  // o que foi registrado, nao o modelo do que deveria ser registrado.
+  function desenharManutencao() {
+    const p = perguntas[indice]
+    const fotos = contarFotos(p.id)
+    const maximo = p.max_fotos_ok ?? 1
+    const obrigaFoto = (p.foto_ok || 'opcional') === 'obrigatorio'
+    const jaAbriu = Boolean(respostas[p.id])
+
+    function abrirServico() {
+      if (!respostas[p.id]) {
+        respostas[p.id] = {
+          desfecho: 'ok', fotos_ids: [], manutencao_feita: null, relatorio: '',
+          respondido_em: new Date().toISOString(),
+        }
+      }
+      desenharManutencao()
+    }
+
+    // Antes de qualquer registro: exemplo da regiao e um caminho para frente.
+    if (!fotos && !jaAbriu) {
+      raiz.replaceChildren(
+        cabecalho(),
+        elemento('main', { classe: 'exec-corpo' }, [
+          elemento('h1', { classe: 'exec-pergunta', texto: p.titulo }),
+          p.foto_exibicao
+            ? elemento('img', { classe: 'exec-foto', src: p.foto_exibicao,
+                alt: `Exemplo: ${p.titulo}` })
+            : elemento('div', { classe: 'exec-foto exec-foto--vazia', texto: p.titulo }),
+          elemento('p', { classe: 'exec-ja-respondida',
+            texto: 'Fotografe a peca como no exemplo acima.' }),
+        ]),
+        elemento('footer', { classe: 'exec-rodape exec-rodape--unico' }, [
+          elemento('button', {
+            classe: 'botao botao--grande', type: 'button', texto: 'Proximo',
+            aoClick: () => capturarDireto(p, desenharManutencao),
+          }),
+          // Modelo que nao exige foto precisa deixar seguir sem ela; se
+          // exigir, a unica saida e' fotografar — e o botao acima repete.
+          obrigaFoto ? null : elemento('button', {
+            classe: 'botao botao--suave botao--grande', type: 'button',
+            texto: 'Seguir sem foto', aoClick: abrirServico,
+          }),
+        ].filter(Boolean)),
+      )
+      return
+    }
+
+    const r = respostas[p.id] || {}
+    const feita = r.manutencao_feita
+
+    const relato = elemento('textarea', {
+      classe: 'exec-relato', rows: 4,
+      placeholder: feita ? 'O que foi feito nesta peca?' : 'Observacao (opcional)',
+    })
+    relato.value = r.relatorio || ''
+    // Guarda sem redesenhar: redesenhar a cada tecla tiraria o foco do campo.
+    relato.addEventListener('input', () => {
+      respostas[p.id] = { ...respostas[p.id], relatorio: relato.value }
+    })
+
+    function responder(valor) {
+      respostas[p.id] = {
+        ...respostas[p.id],
+        relatorio: relato.value,
+        manutencao_feita: valor,
+        respondido_em: new Date().toISOString(),
+      }
+      desenharManutencao()
+    }
+
+    const faltaTexto = feita === true
+      && String(r.relatorio || '').trim().length < MINIMO_RELATORIO
+
+    const ilustracao = fotos
+      ? elemento('img', {
+          classe: 'exec-foto', src: ultimaFotoUrl(p.id) || p.foto_exibicao || '',
+          alt: `Foto registrada: ${p.titulo}`,
+        })
+      : (p.foto_exibicao
+          ? elemento('img', { classe: 'exec-foto', src: p.foto_exibicao,
+              alt: `Exemplo: ${p.titulo}` })
+          : elemento('div', { classe: 'exec-foto exec-foto--vazia', texto: p.titulo }))
+
+    raiz.replaceChildren(
+      cabecalho(),
+      elemento('main', { classe: 'exec-corpo' }, [
+        elemento('h1', { classe: 'exec-pergunta', texto: p.titulo }),
+        ilustracao,
+        elemento('div', { classe: 'exec-contagem-fotos dado',
+          texto: fotos ? `Foto ${fotos} de ate ${maximo}` : 'Sem foto registrada' }),
+
+        elemento('h2', { classe: 'exec-subpergunta', texto: 'Foi feito manutencao?' }),
+        elemento('div', { classe: 'exec-sim-nao' }, [
+          elemento('button', {
+            classe: `botao botao--grande botao--nao${feita === false ? ' escolhido' : ''}`,
+            type: 'button', texto: 'Nao', aoClick: () => responder(false),
+          }),
+          elemento('button', {
+            classe: `botao botao--grande botao--sim${feita === true ? ' escolhido' : ''}`,
+            type: 'button', texto: 'Sim', aoClick: () => responder(true),
+          }),
+        ]),
+
+        elemento('label', { classe: 'exec-rotulo-relato',
+          texto: feita ? 'Relatorio do servico (obrigatorio)' : 'Relatorio desta foto' }),
+        relato,
+        faltaTexto
+          ? elemento('p', { classe: 'exec-alerta-relato',
+              texto: 'Mexeu na peca: descreva o que foi feito.' })
+          : null,
+      ].filter(Boolean)),
+
+      elemento('footer', { classe: 'exec-rodape exec-rodape--tres' }, [
+        elemento('button', {
+          classe: 'botao botao--suave', type: 'button', texto: 'Tirar novamente',
+          disabled: !fotos,
+          aoClick: async () => {
+            const ids = respostas[p.id].fotos_ids
+            const removida = ids.pop()
+            if (removida) {
+              await fotos_remover(removida)
+            }
+            capturarDireto(p, desenharManutencao)
+          },
+        }),
+        elemento('button', {
+          classe: 'botao botao--suave', type: 'button', texto: '+ foto',
+          disabled: fotos >= maximo,
+          aoClick: () => capturarDireto(p, desenharManutencao),
+        }),
+        elemento('button', {
+          classe: 'botao botao--ok', type: 'button', texto: 'Proximo',
+          // Trava exatamente o que o motor tambem trava: sem resposta, ou
+          // mexeu sem descrever. A tela diz a regra antes de o servidor negar.
+          disabled: feita !== true && feita !== false ? true : faltaTexto,
+          aoClick: () => {
+            respostas[p.id] = { ...respostas[p.id], relatorio: relato.value }
+            avancar()
+          },
+        }),
+      ]),
+    )
+  }
+
   // A frase de cada pendencia vem do motor compartilhado: a mesma que o
   // servidor usaria ao recusar a inspecao.
   function rotuloDoBotao(juizo) {
@@ -471,11 +687,67 @@ export function executarChecklist({ tarefa, modelo, aoConcluir, aoSair }) {
       : texto
   }
 
+  // Mesmas duas opcoes do cadastro de preventiva: por quilometragem ou por
+  // data (roadmap 14.1). Nada de terceira via — a agenda tem dois metodos.
+  function blocoProximaPreventiva() {
+    const modo = proximaPreventiva?.modo || 'km'
+    const kmSugerido = Number(tarefa.veiculo?.km_atual || 0) + 10000
+
+    const campoKm = elemento('input', {
+      type: 'number', inputmode: 'numeric', classe: 'exec-numero',
+      placeholder: `Ex.: ${kmSugerido}`,
+    })
+    campoKm.value = proximaPreventiva?.proximo_km ?? ''
+
+    const campoData = elemento('input', { type: 'date', classe: 'exec-numero' })
+    campoData.value = proximaPreventiva?.proxima_data ?? ''
+
+    function guardar(novoModo) {
+      proximaPreventiva = novoModo === 'km'
+        ? { modo: 'km', proximo_km: Number(campoKm.value) || null }
+        : { modo: 'data', proxima_data: campoData.value || null }
+      desenharResumo()
+    }
+
+    campoKm.addEventListener('change', () => guardar('km'))
+    campoData.addEventListener('change', () => guardar('data'))
+
+    return elemento('section', { classe: 'resumo-proxima' }, [
+      elemento('h2', { classe: 'folha-titulo', texto: 'Quando vence a proxima?' }),
+      elemento('p', { classe: 'exec-ja-respondida',
+        texto: 'Voce acabou de fazer o servico. Diga quando ele precisa ser refeito.' }),
+      elemento('div', { classe: 'exec-sim-nao' }, [
+        elemento('button', {
+          classe: `botao botao--grande${modo === 'km' ? ' escolhido' : ' botao--suave'}`,
+          type: 'button', texto: 'Por KM',
+          aoClick: () => guardar('km'),
+        }),
+        elemento('button', {
+          classe: `botao botao--grande${modo === 'data' ? ' escolhido' : ' botao--suave'}`,
+          type: 'button', texto: 'Por data',
+          aoClick: () => guardar('data'),
+        }),
+      ]),
+      modo === 'km'
+        ? elemento('div', { classe: 'campo-campo' }, [
+            elemento('label', { classe: 'exec-rotulo-relato', texto: 'KM-alvo' }),
+            campoKm,
+          ])
+        : elemento('div', { classe: 'campo-campo' }, [
+            elemento('label', { classe: 'exec-rotulo-relato', texto: 'Data-alvo' }),
+            campoData,
+          ]),
+    ])
+  }
+
   function desenharResumo() {
     const juizo = avaliarInspecao(estrutura, materializar(), {
       politicas: tarefa.politicas || {},
       exige_assinatura: modelo.exige_assinatura,
       assinatura,
+      finalidade: modelo.finalidade,
+      momento: tarefa.momento,
+      proxima_preventiva: proximaPreventiva,
     })
 
     const linhas = perguntas.map((p) => {
@@ -521,6 +793,10 @@ export function executarChecklist({ tarefa, modelo, aoConcluir, aoSair }) {
                 : `O veiculo ficara com pendencia. ${juizo.motivo}` })
           : null,
         elemento('div', { classe: 'resumo-lista' }, linhas),
+        // Antes da assinatura, quando vence a proxima (roadmap 14.2.3). Quem
+        // acabou de fazer o servico e' quem sabe; perguntar depois no painel e'
+        // perguntar a quem nao estava la.
+        ehRetornoPreventiva ? blocoProximaPreventiva() : null,
         modelo.exige_assinatura
           ? elemento('section', { classe: 'resumo-assinatura' }, [
               elemento('h2', { classe: 'folha-titulo', texto: 'Assinatura do condutor' }),
@@ -542,6 +818,8 @@ export function executarChecklist({ tarefa, modelo, aoConcluir, aoSair }) {
             km_informado: km,
             assinatura,
             respostas: materializar(),
+            preventiva_id: tarefa.preventiva_id || null,
+            proxima_preventiva: proximaPreventiva,
             iniciada_em: inicio,
             resumo: juizo,
           }),
@@ -565,6 +843,11 @@ export function executarChecklist({ tarefa, modelo, aoConcluir, aoSair }) {
         desfecho: r.desfecho,
         opcao_id: r.opcao_id || undefined,
         relatorio: r.relatorio || undefined,
+        // Sim/nao do retorno de preventiva. Vai como booleano, e nao como
+        // "sim"/"nao": o motor distingue false de nao-respondido, e string
+        // vazia viraria false por acidente.
+        manutencao_feita: typeof r.manutencao_feita === 'boolean'
+          ? r.manutencao_feita : undefined,
         fotos: (r.fotos_ids || []).length,
         fotos_ids: r.fotos_ids || [],
         respondido_em: r.respondido_em,
@@ -576,6 +859,7 @@ export function executarChecklist({ tarefa, modelo, aoConcluir, aoSair }) {
   function desenhar() {
     if (indice < 0) return desenharKm()
     if (indice >= perguntas.length) return desenharResumo()
+    if (ehRetornoPreventiva) return desenharManutencao()
     desenharPergunta()
   }
 

@@ -182,6 +182,76 @@ button, input, textarea { font: inherit; color: inherit; }
    pessoa nao procurar horario de devolucao que nao existe. */
 .tarefa--avulsa { border-left-color: var(--texto-fraco); }
 
+/* Preventiva: manutencao, nao viagem. Cor propria para o mecanico distinguir
+   de longe o cartao dele no meio dos checklists do dia. */
+.tarefa--preventiva { border-left-color: var(--atencao); }
+
+/* ------------------------------------------- retorno de preventiva */
+
+/* A pergunta do servico, embaixo da foto que acabou de ser tirada. */
+.exec-subpergunta {
+  margin: var(--e-4) 0 var(--e-2);
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.exec-contagem-fotos {
+  margin-top: var(--e-1);
+  font-size: 13px;
+  color: var(--texto-fraco);
+}
+
+/* Sim e nao lado a lado, do tamanho do toque: quem responde esta de luva. */
+.exec-sim-nao { display: flex; gap: var(--e-2); }
+.exec-sim-nao .botao { flex: 1; }
+
+/* A escolha precisa ficar obvia depois de feita — sem isso o mecanico nao sabe
+   se o toque pegou, e responde duas vezes. */
+.botao--nao.escolhido {
+  background: var(--preenche-ocorrencia);
+  color: var(--sobre-preenchimento);
+}
+.botao--sim.escolhido,
+.botao--grande.escolhido {
+  background: var(--preenche-ok);
+  color: var(--sobre-preenchimento);
+}
+
+.exec-rotulo-relato {
+  display: block;
+  margin: var(--e-4) 0 var(--e-1);
+  font-size: 14px;
+  color: var(--texto-fraco);
+}
+
+.exec-relato,
+.exec-numero {
+  width: 100%;
+  padding: var(--e-3);
+  background: var(--superficie-2);
+  border: 1px solid var(--borda);
+  border-radius: var(--r-3);
+  color: var(--texto);
+  font: inherit;
+  font-size: 16px;   /* 16px evita o zoom automatico do iOS ao focar */
+}
+.exec-relato:focus,
+.exec-numero:focus { outline: none; border-color: var(--marca); }
+
+.exec-alerta-relato {
+  margin-top: var(--e-2);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--atencao);
+}
+
+/* Tres botoes no rodape: tirar de novo, mais uma, seguir. */
+.exec-rodape--tres { display: flex; gap: var(--e-2); }
+.exec-rodape--tres .botao { flex: 1; }
+
+.resumo-proxima { margin-top: var(--e-5); }
+.campo-campo { margin-top: var(--e-2); }
+
 /* --------------------------------------------------------------- execucao */
 
 .execucao { flex: 1; display: flex; flex-direction: column; min-height: 100dvh; }

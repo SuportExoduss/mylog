@@ -12,6 +12,7 @@ const estado = {
   usuario: null,
   tarefas: [],
   avulso: [],
+  preventivas: [],
   modelos: [],
   politicas: {},
   doCache: false,
@@ -176,7 +177,7 @@ function telaInicio() {
       'atencao'))
   }
 
-  if (!estado.tarefas.length && !estado.avulso.length) {
+  if (!estado.tarefas.length && !estado.avulso.length && !estado.preventivas.length) {
     corpo.push(elemento('div', { classe: 'vazio' }, [
       elemento('p', { texto: 'Nenhum veiculo aguardando checklist.' }),
       elemento('p', { classe: 'vazio-dica',
@@ -213,6 +214,41 @@ function telaInicio() {
         : elemento('div', { classe: 'tarefa-alerta',
             texto: 'Nenhum checklist liberado para o seu cargo neste veiculo.' }),
     ]))
+  }
+
+  // Preventivas com checklist (roadmap 14.2). Vem antes do resto: manutencao
+  // vencida e' o que mais custa deixar para depois.
+  if (estado.preventivas.length) {
+    corpo.push(elemento('h2', { classe: 'secao-campo', texto: 'Preventivas' }))
+    corpo.push(elemento('p', { classe: 'secao-campo-dica',
+      texto: 'Saida antes do servico, retorno depois. O retorno encerra a manutencao.' }))
+
+    for (const prev of estado.preventivas) {
+      const modelo = modeloPorId(prev.template_id)
+      const saida = prev.momento === 'saida'
+      corpo.push(elemento('button', {
+        classe: `tarefa tarefa--preventiva${prev.status === 'vencida' ? ' tarefa--atrasada' : ''}`,
+        type: 'button',
+        aoClick: () => abrirPreventiva(prev),
+      }, [
+        elemento('div', { classe: 'tarefa-topo' }, [
+          elemento('span', { classe: 'tarefa-placa dado', texto: prev.veiculo.placa }),
+          elemento('span', { classe: `tarefa-momento tarefa-momento--${prev.momento}`,
+            texto: saida ? 'SAIDA' : 'RETORNO' }),
+        ]),
+        elemento('div', { classe: 'tarefa-modelo',
+          texto: `${prev.veiculo.marca || ''} ${prev.veiculo.modelo}`.trim() }),
+        elemento('div', { classe: 'tarefa-janela dado',
+          texto: saida
+            ? `Preventiva ${prev.status === 'vencida' ? 'VENCIDA' : 'aberta'} · alvo ${prev.alvo}`
+            : 'Servico feito? Registre o que foi mexido.' }),
+        modelo
+          ? elemento('div', { classe: 'tarefa-checklist',
+              texto: `${modelo.nome} · ${modelo.estrutura.perguntas.length} pecas` })
+          : elemento('div', { classe: 'tarefa-alerta',
+              texto: 'Nenhum checklist liberado para o seu cargo nesta preventiva.' }),
+      ]))
+    }
   }
 
   // Checklist diario avulso (roadmap 8.2). Quem sai com carro toda manha nao
@@ -297,13 +333,46 @@ function abrirAvulso(item) {
   }))
 }
 
+// Preventiva: a "tarefa" carrega preventiva_id em vez de solicitacao_id. O
+// resto e' o mesmo checklist — a diferenca de tela vem da finalidade do modelo
+// e do momento (roadmap 14.2.2).
+function abrirPreventiva(prev) {
+  const modelo = modeloPorId(prev.template_id)
+  if (!modelo) return
+  const tarefa = {
+    solicitacao_id: null,
+    preventiva_id: prev.preventiva_id,
+    veiculo_id: prev.veiculo.id,
+    veiculo: prev.veiculo,
+    momento: prev.momento,
+    template_id: modelo.id,
+    politicas: estado.politicas,
+  }
+  raiz.replaceChildren(executarChecklist({
+    tarefa,
+    modelo,
+    aoSair: telaInicio,
+    aoConcluir: (inspecao) => concluir(tarefa, inspecao),
+  }))
+}
+
 async function concluir(tarefa, inspecao) {
   await fila.enfileirar({
     ...inspecao,
+    veiculo_id: tarefa.veiculo?.id || tarefa.veiculo_id || null,
+    preventiva_id: tarefa.preventiva_id || null,
     veiculo_placa: tarefa.veiculo.placa,
     finalizada_em: new Date().toISOString(),
   })
   sincronia.sincronizar()
+
+  // Preventiva nao tem devolucao: o carro nao foi emprestado, foi para a
+  // oficina. O retorno encerra a manutencao e ja agendou a proxima.
+  if (tarefa.preventiva_id) {
+    return telaFeito(tarefa, inspecao.resumo, tarefa.momento === 'retorno'
+      ? 'Preventiva encerrada. A proxima ja esta agendada.'
+      : 'Estado registrado. Faca o servico e volte para o checklist de retorno.')
+  }
 
   // Roadmap 10.2, passo 7: na devolucao fora do prazo, o motivo e' pedido
   // ANTES de encerrar. Nao adianta perguntar depois — a pessoa ja foi embora.
@@ -449,6 +518,7 @@ async function carregar() {
   estado.usuario = r.dados.usuario || estado.usuario
   estado.tarefas = r.dados.tarefas || []
   estado.avulso = r.dados.avulso || []
+  estado.preventivas = r.dados.preventivas || []
   estado.modelos = r.dados.modelos || []
   estado.politicas = r.dados.politicas || {}
   estado.doCache = r.doCache
@@ -482,6 +552,7 @@ async function iniciar() {
       estado.usuario = r.dados.usuario
       estado.tarefas = r.dados.tarefas || []
       estado.avulso = r.dados.avulso || []
+      estado.preventivas = r.dados.preventivas || []
       estado.modelos = r.dados.modelos || []
       estado.politicas = r.dados.politicas || {}
       estado.doCache = true

@@ -20,6 +20,17 @@ afterEach(async () => {
 
 const { executarChecklist } = await import('../../app/js/checklist.js')
 
+// O deposito de fotos e' IndexedDB, que nao existe aqui. Trocamos so ele por
+// um Map: o que estes testes exercitam e' a TELA — quando a foto aparece, o
+// que ela desbloqueia, o que trava o Proximo. Guardar bytes num navegador de
+// verdade e' outro assunto, e o roadmap 26 registra que ele continua sendo
+// passe manual.
+const { fotos: depositoDeFotos } = await import('../../app/js/armazem.js')
+const fotosGuardadas = new Map()
+depositoDeFotos.guardar = async (foto) => { fotosGuardadas.set(foto.id, foto) }
+depositoDeFotos.remover = async (id) => { fotosGuardadas.delete(id) }
+depositoDeFotos.ler = async (id) => fotosGuardadas.get(id)
+
 // Sem foto obrigatoria em lugar nenhum: o que se testa aqui e' a navegacao e
 // o julgamento, nao a captura.
 const ESTRUTURA = {
@@ -258,4 +269,180 @@ test('campo: o envio leva o julgamento e a leitura do hodometro', () => {
   assert.equal(enviado.respostas.lataria.desfecho, 'ok')
   assert.equal(enviado.respostas.freios.opcao_id, 'folga')
   assert.equal(enviado.resumo.estado_veiculo_previsto, 'bloqueado')
+})
+
+// -------------------------------------- retorno de checklist de preventiva
+
+// Foto obrigatoria: o retorno de preventiva e' fotografico por natureza — a
+// prova de que a peca foi mexida e' a imagem dela depois do servico.
+const ESTRUTURA_PREVENTIVA = {
+  perguntas: [
+    { id: 'pinca', titulo: 'Pinca de freio', foto_ok: 'obrigatorio', max_fotos_ok: 2,
+      opcoes_problema: [{ id: 'pastilha', nome: 'Pastilha no limite', foto: 'obrigatorio',
+        max_fotos: 2, abrir_ocorrencia: true, prioridade: 'alta' }] },
+    { id: 'correia', titulo: 'Correia dentada', foto_ok: 'obrigatorio', max_fotos_ok: 2,
+      opcoes_problema: [{ id: 'ressecada', nome: 'Correia ressecada', foto: 'obrigatorio',
+        max_fotos: 2, abrir_ocorrencia: true, prioridade: 'critica' }] },
+  ],
+}
+
+function montarPreventiva({ aoConcluir = () => {} } = {}) {
+  const raiz = executarChecklist({
+    tarefa: {
+      preventiva_id: 'prev_1', solicitacao_id: null, momento: 'retorno',
+      template_id: 'tpl_prev',
+      veiculo: { id: 'v1', placa: 'GHI3J67', modelo: 'Kwid', km_atual: 96700 },
+      politicas: {},
+    },
+    modelo: {
+      id: 'tpl_prev', nome: 'Preventiva — revisao', versao: 1,
+      finalidade: 'preventiva', exige_assinatura: false,
+      estrutura: ESTRUTURA_PREVENTIVA,
+    },
+    aoConcluir,
+    aoSair: () => {},
+  })
+  tela.documento.getElementById('app').append(raiz)
+  return raiz
+}
+
+// A camera nunca responde no arcabouco. Como a tela do retorno so avanca com
+// foto, injetamos o arquivo direto no input, como o navegador faria.
+async function fotografar(raiz) {
+  botao(raiz, 'Proximo').click()
+  await new Promise((r) => setTimeout(r, 0))
+  const entrada = tela.documento.querySelector('input')
+  // Blob de verdade: `URL.createObjectURL` do Node recusa objeto simples, e a
+  // tela usa o endereco para trocar a foto de exemplo pela foto tirada.
+  entrada.files = [new Blob([new Uint8Array([1, 2, 3])], { type: 'image/png' })]
+  entrada.dispatchEvent(new Event('change'))
+  await new Promise((r) => setTimeout(r, 0))
+}
+
+test('preventiva: o retorno abre com a foto de exemplo e um caminho so', () => {
+  // Roadmap 14.2.2: foto de exemplo, e "Proximo" abre a camera. Nao ha OK nem
+  // OCORRENCIA aqui — a pergunta do retorno e' outra.
+  const raiz = montarPreventiva()
+  comecar(raiz, '96900')
+
+  assert.match(raiz.textContent, /Pinca de freio/)
+  assert.match(raiz.textContent, /Fotografe a peca como no exemplo/)
+
+  const rodape = raiz.querySelector('.exec-rodape')
+  assert.deepEqual(rodape.querySelectorAll('button').map((b) => b.textContent.trim()),
+    ['Proximo'])
+  assert.equal(botao(raiz, 'OK'), undefined, 'retorno de preventiva nao julga conformidade')
+  assert.equal(botao(raiz, 'OCORRENCIA'), undefined)
+})
+
+test('preventiva: com a foto, aparece a pergunta do servico e o relatorio', async () => {
+  const raiz = montarPreventiva()
+  comecar(raiz, '96900')
+  await fotografar(raiz)
+
+  assert.match(raiz.textContent, /Foi feito manutencao\?/)
+  assert.ok(raiz.querySelector('.exec-relato'), 'toda pergunta tem area de relatorio')
+  assert.match(raiz.textContent, /Foto 1 de ate 2/)
+
+  // Os tres botoes do padrao.
+  const rodape = raiz.querySelector('.exec-rodape--tres')
+  assert.deepEqual(rodape.querySelectorAll('button').map((b) => b.textContent.trim()),
+    ['Tirar novamente', '+ foto', 'Proximo'])
+})
+
+test('preventiva: sem responder sim ou nao, nao avanca', async () => {
+  const raiz = montarPreventiva()
+  comecar(raiz, '96900')
+  await fotografar(raiz)
+
+  assert.equal(botao(raiz, 'Proximo').disabled, true,
+    'a pergunta do servico precisa de resposta')
+
+  botao(raiz, 'Nao').click()
+  assert.equal(botao(raiz, 'Proximo').disabled, false)
+})
+
+test('preventiva: disse SIM e nao descreveu, o Proximo trava', async () => {
+  // Mexer numa peca sem dizer o que foi feito produz registro que nao serve
+  // para nada (roadmap 14.2.2).
+  const raiz = montarPreventiva()
+  comecar(raiz, '96900')
+  await fotografar(raiz)
+
+  botao(raiz, 'Sim').click()
+  assert.equal(botao(raiz, 'Proximo').disabled, true)
+  assert.match(raiz.textContent, /descreva o que foi feito/i)
+
+  const relato = raiz.querySelector('.exec-relato')
+  relato.value = 'Pastilha e disco trocados.'
+  relato.dispatchEvent(new Event('input'))
+  botao(raiz, 'Sim').click()          // redesenha com o texto guardado
+
+  assert.equal(botao(raiz, 'Proximo').disabled, false)
+})
+
+test('preventiva: disse NAO, o relatorio segue opcional', async () => {
+  const raiz = montarPreventiva()
+  comecar(raiz, '96900')
+  await fotografar(raiz)
+
+  botao(raiz, 'Nao').click()
+  assert.match(raiz.textContent, /Relatorio desta foto/,
+    'o campo continua ali, so nao obriga')
+  assert.equal(botao(raiz, 'Proximo').disabled, false)
+})
+
+test('preventiva: antes da assinatura, o resumo pergunta quando vence a proxima', async () => {
+  const raiz = montarPreventiva()
+  comecar(raiz, '96900')
+
+  for (const _ of ESTRUTURA_PREVENTIVA.perguntas) {
+    await fotografar(raiz)
+    botao(raiz, 'Nao').click()
+    botao(raiz, 'Proximo').click()
+  }
+
+  assert.match(raiz.textContent, /Antes de finalizar/)
+  assert.match(raiz.textContent, /Quando vence a proxima\?/)
+  assert.ok(botao(raiz, 'Por KM'), 'as mesmas duas opcoes do cadastro')
+  assert.ok(botao(raiz, 'Por data'))
+
+  // Sem informar a proxima, nao finaliza.
+  const final = raiz.querySelector('.exec-rodape--unico').querySelector('button')
+  assert.equal(final.disabled, true)
+  assert.match(final.textContent, /proxima/i)
+})
+
+test('preventiva: informada a proxima, o envio leva tudo junto', async () => {
+  let enviado = null
+  const raiz = montarPreventiva({ aoConcluir: (d) => { enviado = d } })
+  comecar(raiz, '96900')
+
+  await fotografar(raiz)
+  botao(raiz, 'Sim').click()
+  const relato = raiz.querySelector('.exec-relato')
+  relato.value = 'Pastilha e disco trocados.'
+  relato.dispatchEvent(new Event('input'))
+  botao(raiz, 'Sim').click()
+  botao(raiz, 'Proximo').click()
+
+  await fotografar(raiz)
+  botao(raiz, 'Nao').click()
+  botao(raiz, 'Proximo').click()
+
+  const km = raiz.querySelector('.exec-numero')
+  km.value = '110000'
+  km.dispatchEvent(new Event('change'))
+
+  const final = raiz.querySelector('.exec-rodape--unico').querySelector('button')
+  assert.equal(final.disabled, false)
+  assert.equal(final.textContent.trim(), 'Finalizar checklist')
+  final.click()
+
+  assert.equal(enviado.preventiva_id, 'prev_1')
+  assert.deepEqual(enviado.proxima_preventiva, { modo: 'km', proximo_km: 110000 })
+  assert.equal(enviado.respostas.pinca.manutencao_feita, true)
+  assert.equal(enviado.respostas.pinca.relatorio, 'Pastilha e disco trocados.')
+  assert.equal(enviado.respostas.correia.manutencao_feita, false)
+  assert.equal(enviado.resumo.itens_com_manutencao, 1)
 })

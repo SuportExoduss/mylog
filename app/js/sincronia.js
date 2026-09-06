@@ -94,6 +94,10 @@ async function enviarUma(item) {
       // veiculo direto (checklist diario avulso, roadmap 8.2).
       solicitacao_id: item.solicitacao_id || null,
       veiculo_id: item.veiculo_id || null,
+      // Preventiva: o retorno encerra a manutencao e agenda a proxima, entao
+      // as duas coisas viajam juntas na fila offline (roadmap 14.2.3).
+      preventiva_id: item.preventiva_id || null,
+      proxima_preventiva: item.proxima_preventiva || null,
       template_id: item.template_id,
       momento: item.momento,
       respostas: item.respostas,
