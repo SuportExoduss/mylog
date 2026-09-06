@@ -34,7 +34,12 @@ export const config = {
 
 export function avisarSegredoFraco() {
   if (config.ambiente !== 'desenvolvimento' && config.segredoSessao.startsWith('desenvolvimento')) {
-    throw new Error('MYLOG_SEGREDO precisa ser definido fora de desenvolvimento.')
+    // Recusar subir sem dizer como resolver deixa quem esta implantando
+    // procurando na documentacao com o servidor fora do ar. O valor sugerido
+    // e' gerado na hora e serve: e' 32 bytes de `crypto.randomBytes`.
+    throw new Error(
+      'MYLOG_SEGREDO precisa ser definido fora de desenvolvimento. '
+      + `Sugestao: MYLOG_SEGREDO=${segredoAleatorio()}`)
   }
 }
 

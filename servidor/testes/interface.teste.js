@@ -752,3 +752,49 @@ test('sino: marcar todas que falha nao apaga o ponto vermelho', async () => {
     chamadas.restaurar()
   }
 })
+
+// ------------------------------- todo valor do dominio tem rotulo e tom na tela
+
+// O dominio define os valores; a tela define como cada um se chama e de que cor
+// e'. Sao dois lugares de proposito — rotulo e' assunto de interface. Mas um
+// valor novo no dominio sem rotulo na tela nao aparece como erro: aparece como
+// `undefined` numa celula, ou como selo sem cor.
+//
+// E' o mesmo cuidado que MOTIVOS_PENDENCIA ja tinha: acrescentar um motivo sem
+// dar-lhe frase e' teste vermelho, nao tela muda no patio.
+const motor = await import('../../compartilhado/template.js')
+const preventivas = await import('../src/nucleo/preventivas.js')
+
+test('vocabulario: todo status e prioridade do dominio tem rotulo e tom', () => {
+  const pares = [
+    ['prioridade de ocorrencia', motor.PRIORIDADES,
+      uiDoTeste.ROTULO_PRIORIDADE, uiDoTeste.TOM_PRIORIDADE],
+    ['status de preventiva', preventivas.STATUS_PREVENTIVA,
+      uiDoTeste.ROTULO_STATUS_PREVENTIVA, uiDoTeste.TOM_STATUS_PREVENTIVA],
+    ['tipo de veiculo', motor.TIPOS_VEICULO, uiDoTeste.ROTULO_TIPO_VEICULO, null],
+  ]
+
+  for (const [nome, valores, rotulos, tons] of pares) {
+    assert.ok(Array.isArray(valores) && valores.length, `${nome}: lista vazia na varredura`)
+    const semRotulo = valores.filter((v) => !rotulos?.[v])
+    assert.deepEqual(semRotulo, [], `${nome} sem rotulo na tela: ${semRotulo.join(', ')}`)
+    if (tons) {
+      const semTom = valores.filter((v) => !tons[v])
+      assert.deepEqual(semTom, [], `${nome} sem tom na tela: ${semTom.join(', ')}`)
+    }
+  }
+})
+
+test('vocabulario: os estados de execucao que o motor produz sao os que a tela conhece', () => {
+  // `classificarExecucao` so devolve dois; o terceiro, 'nao_realizado', e'
+  // derivado no servidor por quem tem a lista de quem devia fazer. A lista
+  // existe para que os tres andem juntos.
+  assert.deepEqual(motor.ESTADOS_EXECUCAO, ['no_prazo', 'atrasado', 'nao_realizado'])
+  const produzidos = new Set([
+    motor.classificarExecucao({ horario_limite: '08:00' }, 7 * 60),
+    motor.classificarExecucao({ horario_limite: '08:00' }, 9 * 60),
+  ])
+  for (const e of produzidos) {
+    assert.ok(motor.ESTADOS_EXECUCAO.includes(e), `${e} nao esta na lista de estados`)
+  }
+})

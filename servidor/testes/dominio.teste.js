@@ -483,3 +483,19 @@ test('offline: todo arquivo que o app carrega esta na casca do service worker', 
   assert.deepEqual(faltando, [],
     `fora da casca do service worker: ${faltando.join(', ')}`)
 })
+
+test('implantacao: recusar subir sem segredo diz COMO resolver', () => {
+  // Recusar sem dizer o que fazer deixa quem esta implantando procurando na
+  // documentacao com o servidor fora do ar.
+  const saida = execFileSync(process.execPath, ['--input-type=module', '-e', `
+    process.env.MYLOG_AMBIENTE = 'producao'
+    const c = await import(${JSON.stringify(pathToFileURL(
+      path.join(import.meta.dirname, '..', 'src', 'nucleo', 'config.js')).href)})
+    try { c.avisarSegredoFraco(); console.log('NAO RECUSOU') }
+    catch (e) { console.log(e.message) }
+  `], { encoding: 'utf8', env: { ...process.env, MYLOG_SEGREDO: '' } })
+
+  assert.match(saida, /MYLOG_SEGREDO precisa ser definido/)
+  assert.match(saida, /Sugestao: MYLOG_SEGREDO=\S{20,}/,
+    'a mensagem tem que trazer um valor pronto para colar')
+})
