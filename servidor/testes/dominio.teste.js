@@ -439,3 +439,47 @@ test('transacao: com outro escritor na frente, falha ANTES de decidir qualquer c
     rival.close()
   }
 })
+
+// ------------------------------- a casca do service worker cobre o app inteiro
+
+// `cache.addAll` e' atomico: UM arquivo faltando derruba a instalacao inteira,
+// e o app deixa de abrir sem sinal. O erro nao aparece em desenvolvimento, onde
+// sempre ha rede — aparece no patio, no dia em que nao ha.
+//
+// Acrescentar um `import` no aplicativo e esquecer a casca e' o jeito mais
+// facil de causar isso, e nenhum teste veria. Este ve.
+test('offline: todo arquivo que o app carrega esta na casca do service worker', () => {
+  const raiz = path.join(import.meta.dirname, '..', '..')
+  const ler = (p) => fs.readFileSync(path.join(raiz, p), 'utf8')
+
+  const sw = ler('app/sw.js')
+  const listaCasca = sw.split('const CASCA = [')[1].split(']')[0]
+  const casca = new Set([...listaCasca.matchAll(/'(\/[^']+)'/g)].map((m) => m[1]))
+  assert.ok(casca.size >= 8, `a varredura precisa achar a casca; achou ${casca.size}`)
+
+  // O que o HTML puxa direto.
+  const html = ler('app/index.html')
+  const precisa = new Set([...html.matchAll(/(?:src|href)="(\/[^"]+)"/g)].map((m) => m[1]))
+
+  // E a cadeia de imports a partir do modulo de entrada.
+  const vistos = new Set()
+  const pilha = ['app/js/app.js']
+  while (pilha.length) {
+    const arquivo = pilha.pop()
+    if (vistos.has(arquivo)) continue
+    vistos.add(arquivo)
+    for (const m of ler(arquivo).matchAll(/from '([^']+)'/g)) {
+      const alvo = path.posix.normalize(
+        path.posix.join(path.posix.dirname(arquivo), m[1]))
+      if (fs.existsSync(path.join(raiz, alvo))) pilha.push(alvo)
+    }
+  }
+  for (const v of vistos) precisa.add(`/${v}`)
+
+  assert.ok(precisa.has('/compartilhado/template.js'),
+    'a varredura precisa alcancar o motor compartilhado pela cadeia de imports')
+
+  const faltando = [...precisa].filter((p) => !casca.has(p)).sort()
+  assert.deepEqual(faltando, [],
+    `fora da casca do service worker: ${faltando.join(', ')}`)
+})

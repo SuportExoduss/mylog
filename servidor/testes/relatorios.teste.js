@@ -384,6 +384,17 @@ test('relatorio: inspecao de outra empresa nao abre', async () => {
 
 // ====================================== cabecalhos de seguranca e rastreabilidade
 
+// Uma inspecao qualquer, so para ter um dossie que exista. Pega uma das que os
+// testes anteriores ja criaram em vez de montar outra: o que esta em julgamento
+// aqui e' o HTML do relatorio, nao o caminho de criacao.
+async function umaInspecaoQualquer() {
+  const frota = await entrar('frota.a@rel.local')
+  const lista = await chamar('GET', '/api/inspecoes', { token: frota })
+  const inspecao = lista.dados.inspecoes[0]
+  assert.ok(inspecao, 'os testes anteriores precisam ter deixado alguma inspecao')
+  return { frota, inspecao: inspecao.id }
+}
+
 test('cabecalhos: a politica de conteudo vale para TUDO que sai do servidor', async () => {
   // Nao adianta blindar a API e deixar o HTML do painel, o CSS e a imagem de
   // fora: e' justamente no documento que o script injetado rodaria.
@@ -412,16 +423,38 @@ test('cabecalhos: a politica de conteudo vale para TUDO que sai do servidor', as
   }
 })
 
-test('cabecalhos: nenhum HTML servido tem script embutido', async () => {
+test('cabecalhos: nenhum HTML servido depende de script embutido', async () => {
   // A CSP so segura de verdade se o proprio produto nao depender de inline.
-  // Um <script> embutido no index passaria despercebido em desenvolvimento e
-  // apagaria a tela em producao — o navegador recusa e nada acusa.
-  for (const caminho of ['/', '/app/']) {
-    const html = await (await bruto(caminho)).text()
+  // E a recusa e' SILENCIOSA: o elemento continua na tela, com o atributo no
+  // lugar, e simplesmente nao faz nada.
+  //
+  // Foi assim que o botao "Imprimir ou salvar em PDF" de TODOS os relatorios
+  // morreu quando a CSP entrou: ele era `onclick="print()"`, nenhum teste de
+  // cabecalho ve um clique que nao acontece, e a primeira versao desta varredura
+  // olhava so as duas paginas do painel — nao os relatorios, que sao HTML
+  // gerado pelo servidor e passam pelas mesmas regras.
+  const { frota, inspecao } = await umaInspecaoQualquer()
+
+  const paginas = [
+    ['painel', '/', undefined],
+    ['aplicativo', '/app/', undefined],
+    ['relatorio de frota', '/relatorio/frota', frota],
+    ['dossie de inspecao', `/relatorio/inspecao/${inspecao}`, frota],
+  ]
+
+  for (const [nome, caminho, token] of paginas) {
+    const html = await (await bruto(caminho, token)).text()
+
     const embutidos = [...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)]
       .filter(([, atributos, corpo]) => !/\bsrc=/.test(atributos) && corpo.trim())
     assert.deepEqual(embutidos.map((m) => m[0].slice(0, 60)), [],
-      `${caminho} tem script embutido, que a CSP vai recusar`)
+      `${nome}: script embutido, que a CSP vai recusar`)
+
+    // Manipulador em atributo tambem e' script inline, e e' o mais facil de
+    // escrever sem pensar.
+    const manipuladores = [...html.matchAll(/\son[a-z]+\s*=\s*["'][^"']*["']/gi)]
+    assert.deepEqual(manipuladores.map((m) => m[0].trim()), [],
+      `${nome}: manipulador embutido, que a CSP vai recusar em silencio`)
   }
 })
 

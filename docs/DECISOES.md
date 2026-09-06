@@ -668,3 +668,25 @@ não podem bater no servidor no mesmo segundo — nem esperar o dobro por isso.
 funções puras e testadas; `setTimeout` fica de fora delas. O teste de
 comportamento troca `fila` e `fetch` por baixo e usa relógio falso — provando
 que, sem ninguém tocar em nada e sem a rede mudar de estado, o reenvio acontece.
+
+## D45 — A CSP recusa em silêncio, então o teste tem que olhar a página
+
+**O que aconteceu.** A [D41](#) trocou o `nosniff` solitário por uma CSP
+estrita, e junto tirou o `<script>` embutido dos dois `index.html`. Ficou de
+fora o `onclick="print()"` do botão *"Imprimir ou salvar em PDF"* — que aparece
+em **todos** os relatórios. Resultado: o botão continuou na tela, com o atributo
+no lugar, e parou de fazer qualquer coisa.
+
+**Por que passou.** Os testes de cabeçalho conferiam as duas páginas do painel e
+mediam os cabeçalhos das rotas de API. Os relatórios são HTML **gerado pelo
+servidor**, passam pelas mesmas regras, e não estavam na lista. E nenhum teste
+de cabeçalho enxerga um clique que não acontece.
+
+**Correção.** O manipulador virou `/js/imprimir.js`, um ouvinte delegado em
+`[data-imprimir]`.
+
+**A lição, que vale mais que a correção.** Uma política que recusa em silêncio
+precisa de um teste que olhe o **produto**, não a política. A varredura agora
+cobre as páginas do painel **e** os relatórios, e procura tanto `<script>`
+embutido quanto **atributo `on*`** — que é a forma mais fácil de escrever script
+inline sem perceber que é script inline.

@@ -127,9 +127,10 @@ function pagina({ titulo, corpo, empresa, gerador }) {
   return `<!doctype html>
 <html lang="pt-BR"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${e(titulo)}</title><style>${ESTILO}</style></head>
+<title>${e(titulo)}</title><style>${ESTILO}</style>
+<script src="/js/imprimir.js" defer></script></head>
 <body>
-<div class="imprimir"><button onclick="print()">Imprimir ou salvar em PDF</button></div>
+<div class="imprimir"><button type="button" data-imprimir>Imprimir ou salvar em PDF</button></div>
 <div class="cabecalho">
   <div>
     <div class="marca">My<span>Log</span></div>
