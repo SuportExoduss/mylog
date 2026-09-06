@@ -165,7 +165,15 @@ async function verDetalhe(id, recarregar) {
 
 export async function telaOcorrencias(raiz, contexto) {
   const podeTratar = contexto.ehFrota
-  const filtros = { status: contexto.parametros.status || '', prioridade: '' }
+  // `veiculo` chega de quem veio do historico de um carro. E' o unico filtro
+  // que nao tem seletor: quem quer ver por veiculo chega pelo veiculo, e sai
+  // dele por uma etiqueta com "limpar".
+  const filtros = {
+    status: contexto.parametros.status || '',
+    prioridade: '',
+    veiculo_id: contexto.parametros.veiculo || '',
+  }
+  const placaFiltrada = contexto.parametros.placa || ''
   const areaLista = elemento('div', {})
 
   async function recarregar() {
@@ -175,7 +183,9 @@ export async function telaOcorrencias(raiz, contexto) {
 
   function desenhar(ocorrencias) {
     if (!ocorrencias.length) {
-      return vazio('Nenhuma ocorrencia em aberto. A frota esta sem pendencia registrada.')
+      return vazio(filtros.veiculo_id
+        ? `Nenhuma ocorrencia registrada para ${placaFiltrada || 'este veiculo'}.`
+        : 'Nenhuma ocorrencia em aberto. A frota esta sem pendencia registrada.')
     }
     return tabela(['Veiculo', 'O que deu errado', 'Prioridade', 'Responsavel', 'Situacao', ''],
       ocorrencias.map((o) => {
@@ -229,7 +239,17 @@ export async function telaOcorrencias(raiz, contexto) {
       titulo: 'Ocorrencias',
       descricao: 'O que os checklists encontraram de errado na frota. Mais graves primeiro.',
     }),
-    elemento('div', { classe: 'filtros' }, [seletorStatus, seletorPrioridade]),
+    elemento('div', { classe: 'filtros' }, [
+      seletorStatus,
+      seletorPrioridade,
+      filtros.veiculo_id
+        ? elemento('button', {
+            classe: 'botao botao--suave botao--pequeno', type: 'button',
+            texto: `so ${placaFiltrada || 'este veiculo'} · limpar`,
+            aoClick: () => contexto.irPara('ocorrencias'),
+          })
+        : null,
+    ].filter(Boolean)),
     areaLista,
   )
   await recarregar()

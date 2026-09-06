@@ -480,3 +480,48 @@ test('sino: clicar no aviso marca como lido e leva para a tela', async () => {
     chamadas.restaurar()
   }
 })
+
+// ------------------------------------------- ocorrencias filtradas por carro
+
+const { telaOcorrencias } = await import('../../web/js/ocorrencias.js')
+
+test('ocorrencias: chegar pelo veiculo filtra por ele, e da o caminho de volta', async () => {
+  // O servidor aceita `veiculo_id` desde cedo; a tela nunca mandava. Quem abre
+  // o historico de um carro e clica em "abrir as ocorrencias deste veiculo"
+  // precisa cair na lista dele, nao na frota inteira.
+  const chamadas = servidorFalso(() => ({ status: 200, corpo: { ocorrencias: [] } }))
+  const raiz = tela.documento.createElement('div')
+  tela.corpo.append(raiz)
+  let voltou
+  try {
+    await telaOcorrencias(raiz, {
+      ehFrota: true,
+      parametros: { veiculo: 'veic-7', placa: 'ABC1D23' },
+      irPara: (chave, params) => { voltou = { chave, params } },
+    })
+
+    assert.ok(chamadas.some((c) => c.includes('veiculo_id=veic-7')),
+      `a tela precisa mandar o filtro; mandou: ${chamadas.join(' ')}`)
+    assert.match(raiz.textContent, /ABC1D23/, 'a placa filtrada tem que estar visivel')
+
+    botaoPorTexto(raiz, 'so ABC1D23 · limpar').click()
+    assert.deepEqual(voltou, { chave: 'ocorrencias', params: undefined },
+      'limpar volta para a lista inteira')
+  } finally {
+    chamadas.restaurar()
+  }
+})
+
+test('ocorrencias: sem veiculo na URL, nenhum filtro de veiculo e nenhuma etiqueta', async () => {
+  const chamadas = servidorFalso(() => ({ status: 200, corpo: { ocorrencias: [] } }))
+  const raiz = tela.documento.createElement('div')
+  tela.corpo.append(raiz)
+  try {
+    await telaOcorrencias(raiz, { ehFrota: true, parametros: {}, irPara: () => {} })
+    assert.ok(!chamadas.some((c) => c.includes('veiculo_id')),
+      'filtro vazio nao pode virar `veiculo_id=` na URL')
+    assert.ok(!raiz.textContent.includes('limpar'))
+  } finally {
+    chamadas.restaurar()
+  }
+})

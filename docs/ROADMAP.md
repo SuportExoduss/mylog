@@ -860,6 +860,20 @@ Em aberto → Em tratamento → Resolvida → Encerrada
 
 > Sai o nível *Informativo* da v2.0.
 
+**Filtro por veículo, sem seletor.** É o único que não tem caixa própria: quem
+quer ver as ocorrências de um carro chega pelo carro — no histórico do veículo,
+"abrir as ocorrências deste veículo". A lista então mostra uma etiqueta com a
+placa e um *limpar* que devolve a frota inteira. Um seletor de placa a mais na
+barra de filtros seria uma escolha entre setenta itens para responder uma
+pergunta que já nasce respondida.
+
+### 12.4.1 Histórico do veículo abre com o que está em aberto
+
+Quem abre o histórico de um carro está decidindo se libera ele. A pergunta
+"o que ainda está em aberto" vem **antes** de "o que já aconteceu", porque é
+ela que impede a liberação. Sem isso, o histórico contava a vida do carro sem
+dizer o que ele tem hoje.
+
 ### 12.5 Ações
 
 Mesmo padrão: botões laterais saem, **três pontinhos** na ponta direita.

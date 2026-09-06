@@ -76,13 +76,46 @@ function mudarStatus(veiculo, recarregar) {
 }
 
 async function verHistorico(veiculo, contexto) {
-  const dados = await api.historicoVeiculo(veiculo.id)
+  // Duas perguntas na mesma tela, porque quem abre o historico de um carro
+  // esta decidindo se libera ele: "o que ja aconteceu" e "o que ainda esta
+  // em aberto". A segunda vem primeiro — e' ela que impede a liberacao.
+  const [dados, ficha] = await Promise.all([
+    api.historicoVeiculo(veiculo.id),
+    api.veiculo(veiculo.id),
+  ])
   const area = document.getElementById('area-modal')
+
+  const irParaOcorrencias = () => {
+    area.replaceChildren()
+    contexto.irPara('ocorrencias', { veiculo: veiculo.id, placa: veiculo.placa })
+  }
 
   const formulario = elemento('div', { classe: 'modal', style: 'max-width:620px' }, [
     elemento('h3', { texto: `Historico de ${veiculo.placa}` }),
     elemento('p', { classe: 'modal-sub', texto: `${veiculo.marca || ''} ${veiculo.modelo}`.trim() }),
-    elemento('div', { classe: 'secao-titulo' }, [elemento('h2', { texto: 'Checklists' })]),
+
+    elemento('div', { classe: 'secao-titulo' }, [elemento('h2', { texto: 'Em aberto agora' })]),
+    ficha.ocorrencias.length
+      ? elemento('div', { classe: 'aviso aviso--erro' }, [
+          elemento('div', {}, [
+            elemento('strong', {
+              texto: `${ficha.ocorrencias.length} ocorrencia(s) sem encerrar. `,
+            }),
+            'Enquanto isso, o carro carrega problema conhecido.',
+          ]),
+          elemento('div', { classe: 'card-detalhe esp-t-1' }, ficha.ocorrencias.map((o) =>
+            selo(`${dataCurta(o.aberta_em)} · ${o.descricao}`,
+              o.prioridade === 'critica' ? 's-critico'
+                : o.prioridade === 'alta' ? 's-atencao' : 's-neutro'))),
+          elemento('button', {
+            classe: 'botao botao--suave botao--pequeno esp-t-1', type: 'button',
+            texto: 'Abrir as ocorrencias deste veiculo',
+            aoClick: irParaOcorrencias,
+          }),
+        ])
+      : vazio('Nada em aberto para este veiculo.'),
+
+    elemento('div', { classe: 'secao-titulo esp-t-4' }, [elemento('h2', { texto: 'Checklists' })]),
     dados.inspecoes.length
       ? tabela(['Quando', 'Momento', 'Quem', 'Resultado'], dados.inspecoes.map((i) =>
           elemento('tr', {}, [

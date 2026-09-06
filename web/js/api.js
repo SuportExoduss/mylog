@@ -45,7 +45,6 @@ export const api = {
 
   // ------------------------------------------------------------- usuarios
   usuarios: (filtros) => pedir('GET', comQuery('/api/usuarios', filtros)),
-  usuario: (id) => pedir('GET', `/api/usuarios/${id}`),
   criarUsuario: (dados) => pedir('POST', '/api/usuarios', dados),
   atualizarUsuario: (id, dados) => pedir('PATCH', `/api/usuarios/${id}`, dados),
   statusUsuario: (id, status, motivo) => pedir('POST', `/api/usuarios/${id}/status`, { status, motivo }),
@@ -68,7 +67,6 @@ export const api = {
 
   // ---------------------------------------------------------- solicitacoes
   solicitacoes: (filtros) => pedir('GET', comQuery('/api/solicitacoes', filtros)),
-  solicitacao: (id) => pedir('GET', `/api/solicitacoes/${id}`),
   // Lista de placas livres numa janela. So a Frota chama: e' na liberacao que
   // o pedido ganha carro (roadmap 10.4).
   veiculosLivres: (janela_inicio, janela_fim, categoria_id) =>
@@ -109,9 +107,9 @@ export const api = {
   reagendarPreventiva: (id, dados) => pedir('PATCH', `/api/preventivas/${id}`, dados),
   concluirPreventiva: (id, dados) => pedir('POST', `/api/preventivas/${id}/concluir`, dados),
 
-  // ------------------------------------------------------------- inspecoes
-  inspecoes: (filtros) => pedir('GET', comQuery('/api/inspecoes', filtros)),
-  inspecao: (id) => pedir('GET', `/api/inspecoes/${id}`),
+  // Nao ha `inspecao(id)` aqui: o detalhe de um checklist e' o relatorio de
+  // impressao, aberto por URL, e a tela "meus checklists" e' do aplicativo,
+  // que fala HTTP direto (docs/API.md 9).
 
   auditoria: (filtros) => pedir('GET', comQuery('/api/auditoria', filtros)),
 
