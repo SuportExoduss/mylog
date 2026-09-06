@@ -2009,3 +2009,166 @@ test('historico: checklist de outra pessoa nega, de outra empresa some', async (
   const outraEmpresa = await chamar('GET', `/api/inspecoes/${alvo}`, { token: frotaB })
   assert.equal(outraEmpresa.status, 404)
 })
+
+// ================================================ isolamento entre empresas
+//
+// O criterio da revisao de arquitetura: nao basta a tela esconder o recurso.
+// O teste chama a API direto, com identificador de outra empresa, e exige que
+// a autorizacao falhe.
+//
+// O atacante e' a Frota B — administradora plena da propria empresa. E' o pior
+// caso: quem tem todas as capacidades no seu tenant e nenhuma no alheio.
+//
+// A resposta correta e' 404 e nao 403: 403 confirmaria que o identificador
+// existe, e "esse veiculo existe em alguma empresa" ja e' informacao.
+
+// Junta um alvo de cada tipo dentro da empresa A, direto no banco. Nao passa
+// pela API de proposito: o que esta sendo testado e' a LEITURA, e criar pela
+// API amarraria este teste as regras de criacao.
+function alvosDaEmpresaA() {
+  const ts = agora()
+
+  const ocorrencia = novoId('ocorrencia')
+  executar(
+    `INSERT INTO ocorrencias (id, empresa_id, veiculo_id, pergunta_id, descricao,
+                              prioridade, status, aberta_em)
+     VALUES (?, ?, ?, 'lataria', 'Alvo de teste', 'baixa', 'aberta', ?)`,
+    [ocorrencia, empresaA, veiculoA4, ts])
+
+  const inspecao = novoId('inspecao')
+  executar(
+    `INSERT INTO inspecoes (id, empresa_id, veiculo_id, usuario_id, template_id,
+                            momento, status, resultado, iniciada_em, finalizada_em, criado_em)
+     VALUES (?, ?, ?, ?,
+             (SELECT id FROM templates WHERE empresa_id = ? AND codigo = 'compacto' LIMIT 1),
+             'saida', 'finalizada', 'aprovado', ?, ?, ?)`,
+    [inspecao, empresaA, veiculoA4, frotaA, empresaA, ts, ts, ts])
+
+  const evidencia = novoId('evidencia')
+  executar(
+    `INSERT INTO evidencias (id, empresa_id, veiculo_id, inspecao_id, pergunta_id,
+                             usuario_id, tipo_mime, caminho, bytes, capturado_em, criado_em)
+     VALUES (?, ?, ?, ?, 'lataria', ?, 'image/jpeg', 'a/b/c/d/e.jpg', 10, ?, ?)`,
+    [evidencia, empresaA, veiculoA4, inspecao, frotaA, ts, ts])
+
+  const notificacao = novoId('notificacao')
+  executar(
+    `INSERT INTO notificacoes (id, empresa_id, destinatario_id, tipo, nivel, texto, criado_em)
+     VALUES (?, ?, ?, 'ocorrencia', 'critico', 'Aviso da empresa A', ?)`,
+    [notificacao, empresaA, frotaA, ts])
+
+  // O modelo da empresa A nao esta guardado numa constante: a fixture o cria
+  // sem nomear. Busca pelo codigo, que e' estavel.
+  const modelo = consultarUm(
+    `SELECT id FROM templates WHERE empresa_id = ? AND codigo = 'compacto' LIMIT 1`,
+    [empresaA]).id
+
+  return { ocorrencia, inspecao, evidencia, notificacao, modelo }
+}
+
+test('isolamento: a Frota de outra empresa nao le nada da empresa A', async () => {
+  const invasor = await entrar('frota.b@teste.local')
+  const alvo = alvosDaEmpresaA()
+
+  const leituras = [
+    ['veiculo', `/api/veiculos/${veiculoA4}`],
+    ['usuario', `/api/usuarios/${frotaA}`],
+    ['ocorrencia', `/api/ocorrencias/${alvo.ocorrencia}`],
+    ['inspecao', `/api/inspecoes/${alvo.inspecao}`],
+    ['evidencia', `/api/evidencias/${alvo.evidencia}`],
+    ['modelo', `/api/templates/${alvo.modelo}`],
+    ['relatorio', `/relatorio/inspecao/${alvo.inspecao}`],
+  ]
+  for (const [nome, caminho] of leituras) {
+    const r = await chamar('GET', caminho, { token: invasor })
+    assert.equal(r.status, 404, `${nome}: ${caminho} devolveu ${r.status}, devia ser 404`)
+  }
+})
+
+test('isolamento: nem escreve — tratar, atribuir, bloquear veiculo, publicar modelo', async () => {
+  const invasor = await entrar('frota.b@teste.local')
+  const alvo = alvosDaEmpresaA()
+
+  const escritas = [
+    ['bloquear veiculo', 'POST', `/api/veiculos/${veiculoA4}/status`,
+      { status: 'bloqueado', motivo: 'invasao' }],
+    ['editar veiculo', 'PATCH', `/api/veiculos/${veiculoA4}`, { modelo: 'Sequestrado' }],
+    ['tratar ocorrencia', 'POST', `/api/ocorrencias/${alvo.ocorrencia}/status`,
+      { status: 'encerrada', resolucao: 'fechada por fora' }],
+    ['atribuir ocorrencia', 'POST', `/api/ocorrencias/${alvo.ocorrencia}/atribuir`,
+      { responsavel_id: frotaA }],
+    ['editar modelo', 'PATCH', `/api/templates/${alvo.modelo}`, { nome: 'Sequestrado' }],
+    ['nova versao do modelo', 'POST', `/api/templates/${alvo.modelo}/versao`, {}],
+    ['renomear usuario', 'PATCH', `/api/usuarios/${frotaA}`, { nome: 'Invadido' }],
+    ['gerar senha de usuario', 'POST', `/api/usuarios/${frotaA}/senha`, {}],
+  ]
+  for (const [nome, metodo, caminho, corpo] of escritas) {
+    const r = await chamar(metodo, caminho, { token: invasor, corpo })
+    assert.equal(r.status, 404, `${nome}: devolveu ${r.status}, devia ser 404`)
+  }
+
+  // E o alvo continua intacto: nao basta a resposta ser 404 se o efeito passou.
+  const veiculo = consultarUm('SELECT status, modelo FROM veiculos WHERE id = ?', [veiculoA4])
+  assert.notEqual(veiculo.modelo, 'Sequestrado')
+  const o = consultarUm('SELECT status FROM ocorrencias WHERE id = ?', [alvo.ocorrencia])
+  assert.equal(o.status, 'aberta', 'a ocorrencia da empresa A nao pode ter sido encerrada')
+  const u = consultarUm('SELECT nome FROM usuarios WHERE id = ?', [frotaA])
+  assert.notEqual(u.nome, 'Invadido')
+})
+
+test('isolamento: as listas nunca vazam uma linha da outra empresa', async () => {
+  const invasor = await entrar('frota.b@teste.local')
+  alvosDaEmpresaA()
+
+  const listas = [
+    ['veiculos', '/api/veiculos', 'veiculos'],
+    ['usuarios', '/api/usuarios', 'usuarios'],
+    ['ocorrencias', '/api/ocorrencias', 'ocorrencias'],
+    ['solicitacoes', '/api/solicitacoes', 'solicitacoes'],
+    ['modelos', '/api/templates', 'templates'],
+    ['inspecoes', '/api/inspecoes', 'inspecoes'],
+    ['cargos', '/api/cargos', 'cargos'],
+    ['categorias', '/api/categorias', 'categorias'],
+    ['auditoria', '/api/auditoria', 'eventos'],
+  ]
+  for (const [nome, caminho, chave] of listas) {
+    const r = await chamar('GET', caminho, { token: invasor })
+    assert.equal(r.status, 200, `${nome} devia responder para a Frota B`)
+    const linhas = r.dados[chave]
+    assert.ok(Array.isArray(linhas), `${nome}: esperava um array em "${chave}"`)
+    for (const linha of linhas) {
+      assert.notEqual(linha.empresa_id, empresaA, `${nome} vazou uma linha da empresa A`)
+      if (linha.placa) {
+        assert.ok(!String(linha.placa).startsWith('AAA'),
+          `${nome} vazou a placa ${linha.placa}`)
+      }
+    }
+  }
+})
+
+test('isolamento: a exportacao em planilha tambem respeita o tenant', async () => {
+  // A planilha e' o caminho mais facil de esquecer: ela nao passa pela tela.
+  const invasor = await entrar('frota.b@teste.local')
+  const r = await chamar('GET', '/api/execucoes.csv?de=2020-01-01&ate=2030-01-01',
+    { token: invasor })
+  assert.equal(r.status, 200)
+  const texto = typeof r.dados === 'string' ? r.dados : JSON.stringify(r.dados)
+  assert.ok(!texto.includes('AAA'), 'a planilha da empresa B trouxe placa da empresa A')
+})
+
+test('isolamento: notificacao de outra pessoa nao pode ser marcada como lida', async () => {
+  const invasor = await entrar('frota.b@teste.local')
+  const alvo = alvosDaEmpresaA()
+
+  const r = await chamar('POST', '/api/notificacoes/lidas',
+    { token: invasor, corpo: { id: alvo.notificacao } })
+  assert.equal(r.status, 404)
+
+  const n = consultarUm('SELECT lida_em FROM notificacoes WHERE id = ?', [alvo.notificacao])
+  assert.equal(n.lida_em, null, 'o aviso da empresa A continua nao lido')
+
+  // E "marcar todas" so alcanca as proprias.
+  await chamar('POST', '/api/notificacoes/lidas', { token: invasor, corpo: {} })
+  const depois = consultarUm('SELECT lida_em FROM notificacoes WHERE id = ?', [alvo.notificacao])
+  assert.equal(depois.lida_em, null, '"marcar todas" atravessou a fronteira da empresa')
+})

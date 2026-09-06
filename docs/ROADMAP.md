@@ -1477,11 +1477,13 @@ abertura ao fechamento.
 | Preventiva | KM, data, vencida, reagendamento, troca de método |
 | Relatórios | Fotos, paginação, PDFs grandes |
 | Auditoria | Eventos aparecem e não são apagados |
+| **Isolamento** | **Leitura, escrita, lista, exportação e caixa de entrada, com identificador de outra empresa** |
+| Relógio | O dia da operação não muda com o fuso do servidor |
 | Performance | Painel com volume e sincronização concorrente |
 
 ### Onde a cobertura começa e onde termina
 
-São 125 testes em três camadas:
+São 222 testes em três camadas:
 
 | Camada | Arquivo | O que prova |
 |---|---|---|
@@ -1512,6 +1514,29 @@ OCORRÊNCIA à esquerda e OK à direita, a seta que só anda até onde foi
 respondido, voltar sem perder resposta, uma folha por vez, a prioridade que
 vem da opção configurada, o aviso de bloqueio (e a ausência dele quando a
 prioridade é baixa), e o botão final que nomeia a pendência.
+
+### Isolamento entre empresas
+
+O critério não é a tela esconder o recurso — é a **API recusar**. Os testes de
+isolamento chamam a rota direto, com identificador da outra empresa, e o
+atacante é a **Frota B**: administradora plena da própria empresa, ou seja,
+alguém com todas as capacidades no seu tenant e nenhuma no alheio.
+
+Cinco frentes: leitura de veículo, usuário, ocorrência, inspeção, evidência,
+modelo e relatório; escrita — bloquear carro, tratar e atribuir ocorrência,
+editar e versionar modelo, renomear pessoa, gerar senha; as nove listas, linha
+por linha; a **exportação em planilha**, que é o caminho mais fácil de
+esquecer porque não passa pela tela; e a caixa de entrada, incluindo o "marcar
+todas como lidas".
+
+A resposta correta é **404 e não 403**: 403 confirmaria que o identificador
+existe, e "esse veículo existe em alguma empresa" já é informação. E não basta
+a resposta ser 404 — o teste relê o banco depois, porque uma rota pode recusar
+e mesmo assim ter gravado.
+
+Conferidos contra três furos abertos de propósito: consulta de veículo sem
+filtro de empresa, "marcar todas" sem destinatário e consulta de execuções sem
+tenant. Cada furo derrubou exatamente os testes que deveria, e nenhum outro.
 
 Todo teste que diz cobrir um defeito foi conferido contra ele: o código antigo
 é reintroduzido, o teste fica vermelho, o código novo devolve o verde. Um
