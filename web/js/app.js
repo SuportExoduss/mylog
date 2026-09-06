@@ -43,6 +43,9 @@ const contexto = {
   get parametros() { return estado.parametros },
   get ehFrota() { return estado.usuario?.nivel === 'frota' },
   irPara: (chave, parametros) => navegar(chave, parametros),
+  // O sino descobre a sessao vencida antes de qualquer tela, porque ele bate
+  // no servidor sozinho a cada minuto. Quando descobre, avisa por aqui.
+  aoExpirarSessao: () => encerrarSessao(),
 }
 
 // ------------------------------------------------------------- navegacao

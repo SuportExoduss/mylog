@@ -3,8 +3,8 @@
 // Fica no alto, a direita, em toda tela do painel. Um ponto vermelho quando ha
 // aviso novo — sem numero: o que importa e' "tem coisa nova". Numero grande
 // vira aviso que a pessoa aprende a ignorar, e aviso ignorado nao e' aviso.
-import { api } from './api.js'
-import { elemento, notificar } from './ui.js'
+import { api, ErroApi } from './api.js'
+import { elemento } from './ui.js'
 
 // Recarrega sozinho, mas devagar. Notificacao nao e' cotacao de bolsa: um
 // minuto de atraso nao muda decisao nenhuma, e bater no servidor a cada
@@ -135,8 +135,16 @@ export function montarSino(contexto) {
       naoLidas = r.nao_lidas
       atualizarPonto()
       if (aberto) desenharLista()
-    } catch {
-      // Sino nao derruba tela: sem rede, ele so nao atualiza.
+    } catch (falha) {
+      // Sessao vencida: parar o relogio. Sem isto o sino continuaria batendo
+      // 401 a cada minuto ate a pessoa clicar em alguma coisa — e a sessao
+      // pode ter caido com a tela aberta e ninguem na frente.
+      if (falha instanceof ErroApi && falha.status === 401) {
+        clearInterval(relogio)
+        contexto.aoExpirarSessao?.()
+        return
+      }
+      // Sem rede, ele so nao atualiza: sino nao derruba tela.
     }
   }
 
@@ -155,4 +163,3 @@ export function montarSino(contexto) {
   }
 }
 
-export { notificar }

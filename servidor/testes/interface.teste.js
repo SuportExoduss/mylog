@@ -4,13 +4,14 @@
 // enquanto a senha inicial gerada nunca chegava a aparecer no painel. Suite
 // verde, funcionalidade morta. Estes testes cobrem a fronteira que faltava —
 // o que a tela faz, nao o que a rota devolve.
-import test, { beforeEach, afterEach } from 'node:test'
+import test, { beforeEach, afterEach, mock } from 'node:test'
 import assert from 'node:assert/strict'
 import { montarDom } from './dom.js'
 
 let tela
 
-beforeEach(() => { tela = montarDom() })
+// O sino mora fora da area de modal: ele precisa do proprio ancoradouro.
+beforeEach(() => { tela = montarDom({ ids: ['area-modal', 'area-sino'] }) })
 
 // O menu de acoes registra o ouvinte de "clicar fora" num setTimeout(0). Se o
 // documento for desmontado antes desse timer rodar, ele acorda sem `document`
@@ -362,4 +363,120 @@ test('modal: falha no envio nao apaga a imagem que ja estava la', async () => {
   assert.match(area().textContent, /acima do limite/)
   assert.equal(area().querySelector('img').getAttribute('src'), '/imagens/modelo/t1/antiga.jpg',
     'envio que falhou nao pode derrubar o que ja funcionava')
+})
+
+// ---------------------------------------------------------------- sino
+
+const { montarSino } = await import('../../web/js/sino.js')
+
+// Servidor de mentira no lugar do `fetch`. Devolve o que a rota decidir e
+// guarda os caminhos chamados — e' a contagem de chamadas que prova se o
+// relogio do sino parou ou nao.
+function servidorFalso(rota) {
+  const chamadas = []
+  const anterior = globalThis.fetch
+  globalThis.fetch = async (caminho, opcoes) => {
+    chamadas.push(caminho)
+    const r = rota(caminho, opcoes)
+    return { ok: r.status < 400, status: r.status, json: async () => r.corpo }
+  }
+  chamadas.restaurar = () => { globalThis.fetch = anterior }
+  return chamadas
+}
+
+const aviso = (id, texto, extra) => ({
+  id, texto, nivel: 'info', destino: null, lida_em: null,
+  criado_em: new Date().toISOString(), ...extra,
+})
+
+test('sino: o ponto vermelho aparece com aviso novo e some ao marcar todas', async () => {
+  const chamadas = servidorFalso((caminho) => (caminho.includes('/lidas')
+    ? { status: 200, corpo: { nao_lidas: 0 } }
+    : { status: 200, corpo: { nao_lidas: 2, notificacoes: [
+        aviso('n1', 'Solicitacao aguardando aprovacao'),
+        aviso('n2', 'Preventiva do ABC1D23 venceu'),
+      ] } }))
+  const sino = montarSino({ irPara: () => {} })
+  try {
+    await assentar()
+
+    const ponto = tela.documento.querySelector('.sino-ponto')
+    assert.ok(!ponto.classList.contains('oculto'), 'com 2 nao lidas o ponto tem que aparecer')
+
+    tela.documento.querySelector('.sino-gatilho').click()
+    assert.match(tela.documento.querySelector('.sino-lista').textContent, /Preventiva do ABC1D23/)
+
+    botaoPorTexto(tela.documento.body, 'Marcar todas como lidas').click()
+    await assentar()
+    assert.ok(ponto.classList.contains('oculto'), 'sem nao lida, o ponto some')
+  } finally {
+    sino.parar()
+    chamadas.restaurar()
+  }
+})
+
+test('sino: sessao vencida para o relogio e avisa o app', async () => {
+  // Sem isto o sino descobre o 401 e continua batendo nele a cada minuto,
+  // para sempre — a sessao pode cair com a tela aberta e ninguem na frente.
+  const chamadas = servidorFalso(() => ({ status: 401, corpo: { erro: 'nao_autenticado' } }))
+  mock.timers.enable({ apis: ['setInterval'] })
+  let expirou = 0
+  const sino = montarSino({ irPara: () => {}, aoExpirarSessao: () => { expirou += 1 } })
+  try {
+    await assentar()
+    assert.equal(expirou, 1, 'quem descobre a sessao vencida e o sino: ele tem que avisar')
+    assert.equal(chamadas.length, 1)
+
+    mock.timers.tick(5 * 60_000)
+    await assentar()
+    assert.equal(chamadas.length, 1, 'depois do 401 o sino nao pode bater no servidor de novo')
+  } finally {
+    sino.parar()
+    mock.timers.reset()
+    chamadas.restaurar()
+  }
+})
+
+test('sino: sem rede o sino se cala, mas continua tentando', async () => {
+  // Falta de rede nao e' sessao vencida. Derrubar a sessao por causa de um
+  // tunel seria pior que nao mostrar o aviso.
+  const chamadas = servidorFalso(() => { throw new Error('offline') })
+  mock.timers.enable({ apis: ['setInterval'] })
+  let expirou = 0
+  const sino = montarSino({ irPara: () => {}, aoExpirarSessao: () => { expirou += 1 } })
+  try {
+    await assentar()
+    assert.equal(expirou, 0, 'sem rede nao desloga ninguem')
+    mock.timers.tick(60_000)
+    await assentar()
+    assert.ok(chamadas.length > 1, 'e o relogio segue: a rede volta')
+  } finally {
+    sino.parar()
+    mock.timers.reset()
+    chamadas.restaurar()
+  }
+})
+
+test('sino: clicar no aviso marca como lido e leva para a tela', async () => {
+  const chamadas = servidorFalso((caminho) => (caminho.includes('/lidas')
+    ? { status: 200, corpo: { nao_lidas: 0 } }
+    : { status: 200, corpo: { nao_lidas: 1, notificacoes: [
+        aviso('n1', 'Ocorrencia grave no ABC1D23', { destino: 'ocorrencias' }),
+      ] } }))
+  let foi = null
+  const sino = montarSino({ irPara: (chave) => { foi = chave } })
+  try {
+    await assentar()
+    tela.documento.querySelector('.sino-gatilho').click()
+    botaoPorTexto(tela.documento.body, 'Ocorrencia grave no ABC1D23agora').click()
+    await assentar()
+
+    assert.equal(foi, 'ocorrencias')
+    assert.ok(chamadas.some((c) => c.includes('/lidas')), 'abrir o aviso o marca como lido')
+    assert.ok(tela.documento.querySelector('.sino-lista').classList.contains('oculto'),
+      'a lista fecha ao navegar')
+  } finally {
+    sino.parar()
+    chamadas.restaurar()
+  }
 })

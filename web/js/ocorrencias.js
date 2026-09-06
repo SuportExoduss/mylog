@@ -81,13 +81,20 @@ const ROTULO_ACAO = {
 }
 const rotuloAcao = (acao) => ROTULO_ACAO[acao] || acao
 
+// `depois` vem como JSON de texto da auditoria. Le uma vez e nao explode se
+// alguem tiver editado a linha na mao.
+function resolucaoDe(evento) {
+  if (!evento?.depois) return null
+  try { return JSON.parse(evento.depois).resolucao || null } catch { return null }
+}
+
 // Detalhe de uma ocorrencia: o que ja se fez com ela, e quantas vezes essa
 // mesma peca ja deu problema NESTE carro.
 //
 // A recorrencia e' o dado que a rota devolvia e ninguem lia. "Terceira vez que
 // a pinca de freio deste caminhao aparece" muda a conversa: deixa de ser mais
 // uma ocorrencia e vira um problema que o conserto anterior nao resolveu.
-async function verDetalhe(id, contexto, recarregar) {
+async function verDetalhe(id, recarregar) {
   const { ocorrencia, historico, recorrencia } = await api.ocorrencia(id)
   const area = document.getElementById('area-modal')
 
@@ -96,9 +103,8 @@ async function verDetalhe(id, contexto, recarregar) {
     elemento('div', {}, [
       elemento('div', { classe: 'celula-forte', texto: rotuloAcao(e.acao) }),
       elemento('div', { classe: 'celula-fraca', texto: e.ator_nome || 'sistema' }),
-      e.depois && JSON.parse(e.depois || '{}').resolucao
-        ? elemento('div', { classe: 'celula-fraca esp-t-1',
-            texto: `"${JSON.parse(e.depois).resolucao}"` })
+      resolucaoDe(e)
+        ? elemento('div', { classe: 'celula-fraca esp-t-1', texto: `"${resolucaoDe(e)}"` })
         : null,
     ].filter(Boolean)),
   ])
@@ -176,7 +182,7 @@ export async function telaOcorrencias(raiz, contexto) {
         // "Abrir" vem primeiro e vale para todos, inclusive nas encerradas:
         // e' onde esta a recorrencia, que e' o que muda a conversa.
         const acoes = [
-          { rotulo: 'Abrir', aoClick: () => verDetalhe(o.id, contexto, recarregar) },
+          { rotulo: 'Abrir', aoClick: () => verDetalhe(o.id, recarregar) },
         ]
         if (podeTratar) {
           acoes.push({ rotulo: 'Tratar', aoClick: () => tratar(o, recarregar) })

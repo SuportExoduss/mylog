@@ -101,7 +101,16 @@ export function registrarRotasInspecoes(rotas) {
     // dois momentos obrigatorios, e o retorno e' que encerra a manutencao.
     const preventivas = []
     const emAberto = consultar(
-      `SELECT p.*, v.placa, v.marca, v.modelo, v.tipo, v.km_atual, t.id AS modelo_id
+      // O modelo vem no mesmo SELECT, com prefixo. A versao anterior buscava o
+      // template dentro do laco — uma consulta por preventiva, quase sempre
+      // pelo MESMO modelo, ja que uma frota costuma ter um checklist de
+      // preventiva e nao quarenta.
+      `SELECT p.*, v.placa, v.marca, v.modelo, v.tipo, v.km_atual,
+              t.id AS t_id, t.codigo AS t_codigo, t.nome AS t_nome, t.versao AS t_versao,
+              t.finalidade AS t_finalidade, t.exige_assinatura AS t_assinatura,
+              t.periodicidade AS t_periodicidade, t.dias_semana AS t_dias,
+              t.horario_limite AS t_limite, t.cargos_liberados AS t_cargos,
+              t.estrutura AS t_estrutura
          FROM preventivas p
          JOIN veiculos v ON v.id = p.veiculo_id
          JOIN templates t ON t.id = p.template_id
@@ -111,8 +120,13 @@ export function registrarRotasInspecoes(rotas) {
       [eu.empresa_id])
 
     for (const prev of emAberto) {
-      const modelo = consultarUm('SELECT * FROM templates WHERE id = ?', [prev.template_id])
-      if (!modelo) continue
+      const modelo = {
+        id: prev.t_id, codigo: prev.t_codigo, nome: prev.t_nome, versao: prev.t_versao,
+        finalidade: prev.t_finalidade, exige_assinatura: prev.t_assinatura,
+        periodicidade: prev.t_periodicidade, dias_semana: prev.t_dias,
+        horario_limite: prev.t_limite, cargos_liberados: prev.t_cargos,
+        estrutura: prev.t_estrutura,
+      }
       // Cargo vale aqui como em qualquer modelo: o checklist do mecanico so
       // aparece para o mecanico (roadmap 11.2.3).
       if (!cargoLiberado(JSON.parse(modelo.cargos_liberados), eu.cargo_id)) continue
