@@ -7,9 +7,14 @@
 //
 // Fotos e assinatura ficam de fora: dependem de IndexedDB, camera e canvas.
 // O roadmap 26 registra isso como passe manual obrigatorio.
-import test, { beforeEach, afterEach } from 'node:test'
+import test, { beforeEach, afterEach, mock } from 'node:test'
 import assert from 'node:assert/strict'
 import { montarDom } from './dom.js'
+
+// Drena a fila de microtarefas: as cadeias do envio tem mais de um await.
+const assentar = async (voltas = 3) => {
+  for (let i = 0; i < voltas; i += 1) await new Promise((r) => setImmediate(r))
+}
 
 let tela
 beforeEach(() => { tela = montarDom({ ids: ['app'] }) })
@@ -445,4 +450,91 @@ test('preventiva: informada a proxima, o envio leva tudo junto', async () => {
   assert.equal(enviado.respostas.pinca.relatorio, 'Pastilha e disco trocados.')
   assert.equal(enviado.respostas.correia.manutencao_feita, false)
   assert.equal(enviado.resumo.itens_com_manutencao, 1)
+})
+
+// ------------------------------------------ fila: a retentativa que faltava
+
+const sincronia = await import('../../app/js/sincronia.js')
+const { fila: filaReal } = await import('../../app/js/armazem.js')
+
+test('fila: a espera cresce e para de crescer', () => {
+  // Insistir de segundo em segundo gasta bateria de quem esta no patio o dia
+  // inteiro; desistir deixa o checklist no aparelho.
+  const semSorteio = () => 0
+  const esperas = [0, 1, 2, 3, 4, 5, 9].map((n) => sincronia.proximaEspera(n, semSorteio))
+  assert.deepEqual(esperas, [15_000, 30_000, 60_000, 120_000, 300_000, 300_000, 300_000],
+    'cresce ate cinco minutos e fica nos cinco')
+})
+
+test('fila: o desvio existe, e e pequeno', () => {
+  // Quarenta aparelhos voltando juntos quando a torre volta nao podem bater no
+  // servidor no mesmo segundo — nem esperar o dobro por causa disso.
+  const cheio = sincronia.proximaEspera(0, () => 1)
+  const vazio = sincronia.proximaEspera(0, () => 0)
+  assert.equal(vazio, 15_000)
+  assert.ok(cheio > vazio, 'sem desvio, o rebanho inteiro chega no mesmo instante')
+  assert.ok(cheio <= 15_000 * 1.2, `desvio grande demais: ${cheio}`)
+})
+
+test('fila: nao arma relogio sem fila nem sem rede', () => {
+  // Sem fila nao ha o que reenviar. Sem rede, quem acorda e o evento `online`,
+  // que chega na hora certa e nao gasta nada esperando.
+  assert.equal(sincronia.deveRetentar({ pendentes: 2, online: true }), true)
+  assert.equal(sincronia.deveRetentar({ pendentes: 0, online: true }), false)
+  assert.equal(sincronia.deveRetentar({ pendentes: 2, online: false }), false)
+})
+
+test('fila: envio que falha volta a tentar sozinho, sem ninguem tocar em nada', async () => {
+  // O caso real: 4G oscilando no patio. O aparelho continua "online" — tem
+  // sinal, so nao passa dado —, entao o evento `online` nunca chega, e quem
+  // fica com o app na frente terminando o dia nunca troca de aba. O item
+  // ficava parado dizendo "Sera reenviado automaticamente", que era uma
+  // promessa que o codigo nao cumpria.
+  // `navigator` do Node so tem getter: em vez de trocar o objeto, redefine a
+  // propriedade e devolve a original no fim.
+  const navegadorAntes = Object.getOwnPropertyDescriptor(globalThis, 'navigator')
+  const buscaAntes = globalThis.fetch
+  const pendentesAntes = filaReal.pendentes
+  const marcarAntes = filaReal.marcar
+
+  Object.defineProperty(globalThis, 'navigator',
+    { value: { onLine: true }, configurable: true })
+  let naFila = [{
+    cliente_uuid: 'u1', estado: 'pendente', tentativas: 0,
+    template_id: 't1', veiculo_id: 'v1', momento: 'saida', respostas: {},
+  }]
+  filaReal.pendentes = async () => naFila
+  filaReal.marcar = async (uuid, campos) => {
+    naFila = naFila.map((i) => (i.cliente_uuid === uuid ? { ...i, ...campos } : i))
+  }
+
+  let tentativas = 0
+  globalThis.fetch = async () => { tentativas += 1; throw new Error('rede caiu') }
+
+  mock.timers.enable({ apis: ['setTimeout'] })
+  try {
+    await sincronia.sincronizar()
+    assert.equal(tentativas, 1)
+
+    // Ninguem troca de aba, ninguem toca no botao, a rede nao muda de estado.
+    // 15s de base mais ate 20% de desvio: 18s cobre o pior caso.
+    mock.timers.tick(19_000)
+    await assentar(6)
+    assert.ok(tentativas >= 2,
+      `o relogio tinha que ter disparado o reenvio sozinho; tentativas: ${tentativas}`)
+
+    // Fila vazia: para de tentar em vez de bater no servidor para sempre.
+    naFila = []
+    const antes = tentativas
+    await sincronia.sincronizar()
+    mock.timers.tick(10 * 60_000)
+    await assentar(6)
+    assert.equal(tentativas, antes, 'com a fila vazia nao ha mais nada para reenviar')
+  } finally {
+    mock.timers.reset()
+    Object.defineProperty(globalThis, 'navigator', navegadorAntes)
+    globalThis.fetch = buscaAntes
+    filaReal.pendentes = pendentesAntes
+    filaReal.marcar = marcarAntes
+  }
 })

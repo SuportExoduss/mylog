@@ -1523,11 +1523,12 @@ abertura ao fechamento.
 | Painel | O alerta vai ao destino do servidor; o selo abre a lista filtrada |
 | Modelos | A seção de preventiva cria modelo de preventiva; a padrão, padrão |
 | Relógio do aparelho | A hora é a do pátio; fora da janela, cai para o recebimento e audita |
+| Fila offline | Reenvia sozinha com espera crescente, e para quando esvazia |
 | Performance | Painel com volume e sincronização concorrente |
 
 ### Onde a cobertura começa e onde termina
 
-São 241 testes em três camadas:
+São 245 testes em três camadas:
 
 | Camada | Arquivo | O que prova |
 |---|---|---|

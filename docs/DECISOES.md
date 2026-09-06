@@ -641,3 +641,30 @@ Mas recusar a inspeção por causa do relógio seria pior: ela aconteceu no mund
 exige `no_prazo`; conferido contra o defeito original. Outro manda uma data três
 dias no futuro e exige que ela seja recusada **e auditada** — esse fica vermelho
 com a correção ingênua, a de confiar cegamente no que o aparelho manda.
+
+## D44 — A fila reenvia sozinha, com espera crescente
+
+**Contexto.** O envio só era disparado por evento: voltar a ficar online, voltar
+para a aba, abrir o app, ou tocar no botão. No pátio, com 4G oscilando, o
+aparelho continua **"online"** — tem sinal, só não passa dado —, então o evento
+`online` nunca chega; e quem fica com o app na frente terminando o dia nunca
+troca de aba. O item ficava parado exibindo *"Será reenviado automaticamente"*,
+uma promessa que o código não cumpria.
+
+**Decisão.** Falha de envio com fila não vazia arma um reenvio: 15 s, 30 s, 1
+min, 2 min, 5 min — e para nos 5. Fila vazia zera a contagem, para que a próxima
+falha comece nos 15 segundos e não nos 5 minutos que sobraram da anterior. Todo
+evento (online, voltar à aba) também zera antes de tentar: a rede acabou de
+mudar de estado, a tentativa de agora não herda o castigo da anterior.
+
+**Sem relógio quando não adianta.** Sem fila não há o que reenviar; sem rede,
+quem acorda é o evento `online`, que chega na hora certa e não gasta bateria
+esperando.
+
+**Desvio de até 20%.** Quarenta aparelhos voltando juntos quando a torre volta
+não podem bater no servidor no mesmo segundo — nem esperar o dobro por isso.
+
+**A decisão foi separada do relógio.** `deveRetentar` e `proximaEspera` são
+funções puras e testadas; `setTimeout` fica de fora delas. O teste de
+comportamento troca `fila` e `fetch` por baixo e usa relógio falso — provando
+que, sem ninguém tocar em nada e sem a rede mudar de estado, o reenvio acontece.

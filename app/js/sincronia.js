@@ -19,6 +19,53 @@ export const estado = {
   ultimoErro: null,
 }
 
+// Retentativa com espera crescente.
+//
+// O envio so era disparado por evento: voltar a ficar online, voltar para a
+// aba, abrir o app, ou tocar no botao. No patio, com 4G oscilando, o aparelho
+// continua "online" — tem sinal, so nao passa dado —, entao o evento `online`
+// nunca chega, e quem fica com o app na frente terminando o dia nunca troca de
+// aba. O item ficava parado dizendo "Sera reenviado automaticamente", que era
+// uma promessa que o codigo nao cumpria.
+//
+// A espera cresce para nao gastar bateria insistindo: quinze segundos, meio
+// minuto, um, dois, cinco — e para nos cinco.
+const ESPERAS = [15_000, 30_000, 60_000, 120_000, 300_000]
+let tentativaAtual = 0
+let relogioRetentativa = null
+
+function pararRetentativa() {
+  clearTimeout(relogioRetentativa)
+  relogioRetentativa = null
+  tentativaAtual = 0
+}
+
+// A decisao, separada do relogio. Sem fila nao ha o que reenviar; sem rede,
+// quem acorda e' o evento `online`, que chega na hora certa e nao gasta nada
+// esperando. Separada porque decisao se testa; `setTimeout`, nao.
+export function deveRetentar({ pendentes, online }) {
+  return Boolean(pendentes) && Boolean(online)
+}
+
+// Quanto esperar na enesima tentativa seguida. O desvio de ate 20% existe
+// porque quarenta aparelhos voltando juntos quando a torre volta nao podem
+// bater no servidor no mesmo segundo.
+export function proximaEspera(tentativa, sorteio = Math.random) {
+  const base = ESPERAS[Math.min(tentativa, ESPERAS.length - 1)]
+  return base + sorteio() * base * 0.2
+}
+
+function agendarRetentativa() {
+  clearTimeout(relogioRetentativa)
+  if (!deveRetentar({ pendentes: estado.pendentes, online: navigator.onLine })) {
+    relogioRetentativa = null
+    return
+  }
+  const espera = proximaEspera(tentativaAtual)
+  tentativaAtual += 1
+  relogioRetentativa = setTimeout(() => { relogioRetentativa = null; sincronizar() }, espera)
+}
+
 async function recontar() {
   const pendentes = await fila.pendentes()
   estado.pendentes = pendentes.length
@@ -27,11 +74,20 @@ async function recontar() {
 }
 
 export async function iniciar() {
-  addEventListener('online', () => { estado.online = true; avisar(); sincronizar() })
-  addEventListener('offline', () => { estado.online = false; avisar() })
+  // Todo evento zera a espera antes de tentar: a rede acabou de mudar de
+  // estado, entao a tentativa de agora nao herda o castigo da anterior.
+  addEventListener('online', () => {
+    estado.online = true; avisar(); pararRetentativa(); sincronizar()
+  })
+  addEventListener('offline', () => {
+    estado.online = false; avisar()
+    // Sem rede nao adianta relogio: quem acorda e' o evento `online`.
+    clearTimeout(relogioRetentativa)
+    relogioRetentativa = null
+  })
   // Voltar para a aba e' o momento mais provavel de ter recuperado sinal.
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') sincronizar()
+    if (document.visibilityState === 'visible') { pararRetentativa(); sincronizar() }
   })
   await recontar()
   sincronizar()
@@ -190,6 +246,10 @@ export async function sincronizar() {
     enviando = false
     estado.enviando = false
     await recontar()
+    // Fila vazia zera a contagem: a proxima falha comeca de novo nos quinze
+    // segundos, e nao nos cinco minutos que sobraram da ultima vez.
+    if (estado.pendentes) agendarRetentativa()
+    else pararRetentativa()
   }
   return { enviadas }
 }
