@@ -1,10 +1,13 @@
 // Ponto de entrada do MyLog. Serve a API e o painel web no mesmo processo.
 import http from 'node:http'
+import { randomUUID } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { config, avisarSegredoFraco } from './nucleo/config.js'
 import { abrirBanco } from './nucleo/banco.js'
-import { criarRoteador, lerCorpo, responder, lerCookies, ipDe, ErroHttp, erro } from './nucleo/http.js'
+import {
+  criarRoteador, lerCorpo, responder, lerCookies, ipDe, aplicarSeguranca, ErroHttp, erro,
+} from './nucleo/http.js'
 import { usuarioDaSessao, NOME_COOKIE } from './seguranca/sessao.js'
 import { registrarRotasAutenticacao } from './rotas/autenticacao.js'
 import { registrarRotasUsuarios } from './rotas/usuarios.js'
@@ -111,8 +114,26 @@ function servirArquivo(destino, raiz, res) {
 
 // ------------------------------------------------------------------ servidor
 
+const PRODUCAO = config.ambiente !== 'desenvolvimento'
+
 const servidor = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`)
+
+  // Antes de qualquer decisao sobre a rota: os cabecalhos valem para tudo que
+  // sair daqui, inclusive o arquivo estatico e as rotas que escrevem o binario
+  // elas mesmas. `setHeader` sobrevive ao `writeHead` que vem depois.
+  aplicarSeguranca(res, {
+    producao: PRODUCAO,
+    // Atras de um proxy, quem sabe se a conversa comecou em HTTPS e' o proxy.
+    https: req.socket.encrypted === true
+      || String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim() === 'https',
+  })
+
+  // Um numero por requisicao. Aparece no log de erro e na resposta de falha
+  // inesperada, para que "deu erro as 8h10" vire uma linha localizavel em vez
+  // de uma busca no dia inteiro.
+  const requisicaoId = randomUUID().slice(0, 8)
+  res.setHeader('x-requisicao-id', requisicaoId)
 
   // /relatorio/* devolve HTML e /imagens/* devolve binario, mas os dois passam
   // pelo roteador: precisam de sessao e de consulta ao banco, e nao sao
@@ -150,6 +171,7 @@ const servidor = http.createServer(async (req, res) => {
       token,
       usuario: usuarioDaSessao(token),
       ip: ipDe(req),
+      requisicaoId,
     }
 
     let resultado
@@ -169,8 +191,14 @@ const servidor = http.createServer(async (req, res) => {
       responder(res, 409, { erro: 'conflito', mensagem: 'Registro duplicado.' })
       return
     }
-    console.error('[erro]', req.method, url.pathname, falha)
-    responder(res, 500, { erro: 'erro_interno', mensagem: 'Falha inesperada no servidor.' })
+    console.error(`[erro] ${requisicaoId}`, req.method, url.pathname, falha)
+    responder(res, 500, {
+      erro: 'erro_interno',
+      // O numero vai junto de proposito: e' o que a pessoa consegue ditar por
+      // radio, e o que liga a queixa dela a linha certa do log.
+      mensagem: `Falha inesperada no servidor. Informe o codigo ${requisicaoId}.`,
+      requisicao_id: requisicaoId,
+    })
   }
 })
 

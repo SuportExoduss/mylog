@@ -188,10 +188,15 @@ cliente de campo guarda o último branding confirmado para funcionar offline, e
 
 **Segurança.** Isolamento entre empresas provado por teste que chama a API com
 payload manipulado — esconder o recurso na tela não conta. Autorização sempre no
-servidor. CSP, HSTS e demais cabeçalhos. Segredos fora do código. HTTPS
-obrigatório.
+servidor. Segredos fora do código. HTTPS obrigatório.
 
-Duas coisas já resolvidas na etapa 1, com uma ressalva cada:
+Três coisas já resolvidas na etapa 1, com uma ressalva cada:
+
+- **Cabeçalhos** ([D41](DECISOES.md)) — CSP estrita, `frame-ancestors 'none'`,
+  `referrer-policy`, e uma `permissions-policy` que preserva câmera e
+  localização. **HSTS já está escrito mas só dispara em produção sobre HTTPS**,
+  então a etapa 2 precisa confirmar que ele realmente aparece atrás do Firebase
+  Hosting.
 
 - **Content-Type real** ([D38](DECISOES.md)) — o tipo do arquivo sai dos bytes,
   não do que o cliente declarou. Vale desde já, e passa a valer *mais* quando a

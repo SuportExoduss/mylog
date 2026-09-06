@@ -1482,11 +1482,12 @@ abertura ao fechamento.
 | Upload | O tipo sai dos bytes; rótulo errado é corrigido, não-imagem é recusada |
 | Transação | Tudo ou nada, e a trava tomada na abertura |
 | Freio | Conta, troca de senha, e varredura por IP sem punir o escritório |
+| Cabeçalhos | CSP em toda resposta, nenhum script embutido, câmera preservada |
 | Performance | Painel com volume e sincronização concorrente |
 
 ### Onde a cobertura começa e onde termina
 
-São 227 testes em três camadas:
+São 232 testes em três camadas:
 
 | Camada | Arquivo | O que prova |
 |---|---|---|

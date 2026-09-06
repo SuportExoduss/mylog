@@ -44,6 +44,59 @@ export function lerCorpo(req) {
   })
 }
 
+// Politica de conteudo. Estrita de proposito: o painel e o aplicativo carregam
+// so os proprios arquivos.
+//
+//   script-src 'self'  — nenhum script inline roda. Por isso o trecho que
+//     aplica o tema antes da primeira pintura virou /js/tema-inicial.js: a
+//     alternativa era declarar o hash dele aqui, e ai qualquer edicao naquele
+//     arquivo apagaria o tema em silencio.
+//   style-src inclui 'unsafe-inline' porque a interface usa atributo `style` em
+//     elementos montados em JS, e os relatorios de impressao levam a folha
+//     inteira embutida — sao um documento so, salvo e enviado por email.
+//     Injecao de estilo e' um risco muito menor que injecao de script, e nao
+//     ha caminho aqui em que o texto do usuario vire CSS.
+//   img-src aceita blob: e data: por causa da previa da foto no aparelho, que
+//     e' criada com URL.createObjectURL antes de qualquer envio.
+//   frame-ancestors 'none' — nada de embutir o painel em pagina de terceiro.
+const CSP = [
+  "default-src 'self'",
+  "script-src 'self'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob:",
+  "font-src 'self'",
+  "connect-src 'self'",
+  "worker-src 'self'",
+  "manifest-src 'self'",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  "frame-ancestors 'none'",
+].join('; ')
+
+// Aplicados uma vez por requisicao, antes de qualquer despacho, para valerem
+// tambem no arquivo estatico e nas rotas que escrevem binario elas mesmas.
+export function aplicarSeguranca(res, { producao, https }) {
+  res.setHeader('content-security-policy', CSP)
+  res.setHeader('x-content-type-options', 'nosniff')
+  // frame-ancestors ja cobre; o cabecalho antigo fica para navegador velho.
+  res.setHeader('x-frame-options', 'DENY')
+  // O caminho do relatorio carrega placa e nome; nao vaza nem para o proprio
+  // site em outra origem.
+  res.setHeader('referrer-policy', 'same-origin')
+  res.setHeader('cross-origin-opener-policy', 'same-origin')
+  // A camera e a localizacao SAO usadas — pelo aplicativo de campo, na propria
+  // origem. Tudo o mais fica desligado.
+  res.setHeader('permissions-policy',
+    'camera=(self), geolocation=(self), microphone=(), payment=(), usb=()')
+
+  // HSTS so faz sentido quando ja se chegou por HTTPS: mandado em texto claro,
+  // ele nao protege nada e ainda trava o desenvolvimento em localhost.
+  if (producao && https) {
+    res.setHeader('strict-transport-security', 'max-age=31536000; includeSubDomains')
+  }
+}
+
 export function responder(res, status, dados) {
   const corpo = JSON.stringify(dados)
   res.writeHead(status, {

@@ -6,7 +6,7 @@
 // O contexto operacional fica no IndexedDB, com data de quando foi baixado, e
 // a tela avisa quando esta mostrando copia.
 
-const VERSAO = 'mylog-campo-v1'
+const VERSAO = 'mylog-campo-v2'
 
 const CASCA = [
   '/app/',
@@ -19,6 +19,7 @@ const CASCA = [
   '/app/manifest.json',
   '/app/icone.svg',
   '/css/estilo.css',
+  '/js/tema-inicial.js',
   '/compartilhado/template.js',
 ]
 

@@ -381,3 +381,73 @@ test('relatorio: inspecao de outra empresa nao abre', async () => {
   const tokenB = await entrar('frota.b@rel.local')
   assert.equal((await bruto(`/relatorio/inspecao/${inspecao}`, tokenB)).status, 404)
 })
+
+// ====================================== cabecalhos de seguranca e rastreabilidade
+
+test('cabecalhos: a politica de conteudo vale para TUDO que sai do servidor', async () => {
+  // Nao adianta blindar a API e deixar o HTML do painel, o CSS e a imagem de
+  // fora: e' justamente no documento que o script injetado rodaria.
+  const motorista = await entrar('motorista@rel.local')
+  const caminhos = [
+    ['pagina do painel', '/', undefined],
+    ['modulo do painel', '/js/app.js', undefined],
+    ['folha de estilo', '/css/estilo.css', undefined],
+    ['pagina do aplicativo', '/app/', undefined],
+    ['motor compartilhado', '/compartilhado/template.js', undefined],
+    ['rota de API', '/api/auth/eu', motorista],
+    ['arquivo que nao existe', '/js/nao-existe.js', undefined],
+  ]
+
+  for (const [nome, caminho, token] of caminhos) {
+    const r = await bruto(caminho, token)
+    const csp = r.headers.get('content-security-policy')
+    assert.ok(csp, `${nome} (${caminho}) saiu sem content-security-policy`)
+    assert.match(csp, /script-src 'self'/, `${nome}: script-src precisa ser 'self'`)
+    assert.ok(!/script-src[^;]*unsafe-inline/.test(csp),
+      `${nome}: script inline nao pode ser liberado`)
+    assert.match(csp, /frame-ancestors 'none'/, nome)
+    assert.equal(r.headers.get('x-content-type-options'), 'nosniff', nome)
+    assert.equal(r.headers.get('x-frame-options'), 'DENY', nome)
+    assert.equal(r.headers.get('referrer-policy'), 'same-origin', nome)
+  }
+})
+
+test('cabecalhos: nenhum HTML servido tem script embutido', async () => {
+  // A CSP so segura de verdade se o proprio produto nao depender de inline.
+  // Um <script> embutido no index passaria despercebido em desenvolvimento e
+  // apagaria a tela em producao — o navegador recusa e nada acusa.
+  for (const caminho of ['/', '/app/']) {
+    const html = await (await bruto(caminho)).text()
+    const embutidos = [...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)]
+      .filter(([, atributos, corpo]) => !/\bsrc=/.test(atributos) && corpo.trim())
+    assert.deepEqual(embutidos.map((m) => m[0].slice(0, 60)), [],
+      `${caminho} tem script embutido, que a CSP vai recusar`)
+  }
+})
+
+test('cabecalhos: a camera continua liberada — o aplicativo depende dela', async () => {
+  // Uma politica de permissoes copiada de tutorial desliga a camera junto, e o
+  // checklist deixa de tirar foto sem nenhum erro visivel.
+  const r = await bruto('/app/')
+  const politica = r.headers.get('permissions-policy')
+  assert.match(politica, /camera=\(self\)/)
+  assert.match(politica, /geolocation=\(self\)/)
+  assert.match(politica, /microphone=\(\)/)
+})
+
+test('cabecalhos: HSTS nao sai em desenvolvimento, sobre HTTP', async () => {
+  // Mandado em texto claro ele nao protege nada, e ainda travaria o navegador
+  // em HTTPS para localhost.
+  const r = await bruto('/')
+  assert.equal(r.headers.get('strict-transport-security'), null)
+})
+
+test('rastro: toda resposta leva um numero proprio', async () => {
+  const r = await bruto('/api/auth/eu')
+  const id = r.headers.get('x-requisicao-id')
+  assert.ok(id && id.length >= 6, 'toda resposta precisa de um numero para citar')
+
+  const outra = await bruto('/api/auth/eu')
+  assert.notEqual(outra.headers.get('x-requisicao-id'), id,
+    'o numero e de UMA requisicao; repetido, nao localiza nada')
+})

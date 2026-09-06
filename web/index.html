@@ -16,12 +16,9 @@
 
   <!-- Aplica o tema guardado antes da primeira pintura, para nao piscar
        branco em quem escolheu o escuro. -->
-  <script>
-    try {
-      var t = localStorage.getItem('mylog.tema')
-      if (t) document.documentElement.dataset.tema = t
-    } catch (e) { /* sem storage: segue a preferencia do sistema */ }
-  </script>
+  <!-- Sincrono e antes do <body>: roda antes da primeira pintura. Em arquivo
+       proprio por causa da CSP — ver comentario em /js/tema-inicial.js. -->
+  <script src="/js/tema-inicial.js"></script>
 </head>
 <body>
 

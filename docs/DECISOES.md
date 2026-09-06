@@ -568,3 +568,49 @@ tarde" faz a pessoa tentar de novo agora.
 **Fica em aberto:** a contagem vive na memória do processo. Em Cloud Functions,
 cada instância teria a própria, e o freio afrouxaria na proporção do número de
 instâncias. A contagem precisa mudar de lugar junto com o servidor.
+
+## D41 — CSP estrita, e o script embutido sai do HTML
+
+**Contexto.** O servidor mandava um só cabeçalho de segurança, `nosniff`, e
+mesmo esse só em algumas respostas. Sem CSP, um texto do banco que escapasse do
+escape viraria script executando na sessão de quem abriu o painel.
+
+**Decisão.** `content-security-policy` estrita, aplicada **uma vez por
+requisição, antes de qualquer despacho** — assim vale também para o HTML, o CSS,
+a imagem e as rotas que escrevem o binário elas mesmas. Junto: `x-frame-options`,
+`referrer-policy: same-origin`, `cross-origin-opener-policy` e uma
+`permissions-policy` que **mantém câmera e localização ligadas**, porque o
+aplicativo de campo depende das duas. HSTS só em produção e só quando a conversa
+já chegou por HTTPS: mandado em texto claro ele não protege nada e trava o
+desenvolvimento em localhost.
+
+**O trecho do tema saiu do HTML.** `script-src 'self'` recusa script embutido, e
+os dois `index.html` tinham um — o que aplica o tema salvo antes da primeira
+pintura. A alternativa era declarar o hash dele na política; aí qualquer edição
+naquele trecho apagaria o tema **em silêncio**, porque o navegador recusa e nada
+acusa. Virou `/js/tema-inicial.js`, síncrono e antes do `<body>`, e entrou na
+casca do service worker — cuja versão de cache subiu junto, senão quem já
+instalou a v1 nunca buscaria o arquivo novo.
+
+**`style-src` mantém `'unsafe-inline'`,** e é uma escolha, não descuido: a
+interface usa atributo `style` em elementos montados em JS, e os relatórios de
+impressão levam a folha inteira embutida — são um documento só, salvo e enviado
+por e-mail. Injeção de estilo é risco muito menor que injeção de script, e não
+há caminho em que texto do usuário vire CSS.
+
+**Verificado no navegador,** não só no teste: painel, aplicativo de campo e
+modal com `style` embutido, sem nada recusado na rede nem no console. Um teste
+não vê a tela quebrar, e uma CSP que quebra a tela é pior que nenhuma.
+
+## D42 — Um número por requisição
+
+**Escolha.** Cada resposta leva `x-requisicao-id`, e a falha inesperada repete o
+número dentro da mensagem: *"Informe o código 4628579d"*.
+
+**Por quê.** "Deu erro hoje de manhã" não localiza nada num log de dia inteiro.
+O número é curto o bastante para ser ditado por rádio, e liga a queixa de quem
+está no pátio à linha certa. É a peça mínima da observabilidade que a etapa de
+produção vai exigir inteira.
+
+**Fica em aberto:** o número ainda não entra na auditoria — isso é coluna nova
+em `eventos_auditoria`, e o banco atual não tem mecanismo de migração.
