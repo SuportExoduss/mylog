@@ -170,7 +170,7 @@ export async function telaOcorrencias(raiz, contexto) {
   // dele por uma etiqueta com "limpar".
   const filtros = {
     status: contexto.parametros.status || '',
-    prioridade: '',
+    prioridade: contexto.parametros.prioridade || '',
     veiculo_id: contexto.parametros.veiculo || '',
   }
   const placaFiltrada = contexto.parametros.placa || ''
@@ -231,7 +231,10 @@ export async function telaOcorrencias(raiz, contexto) {
     aoChange: (e) => { filtros.prioridade = e.target.value; recarregar() },
   }, [
     elemento('option', { value: '', texto: 'Todas as prioridades' }),
-    ...PRIORIDADES.map((c) => elemento('option', { value: c.valor, texto: c.rotulo })),
+    // `selected` importa: chegando do painel com prioridade ja escolhida, um
+    // seletor mostrando "Todas" contaria uma mentira sobre a lista embaixo.
+    ...PRIORIDADES.map((c) => elemento('option', {
+      value: c.valor, texto: c.rotulo, selected: c.valor === filtros.prioridade })),
   ])
 
   raiz.append(

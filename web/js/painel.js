@@ -8,11 +8,6 @@ import {
   ROTULO_PRIORIDADE, TOM_PRIORIDADE,
 } from './ui.js'
 
-const DESTINO_ALERTA = {
-  preventiva: 'preventivas', ocorrencia: 'ocorrencias', solicitacao: 'solicitacoes',
-  usuario: 'usuarios', veiculo: 'veiculos',
-}
-
 function card(titulo, valor, detalhes = [], aoClick) {
   return elemento('div', {
     classe: aoClick ? 'card clicavel' : 'card',
@@ -25,10 +20,32 @@ function card(titulo, valor, detalhes = [], aoClick) {
 }
 
 // Esconde o que estiver zerado: o painel mostra problema, nao tabela cheia.
-function selosDe(mapa, rotulos, tons, ordem) {
+//
+// Cada selo leva a lista JA FILTRADA por aquele status. As telas de destino
+// sempre souberam ler o filtro de `contexto.parametros.status`; era o painel
+// que nunca mandava, entao "3 bloqueados" abria a frota inteira e a pessoa
+// tinha que procurar os tres de novo.
+function selosDe(mapa, rotulos, tons, ordem, ir) {
   return ordem
     .filter((chave) => (mapa[chave] || 0) > 0)
-    .map((chave) => selo(`${mapa[chave]} ${rotulos[chave].toLowerCase()}`, tons[chave]))
+    .map((chave) => {
+      const etiqueta = selo(`${mapa[chave]} ${rotulos[chave].toLowerCase()}`, tons[chave])
+      if (!ir) return etiqueta
+      etiqueta.classList.add('clicavel')
+      etiqueta.setAttribute('role', 'button')
+      etiqueta.setAttribute('tabindex', '0')
+      etiqueta.setAttribute('title', `Ver so: ${rotulos[chave].toLowerCase()}`)
+      // O clique no selo nao pode disparar tambem o do card, que abriria a
+      // lista inteira por cima da filtrada.
+      const abrir = (evento) => { evento.stopPropagation(); ir(chave) }
+      etiqueta.addEventListener('click', abrir)
+      // `role=button` sem teclado e' pior que nenhum: o leitor de tela anuncia
+      // um botao que nao responde ao Enter.
+      etiqueta.addEventListener('keydown', (evento) => {
+        if (evento.key === 'Enter' || evento.key === ' ') { evento.preventDefault(); abrir(evento) }
+      })
+      return etiqueta
+    })
 }
 
 export async function telaPainel(raiz, contexto) {
@@ -38,6 +55,7 @@ export async function telaPainel(raiz, contexto) {
   cards.push(card('Frota', dados.frota.total, selosDe(
     dados.frota.por_status, ROTULO_STATUS_VEICULO, TOM_STATUS_VEICULO,
     ['bloqueado', 'com_pendencia', 'manutencao', 'disponivel'],
+    (status) => contexto.irPara('veiculos', { status }),
   ), () => contexto.irPara('veiculos')))
 
   cards.push(card('Solicitacoes pendentes', dados.solicitacoes.pendentes, [
@@ -55,17 +73,22 @@ export async function telaPainel(raiz, contexto) {
   cards.push(card('Ocorrencias abertas', dados.ocorrencias.abertas, selosDe(
     dados.ocorrencias.por_prioridade, ROTULO_PRIORIDADE, TOM_PRIORIDADE,
     ['critica', 'alta', 'media', 'baixa'],
+    // Prioridade, nao status: e' o filtro que a tela de ocorrencias tem para
+    // esta contagem.
+    (prioridade) => contexto.irPara('ocorrencias', { prioridade }),
   ), () => contexto.irPara('ocorrencias')))
 
   const prev = dados.preventivas.por_status
   cards.push(card('Preventivas vencidas', prev.vencida || 0, selosDe(
     prev, ROTULO_STATUS_PREVENTIVA, TOM_STATUS_PREVENTIVA,
     ['muito_proxima', 'proxima', 'em_dia'],
+    (status) => contexto.irPara('preventivas', { status }),
   ), () => contexto.irPara('preventivas')))
 
   cards.push(card('Usuarios', Object.values(dados.usuarios.por_status).reduce((a, b) => a + b, 0),
     selosDe(dados.usuarios.por_status, ROTULO_STATUS_USUARIO, TOM_STATUS_USUARIO,
-      ['pendente', 'bloqueado', 'suspenso', 'ativo']),
+      ['pendente', 'bloqueado', 'suspenso', 'ativo'],
+      (status) => contexto.irPara('usuarios', { status })),
     () => contexto.irPara('usuarios')))
 
   const alertas = dados.alertas.length
@@ -73,7 +96,12 @@ export async function telaPainel(raiz, contexto) {
         elemento('div', {
           classe: `fila-item fila-item--${alerta.nivel} clicavel`,
           // Clicar no alerta leva a tela que resolve o alerta.
-          aoClick: () => contexto.irPara(DESTINO_ALERTA[alerta.tipo] || 'painel'),
+          // O destino vem do servidor, que e' quem monta o alerta. Havia um
+          // mapa aqui, por `tipo`, e ele nao tinha 'checklist': o aviso de
+          // quem nao fez o checklist do dia caia no `|| 'painel'` e o clique
+          // recarregava a mesma tela. Duas fontes de verdade para a mesma
+          // pergunta, e a que o usuario via era a errada.
+          aoClick: () => contexto.irPara(alerta.destino || 'painel'),
         }, [
           selo(alerta.tipo, alerta.nivel === 'critico' ? 's-critico' : 's-atencao'),
           elemento('div', { classe: 'fila-texto', texto: alerta.texto }),

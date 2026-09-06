@@ -1137,6 +1137,24 @@ enche a caixa de entrada do que não exige decisão. Só o atraso avisa.
 | Solicitação pendente | Aguardando aprovação da Frota |
 | Devolução atrasada | Janela vencida com veículo em uso → alerta vermelho |
 | Usuário pendente | Cadastro criado sem primeiro acesso |
+| Checklist não realizado | Passou do horário limite e ninguém enviou |
+
+**Para onde o clique leva, quem decide é o servidor.** Cada alerta viaja com um
+`destino`, que é a chave da tela que resolve aquele alerta. O painel tinha um
+mapa próprio por tipo, e ele não conhecia `checklist`: o aviso mais novo caía no
+padrão e recarregava a mesma tela. Duas fontes de verdade para a mesma pergunta,
+e a que a pessoa via era a errada.
+
+### 15.4 O número do painel leva à lista dele
+
+Cada selo de contagem — "3 bloqueados", "1 crítica", "2 pendentes" — abre a
+lista **já filtrada** por aquele status. As telas de destino sempre souberam ler
+o filtro; era o painel que nunca mandava, e quem clicava em "3 bloqueados"
+recebia a frota inteira para procurar os três de novo.
+
+O clique no selo não dispara o do card por baixo, que abriria a lista completa
+por cima da filtrada. E o selo responde ao teclado: anunciar um botão que não
+atende ao Enter é pior do que não anunciar botão nenhum.
 
 ---
 
@@ -1483,11 +1501,12 @@ abertura ao fechamento.
 | Transação | Tudo ou nada, e a trava tomada na abertura |
 | Freio | Conta, troca de senha, e varredura por IP sem punir o escritório |
 | Cabeçalhos | CSP em toda resposta, nenhum script embutido, câmera preservada |
+| Painel | O alerta vai ao destino do servidor; o selo abre a lista filtrada |
 | Performance | Painel com volume e sincronização concorrente |
 
 ### Onde a cobertura começa e onde termina
 
-São 233 testes em três camadas:
+São 236 testes em três camadas:
 
 | Camada | Arquivo | O que prova |
 |---|---|---|

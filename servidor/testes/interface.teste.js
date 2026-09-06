@@ -525,3 +525,98 @@ test('ocorrencias: sem veiculo na URL, nenhum filtro de veiculo e nenhuma etique
     chamadas.restaurar()
   }
 })
+
+// ------------------------------------------------- painel: para onde o clique leva
+
+const { telaPainel } = await import('../../web/js/painel.js')
+
+const PAINEL = {
+  frota: { total: 12, por_status: { disponivel: 8, bloqueado: 3, com_pendencia: 1 } },
+  solicitacoes: { pendentes: 2, em_uso: 1, atrasadas: 0 },
+  checklists: { hoje: 7, veiculos_em_uso: 1 },
+  ocorrencias: { abertas: 4, por_prioridade: { critica: 1, alta: 3 } },
+  preventivas: { por_status: { vencida: 2, muito_proxima: 1, em_dia: 9 } },
+  usuarios: { por_status: { ativo: 30, pendente: 2 } },
+  alertas: [
+    // O aviso da cobranca de checklist: `tipo` que o mapa antigo do painel nao
+    // conhecia, e por isso caia no `|| 'painel'`.
+    { nivel: 'critico', tipo: 'checklist', destino: 'execucoes',
+      texto: '3 colaboradores nao fizeram o checklist de hoje.' },
+    { nivel: 'atencao', tipo: 'usuario', destino: 'usuarios',
+      texto: '2 cadastros sem primeiro acesso.' },
+  ],
+}
+
+async function montarPainel(aoNavegar) {
+  const chamadas = servidorFalso(() => ({ status: 200, corpo: PAINEL }))
+  const raiz = tela.documento.createElement('div')
+  tela.corpo.append(raiz)
+  await telaPainel(raiz, {
+    ehFrota: true,
+    usuario: { nome: 'Andre Roberth' },
+    parametros: {},
+    irPara: (chave, params) => aoNavegar({ chave, params }),
+  })
+  return { raiz, chamadas }
+}
+
+test('painel: o alerta leva para onde o SERVIDOR disse, nao para um mapa local', async () => {
+  // Havia um mapa por `tipo` dentro do painel, e ele nao tinha 'checklist'.
+  // O aviso mais novo — quem nao fez o checklist do dia — caia no padrao e
+  // recarregava a propria tela. Clique morto, sem erro nenhum.
+  let foi = null
+  const { raiz, chamadas } = await montarPainel((d) => { foi = d })
+  try {
+    const aviso = raiz.querySelectorAll('.fila-item')
+      .find((n) => n.textContent.includes('nao fizeram o checklist'))
+    assert.ok(aviso, 'o alerta de cobranca precisa aparecer na fila de acao')
+
+    aviso.click()
+    assert.equal(foi?.chave, 'execucoes',
+      'o alerta de checklist tem que abrir a tela de checklists feitos')
+  } finally {
+    chamadas.restaurar()
+  }
+})
+
+test('painel: clicar no selo abre a lista JA filtrada por aquele status', async () => {
+  // As telas de destino sempre souberam ler o filtro; era o painel que nunca
+  // mandava. "3 bloqueados" abria a frota inteira e a pessoa procurava os tres
+  // de novo.
+  let foi = null
+  const { raiz, chamadas } = await montarPainel((d) => { foi = d })
+  try {
+    const bloqueados = raiz.querySelectorAll('.selo')
+      .find((n) => n.textContent.includes('bloqueado'))
+    assert.ok(bloqueados, 'o selo de bloqueados precisa existir com 3 veiculos')
+
+    bloqueados.click()
+    assert.equal(foi?.chave, 'veiculos')
+    assert.deepEqual(foi?.params, { status: 'bloqueado' })
+
+    const criticas = raiz.querySelectorAll('.selo')
+      .find((n) => n.textContent.includes('critica'))
+    criticas.click()
+    assert.equal(criticas.getAttribute('role'), 'button')
+    assert.equal(criticas.getAttribute('tabindex'), '0')
+    assert.equal(foi?.chave, 'ocorrencias')
+    assert.deepEqual(foi?.params, { prioridade: 'critica' },
+      'na tela de ocorrencias o filtro desta contagem e prioridade, nao status')
+  } finally {
+    chamadas.restaurar()
+  }
+})
+
+test('painel: o clique no selo nao dispara o do card por baixo', async () => {
+  // Sem parar a propagacao, o card abriria a lista inteira POR CIMA da
+  // filtrada: a pessoa clica em "3 bloqueados" e ve os doze.
+  const navegacoes = []
+  const { raiz, chamadas } = await montarPainel((d) => navegacoes.push(d))
+  try {
+    raiz.querySelectorAll('.selo').find((n) => n.textContent.includes('bloqueado')).click()
+    assert.equal(navegacoes.length, 1, `esperava uma navegacao, houve ${navegacoes.length}`)
+    assert.deepEqual(navegacoes[0].params, { status: 'bloqueado' })
+  } finally {
+    chamadas.restaurar()
+  }
+})
