@@ -404,14 +404,14 @@ categoria descreve a frota que existe.
 > outra.** A categoria é a necessidade de uso, declarada pelo colaborador. O
 > **tipo** (compacto leve, pick-up, 4x4, motocicleta, caminhão) é uma
 > propriedade do carro, e é ele — e só ele — que decide qual checklist aparece
-> no aplicativo. Pedir "4 assentos comercial" e receber uma pick-up faz aparecer
+> no aplicativo. Pedir "4 assentos utilitário" e receber uma pick-up faz aparecer
 > o checklist de pick-up, porque o checklist verifica o carro que está na mão,
 > não o que foi pedido.
 
 ### 10.4 Fluxo
 
 1. **Pedido.** O colaborador informa:
-   - **categoria de uso** — ex.: 4 assentos comercial;
+   - **categoria de uso** — ex.: 4 assentos utilitário;
    - dia e janela de horário — por exemplo, sexta-feira das 13:00 às 18:00;
    - motivo — por exemplo, reunião em outra cidade.
 
@@ -1709,9 +1709,9 @@ Cadastrável pela Frota. Descreve necessidade de transporte, não o carro.
 |---|---|
 | category_id | Identificador |
 | tenant_id | Empresa |
-| name | Ex.: "4 assentos — comercial" |
+| name | Ex.: "4 assentos — utilitário" |
 | seats | Número de assentos, para ordenar e filtrar |
-| body | Descrição da carroceria: compacto, comercial, utilitário |
+| body | Carroceria: `compacto` ou `utilitario` |
 | active | Categoria fora de uso some do formulário sem apagar histórico |
 
 ## 37. Apêndice — periodicidade do modelo de checklist
@@ -1766,9 +1766,11 @@ Pontos que ainda dependem de decisão da operação:
    (24.1); falta o detalhe pergunta a pergunta, com fotos.
 6. **Horário limite de cada modelo** — os dados mostram o pico às 07h–08h, mas
    o horário oficial é decisão da operação, não da estatística.
-7. **Categorias de uso** — as três de partida ("4 assentos compacto", "4
-   assentos comercial", "2 assentos utilitário") cobrem a frota inteira, ou
-   falta alguma? Moto e caminhão entram como categoria pedível?
+7. **Categorias de uso** — as quatro definidas em 10.3 ("4 assentos
+   compacto", "2 assentos compacto", "4 assentos utilitário", "2 assentos
+   utilitário") cobrem a frota inteira? Falta decidir se **moto e caminhão**
+   entram como categoria pedível — hoje não entram, e quem precisa de um
+   fala com a Frota.
 8. **O filtro de período "igual ao do Fibra nos relatórios de O.S."** — desenhei
    como *de… até…* mais navegação por mês e atalhos (11.9). Se a tela do Fibra
    tem algo além disso, um print resolve.

@@ -28,7 +28,8 @@ checklist:
 4. `POST /api/inspecoes/:id/evidencias` — enviar cada foto
 
 O resto da API é do painel web. Um app de campo que implemente essas quatro
-está completo.
+faz o ciclo inteiro. A quinta, `GET /api/inspecoes` (§9), não fecha ciclo
+nenhum — só responde *"já mandei?"*, e é o que evita o reenvio por dúvida.
 
 ---
 
@@ -391,7 +392,48 @@ device token no servidor.
 
 ---
 
-## 9. Erros
+## 9. O que eu já mandei
+
+A pergunta que o app precisa responder sozinho, sem rede: *"esse checklist foi
+mesmo?"*. Sem resposta, a pessoa manda de novo por dúvida — e dúvida sobre
+envio é a origem de metade das duplicatas.
+
+```
+GET /api/inspecoes?veiculo_id=…&momento=saida|retorno
+GET /api/inspecoes/:id
+```
+
+A lista devolve `{ "inspecoes": [...] }`, as 100 mais recentes, da mais nova
+para a mais velha. Cada item traz `placa`, `modelo`, `usuario_nome`,
+`checklist`, `momento`, `resultado`, `numero` e as datas.
+
+**Quem vê o quê.** Colaborador vê só os próprios. Frota vê os da empresa
+inteira — é ela que confere se o dia fechou. Os dois filtros são opcionais, e
+`momento` fora de `saida`/`retorno` é ignorado em vez de dar erro: parâmetro de
+URL vem do mundo.
+
+O detalhe devolve:
+
+```json
+{
+  "inspecao":   { "...": "sem a estrutura, que vem separada", "checklist_versao": 1 },
+  "estrutura":  { "perguntas": [ "…" ] },
+  "respostas":  [ "…" ],
+  "ocorrencias":[ "…" ]
+}
+```
+
+> **A estrutura é a da versão respondida, não a de hoje.** `inspecoes` aponta
+> para a linha exata do modelo, e editar versão publicada é proibido (§4).
+> Uma pergunta retirada na v2 continua aparecendo em quem respondeu na v1 —
+> senão o app mostraria um checklist que ninguém preencheu.
+
+Checklist de outra pessoa na mesma empresa dá **403**; de outra empresa dá
+**404** (§11).
+
+---
+
+## 10. Erros
 
 | Status | `erro` | O que fazer |
 |---|---|---|
@@ -411,7 +453,7 @@ mostrar o que aconteceu.
 
 ---
 
-## 10. Multi-tenant
+## 11. Multi-tenant
 
 Toda rota é filtrada pela empresa da sessão. Um id de outra empresa devolve
 `404`, nunca `403` — negar confirmaria que o registro existe.
@@ -421,7 +463,7 @@ usuários diferentes.
 
 ---
 
-## 11. O que o app Android precisa implementar
+## 12. O que o app Android precisa implementar
 
 Em ordem de importância:
 
@@ -435,5 +477,7 @@ Em ordem de importância:
    descarte da fila o que o servidor confirmou.
 5. **Câmera que não trava o fluxo.** Se ela não abrir, não responder ou for
    cancelada, tem que haver caminho para frente. Foi o defeito nº 1 no PWA.
+6. **Tela "meus checklists"** (§9), com o que ainda está na fila marcado como
+   *não enviado*. É ela que responde à dúvida que gera duplicata.
 
 O que **não** precisa: painel, relatórios, cadastros. Isso é web.

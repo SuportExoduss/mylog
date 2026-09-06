@@ -1893,3 +1893,119 @@ test('ocorrencia: o detalhe mostra quantas vezes a peca ja deu problema', async 
   const depois = await chamar('GET', `/api/ocorrencias/${atual}`, { token: frota })
   assert.equal(depois.dados.recorrencia.length, 2, 'outra peca nao e recorrencia desta')
 })
+
+// ------------------------------ criterio: historico do proprio usuario
+
+// O aplicativo Android precisa responder "o que eu ja mandei?" — sem isso a
+// pessoa reenvia o checklist por duvida, e duvida sobre envio e' a origem de
+// metade das duplicatas do PROLOG. As duas rotas existiam sem teste e sem
+// documentacao; entram no contrato agora.
+
+test('historico: o colaborador so enxerga os proprios checklists', async () => {
+  const frota = await entrar('frota.a@teste.local')
+  const motorista = await entrar('motorista.a@teste.local')
+
+  const meu = await chamar('GET', '/api/inspecoes', { token: motorista })
+  assert.equal(meu.status, 200)
+  assert.ok(meu.dados.inspecoes.length, 'o motorista ja mandou checklist nos testes anteriores')
+
+  const eu = (await chamar('GET', '/api/auth/eu', { token: motorista })).dados.usuario
+  assert.ok(meu.dados.inspecoes.every((i) => i.usuario_id === eu.id),
+    'checklist de outra pessoa nao pode aparecer no historico de ninguem')
+
+  // A Frota ve os de todo mundo: e' ela que confere o dia.
+  const daFrota = await chamar('GET', '/api/inspecoes', { token: frota })
+  assert.ok(daFrota.dados.inspecoes.length > meu.dados.inspecoes.length,
+    'a Frota enxerga alem dos proprios')
+})
+
+test('historico: filtra por veiculo e por momento', async () => {
+  const frota = await entrar('frota.a@teste.local')
+
+  const doCarro = await chamar('GET', `/api/inspecoes?veiculo_id=${veiculoA4}`, { token: frota })
+  assert.ok(doCarro.dados.inspecoes.length)
+  assert.ok(doCarro.dados.inspecoes.every((i) => i.veiculo_id === veiculoA4))
+
+  const retornos = await chamar('GET', '/api/inspecoes?momento=retorno', { token: frota })
+  assert.ok(retornos.dados.inspecoes.length)
+  assert.ok(retornos.dados.inspecoes.every((i) => i.momento === 'retorno'))
+
+  // Momento inventado nao filtra nada nem quebra: e' parametro de URL, e URL
+  // vem do mundo.
+  const invalido = await chamar('GET', '/api/inspecoes?momento=voando', { token: frota })
+  assert.equal(invalido.status, 200)
+  assert.equal(invalido.dados.inspecoes.length,
+    (await chamar('GET', '/api/inspecoes', { token: frota })).dados.inspecoes.length)
+})
+
+test('historico: o detalhe traz a estrutura da versao usada, nao a de hoje', async () => {
+  // O modelo muda; o checklist enviado nao. Sem isso, uma pergunta removida
+  // hoje apagaria a resposta dada mes passado — e o app mostraria um checklist
+  // que ninguem respondeu.
+  //
+  // A prova precisa de uma v2 publicada: e' so com ela no banco que a consulta
+  // tem duas estruturas para escolher. Modelo proprio, sem carona em fixture,
+  // porque publicar a v2 arquiva a v1.
+  const frota = await entrar('frota.a@teste.local')
+  const v1 = (await chamar('POST', '/api/templates', {
+    token: frota,
+    corpo: {
+      codigo: 'hist-versao', nome: 'Historico versionado', tipo_veiculo: 'compacto_leve',
+      cargos_liberados: ['*'], estrutura: ESTRUTURA,
+    },
+  })).dados.template
+  await chamar('POST', `/api/templates/${v1.id}/publicar`, { token: frota })
+
+  // A inspecao nasce apontando para a v1. Inserida direto: o que esta em
+  // julgamento e' a leitura, nao o envio.
+  const antiga = novoId('inspecao')
+  const quandoFoi = new Date(Date.now() - 30 * 86400000).toISOString()
+  executar(
+    `INSERT INTO inspecoes (id, empresa_id, veiculo_id, usuario_id, template_id,
+                            momento, status, resultado, iniciada_em, finalizada_em, criado_em)
+     VALUES (?, ?, ?, ?, ?, 'saida', 'finalizada', 'aprovado', ?, ?, ?)`,
+    [antiga, empresaA, veiculoA4, frotaA, v1.id, quandoFoi, quandoFoi, quandoFoi])
+
+  // Hoje a v2 tira "pneus" do modelo.
+  const v2 = (await chamar('POST', `/api/templates/${v1.id}/versao`, { token: frota })).dados.template
+  await chamar('PATCH', `/api/templates/${v2.id}`, {
+    token: frota,
+    corpo: { estrutura: { perguntas: ESTRUTURA.perguntas.filter((p) => p.id !== 'pneus') } },
+  })
+  const publicada = await chamar('POST', `/api/templates/${v2.id}/publicar`, { token: frota })
+  assert.equal(publicada.status, 200, JSON.stringify(publicada.dados))
+
+  const velho = await chamar('GET', `/api/inspecoes/${antiga}`, { token: frota })
+  assert.equal(velho.status, 200)
+  assert.equal(velho.dados.inspecao.checklist_versao, 1, 'a inspecao continua sendo da v1')
+  assert.ok(velho.dados.estrutura.perguntas.some((p) => p.id === 'pneus'),
+    'pergunta removida na v2 nao pode sumir de quem respondeu na v1')
+
+  const motorista = await entrar('motorista.a@teste.local')
+  const lista = await chamar('GET', '/api/inspecoes', { token: motorista })
+  const alvo = lista.dados.inspecoes[0]
+
+  const r = await chamar('GET', `/api/inspecoes/${alvo.id}`, { token: motorista })
+  assert.equal(r.status, 200)
+  assert.equal(r.dados.inspecao.id, alvo.id)
+  assert.ok(Array.isArray(r.dados.estrutura.perguntas), 'a estrutura vem desmontada')
+  assert.equal(r.dados.inspecao.estrutura, undefined, 'estrutura nao volta duas vezes')
+  assert.ok(Array.isArray(r.dados.respostas))
+  assert.ok(Array.isArray(r.dados.ocorrencias))
+})
+
+test('historico: checklist de outra pessoa nega, de outra empresa some', async () => {
+  const motorista = await entrar('motorista.a@teste.local')
+  const frotaB = await entrar('frota.b@teste.local')
+
+  const lista = await chamar('GET', '/api/inspecoes', { token: motorista })
+  const alvo = lista.dados.inspecoes[0].id
+
+  const outroColaborador = await entrar('vendas.a@teste.local')
+  const negado = await chamar('GET', `/api/inspecoes/${alvo}`, { token: outroColaborador })
+  assert.equal(negado.status, 403, 'mesma empresa: o colaborador sabe que existe, so nao pode ver')
+
+  // Empresa diferente e' 404, nao 403: 403 confirmaria que o id existe.
+  const outraEmpresa = await chamar('GET', `/api/inspecoes/${alvo}`, { token: frotaB })
+  assert.equal(outraEmpresa.status, 404)
+})
