@@ -124,6 +124,23 @@ async function editarUsuario(usuario, recarregar) {
   })
 }
 
+// Espelho das transicoes de `servidor/src/rotas/usuarios.js`. Existe para a
+// tela nao oferecer caminho que o servidor recusa — oferecer e' pior do que
+// esconder: a pessoa clica, leva 409, e fica sem saber se errou ou se o
+// sistema quebrou.
+//
+// Um teste cruza este objeto com o do servidor a cada execucao; espelho que
+// ninguem confere vira mentira na primeira mudanca.
+const TRANSICOES = {
+  pendente: ['bloqueado', 'suspenso', 'desativado'],
+  ativo: ['bloqueado', 'suspenso', 'desativado'],
+  bloqueado: ['ativo', 'desativado'],
+  suspenso: ['ativo', 'desativado'],
+  desativado: [],
+}
+
+const podeIrPara = (usuario, destino) => (TRANSICOES[usuario.status] || []).includes(destino)
+
 function mudarStatus(usuario, novo, recarregar) {
   const rotulo = ROTULO_STATUS_USUARIO[novo].toLowerCase()
   abrirModal({
@@ -354,18 +371,21 @@ export async function telaUsuarios(raiz, contexto) {
         { rotulo: 'Mudar senha', aoClick: () => novaSenha(u, recarregar) },
         { rotulo: 'Historico completo', aoClick: () => contexto.irPara('usuarios', { id: u.id }) },
       ]
+      // Cada acao aparece so quando o servidor aceitaria a transicao. Antes,
+      // "Bloquear" era oferecido a quem estava suspenso e "Suspender" a quem
+      // estava bloqueado — e o servidor recusa as duas com 409.
       if (!eu_mesmo) {
-        if (['bloqueado', 'suspenso'].includes(u.status)) {
+        if (podeIrPara(u, 'ativo')) {
           acoes.push({ rotulo: 'Reativar', separar: true, aoClick: () => mudarStatus(u, 'ativo', recarregar) })
         }
-        if (u.status !== 'bloqueado' && u.status !== 'desativado') {
+        if (podeIrPara(u, 'bloqueado')) {
           acoes.push({ rotulo: 'Bloquear', perigo: true, separar: true,
             aoClick: () => mudarStatus(u, 'bloqueado', recarregar) })
         }
-        if (u.status !== 'suspenso' && u.status !== 'desativado') {
+        if (podeIrPara(u, 'suspenso')) {
           acoes.push({ rotulo: 'Suspender', perigo: true, aoClick: () => mudarStatus(u, 'suspenso', recarregar) })
         }
-        if (u.status !== 'desativado') {
+        if (podeIrPara(u, 'desativado')) {
           acoes.push({ rotulo: 'Desativar', perigo: true, aoClick: () => mudarStatus(u, 'desativado', recarregar) })
         }
       }

@@ -286,11 +286,21 @@ de checklist.
 Os botões soltos na linha saem. Na ponta direita, **três pontinhos** abrem:
 
 - **Editar**
-- **Mudar senha** — gera nova senha aleatória e envia para o email cadastrado; ao entrar com ela a troca é obrigatória, como no primeiro acesso
+- **Mudar senha** — gera nova senha aleatória e **mostra na tela para a Frota**;
+  ao entrar com ela a troca é obrigatória, como no primeiro acesso
 - **Bloquear**
 - **Suspender**
 - **Desativar**
 - **Histórico completo do usuário**
+
+> **Não há envio de e-mail, e é de propósito.** O servidor não fala com
+> servidor de e-mail nenhum. A senha aparece na tela de quem a gerou, e a Frota
+> a entrega à pessoa. Senha que atravessa uma caixa de entrada fica lá para
+> sempre, num canal que ninguém controla — e a Frota, que já tem poder para
+> gerar a senha, é quem tem o poder de entregá-la.
+>
+> A consequência operacional está registrada em 39.4: redefinir a senha de
+> alguém que não está por perto ainda depende de telefone ou WhatsApp.
 
 ### 8.6 Histórico completo do usuário
 
@@ -1540,6 +1550,7 @@ abertura ao fechamento.
 | Painel | O alerta vai ao destino do servidor; o selo abre a lista filtrada |
 | Vocabulário | Todo status do domínio tem rótulo e tom na tela |
 | Nível de acesso | Nenhuma tela do painel é oferecida a quem foi cadastrado como somente aplicativo |
+| Transições | O que a tela oferece é exatamente o que o servidor aceita |
 | **Contrato** | **Forma:** rota, corpo de envio e código de erro conferidos contra o servidor.
   **Significado:** o resultado que o app manda é ignorado, `momento` só aceita dois valores,
   o resumo tem os campos que a tela final lê |
@@ -1550,7 +1561,7 @@ abertura ao fechamento.
 
 ### Onde a cobertura começa e onde termina
 
-São 260 testes em três camadas:
+São 261 testes em três camadas:
 
 | Camada | Arquivo | O que prova |
 |---|---|---|

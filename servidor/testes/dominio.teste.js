@@ -630,3 +630,40 @@ test('acesso: nenhuma tela do painel e oferecida a quem nao tem painel', () => {
   assert.match(app, /if \(!usuario\.acessa_painel\)/,
     'o shell precisa recusar quem foi cadastrado como somente aplicativo')
 })
+
+// -------------- os espelhos de transicao da tela contra os do servidor
+
+// A tela precisa saber quais transicoes existem para nao oferecer caminho que
+// o servidor recusa — oferecer e' pior que esconder: a pessoa clica, leva 409,
+// e fica sem saber se errou ou se o sistema quebrou.
+//
+// Mas espelho que ninguem confere vira mentira na primeira mudanca. Este teste
+// le os dois objetos, dos dois arquivos, e exige que sejam iguais.
+test('transicoes: o que a tela oferece e exatamente o que o servidor aceita', () => {
+  const raiz = path.join(import.meta.dirname, '..', '..')
+  const ler = (p) => fs.readFileSync(path.join(raiz, p), 'utf8')
+
+  const extrair = (texto, arquivo) => {
+    const m = texto.match(/const TRANSICOES = \{([\s\S]*?)\n\}/)
+    assert.ok(m, `${arquivo}: nao achei o objeto TRANSICOES`)
+    const mapa = {}
+    for (const linha of m[1].split('\n')) {
+      const l = linha.match(/^\s*(\w+):\s*\[([^\]]*)\]/)
+      if (l) mapa[l[1]] = [...l[2].matchAll(/'([^']+)'/g)].map((x) => x[1]).sort()
+    }
+    return mapa
+  }
+
+  const pares = [
+    ['usuario', 'servidor/src/rotas/usuarios.js', 'web/js/usuarios.js'],
+    ['ocorrencia', 'servidor/src/rotas/ocorrencias.js', 'web/js/ocorrencias.js'],
+  ]
+
+  for (const [nome, noServidor, naTela] of pares) {
+    const doServidor = extrair(ler(noServidor), noServidor)
+    const daTela = extrair(ler(naTela), naTela)
+    assert.ok(Object.keys(doServidor).length >= 4, `${nome}: varredura do servidor vazia`)
+    assert.deepEqual(daTela, doServidor,
+      `${nome}: a tela e o servidor discordam sobre quais transicoes existem`)
+  }
+})
