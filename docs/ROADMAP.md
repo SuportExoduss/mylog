@@ -549,7 +549,32 @@ campo de horário.
 |---|---|
 | Feito antes do horário limite | **No prazo** |
 | Feito depois do horário limite, no mesmo dia | **Atrasado** |
-| Não feito até o fim do dia obrigatório | **Não realizado** |
+| Não feito depois do horário limite | **Não realizado** |
+
+#### Como "não realizado" é calculado
+
+**Não existe tabela de faltas.** É estado derivado, calculado na hora — guardar
+falta seria guardar uma acusação que o próprio sistema pode ter que retirar:
+bastaria o checklist subir da fila offline dez minutos depois.
+
+Quem é cobrado, no dia:
+
+1. está **ativo**;
+2. tem **"usa veículo todos os dias" = sim** (8.2) — quem não usa só faz
+   checklist quando pede um, e cobrar dela seria inventar falta;
+3. tem o **cargo liberado** em ao menos um modelo obrigatório naquele dia.
+
+E a conta é de **um checklist por pessoa, não um por modelo**. Se o cargo dela
+libera quatro modelos — um por tipo de veículo — continua sendo um checklist:
+ela faz o diário do carro que pegou.
+
+**A falta só vale depois do horário limite.** Antes disso a pessoa não está
+devendo nada, está trabalhando. Cobrar às 07h05 quem tem até as 08h30 é o tipo
+de alarme falso que faz a operação parar de olhar o painel.
+
+Aparece em dois lugares: na **fila de ação** do painel, e acima da lista em
+*Checklists feitos* quando o filtro é de **um dia só** — "faltou" é pergunta de
+dia, não de intervalo.
 
 O horário limite não impede a execução: um checklist atrasado ainda é melhor
 que checklist nenhum. Ele **classifica**, e a classificação é o que a Frota

@@ -10,6 +10,7 @@ import { erro } from '../nucleo/http.js'
 import { exigirAutenticado } from '../seguranca/sessao.js'
 import { exigirFrota, ehFrota } from '../seguranca/nivel.js'
 import { classificarExecucao, MOMENTOS } from '../../../compartilhado/template.js'
+import { quemNaoFez, venceu } from '../nucleo/cobranca.js'
 
 const LIMITE_PAGINA = 500
 
@@ -256,6 +257,24 @@ export function registrarRotasExecucoes(rotas) {
       total: execucoes.length,
       limite: LIMITE_PAGINA,
       execucoes,
+    }
+  })
+
+  // Quem devia ter feito e nao fez, no dia escolhido. Fica ao lado da lista
+  // do que FOI feito, porque a pergunta das 8h da manha e' uma so: "o dia
+  // fechou?" — e ela nao se responde olhando so metade.
+  rotas.get('/api/execucoes/faltando', async (ctx) => {
+    const eu = exigirFrota(exigirAutenticado(ctx))
+    const faixa = faixaDoDia(ctx.query.get('dia'), ctx.query.get('dia'))
+    const r = quemNaoFez(eu.empresa_id, faixa.de)
+    const agora = new Date()
+    return {
+      ...r,
+      // "Vencido" so vale se o dia ja passou ou o prazo de hoje ja bateu.
+      faltantes: r.faltantes.map((f) => ({
+        ...f,
+        vencido: faixa.de < hojeLocal() ? true : venceu(f, agora),
+      })),
     }
   })
 

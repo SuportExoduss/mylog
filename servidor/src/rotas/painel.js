@@ -4,6 +4,7 @@ import { consultar, consultarUm } from '../nucleo/banco.js'
 import { exigirAutenticado } from '../seguranca/sessao.js'
 import { exigirFrota } from '../seguranca/nivel.js'
 import { avaliarPreventivas } from '../nucleo/preventivas.js'
+import { quemNaoFez, venceu } from '../nucleo/cobranca.js'
 
 function contarPorChave(linhas) {
   const saida = {}
@@ -57,6 +58,26 @@ export function registrarRotasPainel(rotas) {
 
     // Fila de acao: o que a Frota precisa resolver hoje, ordenado por urgencia.
     const alertas = []
+
+    // Checklist nao realizado (roadmap 11.2.2). Estado derivado, calculado
+    // aqui: nao existe tabela de faltas, porque guardar falta seria guardar
+    // uma acusacao que o proprio sistema pode ter que retirar — bastaria o
+    // checklist subir da fila offline dez minutos depois.
+    const agoraLocal = new Date()
+    const p2 = (n) => String(n).padStart(2, '0')
+    const hojeLocal = `${agoraLocal.getFullYear()}-${p2(agoraLocal.getMonth() + 1)}-${p2(agoraLocal.getDate())}`
+    const cobranca = quemNaoFez(empresa, hojeLocal)
+    // So cobra depois do prazo. Antes disso a pessoa nao esta devendo nada —
+    // esta trabalhando.
+    const vencidos = cobranca.faltantes.filter((f) => venceu(f, agoraLocal))
+    if (vencidos.length) {
+      alertas.push({
+        nivel: 'critico', tipo: 'checklist', destino: 'execucoes',
+        texto: vencidos.length === 1
+          ? `${vencidos[0].nome} nao fez o checklist de hoje (prazo ${vencidos[0].horario_limite}).`
+          : `${vencidos.length} colaboradores nao fizeram o checklist de hoje.`,
+      })
+    }
 
     const atrasadas = consultar(
       `SELECT s.numero, s.janela_fim, v.placa, u.nome AS solicitante
@@ -127,6 +148,12 @@ export function registrarRotasPainel(rotas) {
     return {
       gerado_em: agoraIso,
       frota: { total: Object.values(frota).reduce((a, b) => a + b, 0), por_status: frota },
+      cobranca: {
+        exigido: cobranca.exigido,
+        cobrados: cobranca.cobrados,
+        faltando: cobranca.faltantes.length,
+        vencidos: vencidos.length,
+      },
       checklists: { hoje: checklistsHoje, veiculos_em_uso: saidasAbertas },
       ocorrencias: {
         abertas: Object.values(ocorrencias).reduce((a, b) => a + b, 0),

@@ -1035,6 +1035,12 @@ tbody tr:hover { background: var(--superficie-2); }
   font-size: var(--t-pequeno);
 }
 .campo-imagem-acoes { display: flex; gap: var(--e-2); }
+
+/* Linha do tempo de uma ocorrencia: quando na esquerda, o que aconteceu na
+   direita. Coluna fixa para as datas alinharem e a leitura descer reta. */
+.linha-tempo { display: flex; flex-direction: column; gap: var(--e-3); margin-top: var(--e-2); }
+.linha-tempo-item { display: grid; grid-template-columns: 92px 1fr; gap: var(--e-3); }
+.linha-tempo-quando { color: var(--texto-fraco); font-size: var(--t-pequeno); }
 .modal-sub {
   margin: var(--e-1) 0 var(--e-4);
   color: var(--texto-fraco);

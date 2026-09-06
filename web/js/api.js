@@ -131,6 +131,9 @@ export const api = {
 
   // ------------------------------------------------------ checklists feitos
   execucoes: (filtros) => pedir('GET', comQuery('/api/execucoes', filtros)),
+  // Quem devia ter feito e nao fez. So faz sentido para UM dia: "faltou" e'
+  // pergunta de dia, nao de intervalo.
+  faltando: (dia) => pedir('GET', comQuery('/api/execucoes/faltando', { dia })),
   // A exportacao nao passa por `pedir`: e' um download, nao JSON. Devolve a
   // URL para a tela abrir, levando os MESMOS filtros que estao na tela.
   urlPlanilha: (filtros) => comQuery('/api/execucoes.csv', filtros),

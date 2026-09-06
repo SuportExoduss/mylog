@@ -70,6 +70,93 @@ async function atribuir(ocorrencia, recarregar) {
   })
 }
 
+// As acoes chegam da auditoria como "ocorrencia.em_tratamento". Na linha do
+// tempo isso vira frase.
+const ROTULO_ACAO = {
+  'ocorrencia.aberta': 'Aberta pelo checklist',
+  'ocorrencia.em_tratamento': 'Entrou em tratamento',
+  'ocorrencia.resolvida': 'Resolvida',
+  'ocorrencia.encerrada': 'Encerrada',
+  'ocorrencia.atribuida': 'Responsavel definido',
+}
+const rotuloAcao = (acao) => ROTULO_ACAO[acao] || acao
+
+// Detalhe de uma ocorrencia: o que ja se fez com ela, e quantas vezes essa
+// mesma peca ja deu problema NESTE carro.
+//
+// A recorrencia e' o dado que a rota devolvia e ninguem lia. "Terceira vez que
+// a pinca de freio deste caminhao aparece" muda a conversa: deixa de ser mais
+// uma ocorrencia e vira um problema que o conserto anterior nao resolveu.
+async function verDetalhe(id, contexto, recarregar) {
+  const { ocorrencia, historico, recorrencia } = await api.ocorrencia(id)
+  const area = document.getElementById('area-modal')
+
+  const linhaHistorico = (e) => elemento('div', { classe: 'linha-tempo-item' }, [
+    elemento('div', { classe: 'linha-tempo-quando dado', texto: dataCurta(e.criado_em) }),
+    elemento('div', {}, [
+      elemento('div', { classe: 'celula-forte', texto: rotuloAcao(e.acao) }),
+      elemento('div', { classe: 'celula-fraca', texto: e.ator_nome || 'sistema' }),
+      e.depois && JSON.parse(e.depois || '{}').resolucao
+        ? elemento('div', { classe: 'celula-fraca esp-t-1',
+            texto: `"${JSON.parse(e.depois).resolucao}"` })
+        : null,
+    ].filter(Boolean)),
+  ])
+
+  const formulario = elemento('div', { classe: 'modal modal--alto' }, [
+    elemento('h3', { texto: `Ocorrencia — ${ocorrencia.placa}` }),
+    elemento('p', { classe: 'modal-sub', texto: ocorrencia.descricao }),
+
+    elemento('div', { classe: 'card-detalhe' }, [
+      selo(ROTULO_PRIORIDADE[ocorrencia.prioridade], TOM_PRIORIDADE[ocorrencia.prioridade]),
+      selo(ROTULO_STATUS[ocorrencia.status], TOM_STATUS[ocorrencia.status]),
+      ocorrencia.responsavel_nome
+        ? selo(ocorrencia.responsavel_nome, 's-neutro')
+        : selo('sem responsavel', 's-atencao'),
+    ]),
+
+    // O bloco que justifica a tela existir.
+    recorrencia.length
+      ? elemento('div', { classe: 'aviso aviso--erro esp-t-4' }, [
+          elemento('strong', {
+            texto: `Esta peca ja deu problema ${recorrencia.length + 1} vezes neste veiculo. `,
+          }),
+          'O conserto anterior pode nao ter resolvido.',
+          elemento('div', { classe: 'card-detalhe esp-t-1' },
+            recorrencia.map((r) => selo(
+              `${dataCurta(r.aberta_em)} · ${ROTULO_PRIORIDADE[r.prioridade].toLowerCase()}`,
+              TOM_PRIORIDADE[r.prioridade]))),
+        ])
+      : elemento('div', { classe: 'campo-dica esp-t-4',
+          texto: 'Primeira vez que esta peca aparece neste veiculo.' }),
+
+    elemento('h4', { classe: 'esp-t-4', texto: 'O que ja se fez' }),
+    historico.length
+      ? elemento('div', { classe: 'linha-tempo' }, historico.map(linhaHistorico))
+      : vazio('Nenhum tratamento registrado ainda.'),
+
+    ocorrencia.resolucao
+      ? elemento('div', { classe: 'leitura esp-t-2', texto: ocorrencia.resolucao })
+      : null,
+
+    elemento('div', { classe: 'modal-acoes' }, [
+      elemento('button', { classe: 'botao botao--suave', type: 'button', texto: 'Fechar',
+        aoClick: () => area.replaceChildren() }),
+      elemento('button', {
+        classe: 'botao botao--suave', type: 'button', texto: 'Ver o checklist',
+        disabled: !ocorrencia.inspecao_id,
+        aoClick: () => window.open(`/relatorio/inspecao/${ocorrencia.inspecao_id}`, '_blank'),
+      }),
+      ocorrencia.status !== 'encerrada'
+        ? elemento('button', { classe: 'botao', type: 'button', texto: 'Tratar',
+            aoClick: () => tratar(ocorrencia, recarregar) })
+        : null,
+    ].filter(Boolean)),
+  ].filter(Boolean))
+
+  area.replaceChildren(elemento('div', { classe: 'fundo-modal' }, [formulario]))
+}
+
 export async function telaOcorrencias(raiz, contexto) {
   const podeTratar = contexto.ehFrota
   const filtros = { status: contexto.parametros.status || '', prioridade: '' }
@@ -86,10 +173,15 @@ export async function telaOcorrencias(raiz, contexto) {
     }
     return tabela(['Veiculo', 'O que deu errado', 'Prioridade', 'Responsavel', 'Situacao', ''],
       ocorrencias.map((o) => {
-        const acoes = podeTratar ? [
-          { rotulo: 'Tratar', aoClick: () => tratar(o, recarregar) },
-          { rotulo: 'Atribuir responsavel', aoClick: () => atribuir(o, recarregar) },
-        ] : []
+        // "Abrir" vem primeiro e vale para todos, inclusive nas encerradas:
+        // e' onde esta a recorrencia, que e' o que muda a conversa.
+        const acoes = [
+          { rotulo: 'Abrir', aoClick: () => verDetalhe(o.id, contexto, recarregar) },
+        ]
+        if (podeTratar) {
+          acoes.push({ rotulo: 'Tratar', aoClick: () => tratar(o, recarregar) })
+          acoes.push({ rotulo: 'Atribuir responsavel', aoClick: () => atribuir(o, recarregar) })
+        }
 
         return elemento('tr', {}, [
           elemento('td', {}, [

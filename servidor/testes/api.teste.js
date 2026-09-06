@@ -161,6 +161,27 @@ function criarPreventivaComModelo(empresaId, veiculoId, templateId) {
   return id
 }
 
+// Dois modelos DIARIOS que liberam o mesmo cargo, um por tipo de veiculo. E'
+// a situacao real: o motorista pode pegar um compacto hoje e uma pick-up
+// amanha. A cobranca precisa ser de UM checklist, nao de dois.
+function criarDiario(empresaId, codigo, tipo) {
+  const id = novoId('template')
+  executar(
+    `INSERT INTO templates (id, empresa_id, codigo, nome, tipo_veiculo, cargos_liberados,
+                            exige_assinatura, finalidade, periodicidade, dias_semana,
+                            horario_limite, versao, status, estrutura,
+                            publicado_em, criado_em, atualizado_em)
+     VALUES (?, ?, ?, ?, ?, '["*"]', 0, 'padrao', 'diario', '[1,2,3,4,5]',
+             '08:30', 1, 'publicado', ?, ?, ?, ?)`,
+    [id, empresaId, codigo, `Diario ${codigo}`, tipo, JSON.stringify(ESTRUTURA), ts, ts, ts])
+  return id
+}
+// Nao usa pick-up de proposito: 'so-motorista' e' o unico modelo de pick-up e
+// existe para provar que cargo nao liberado esconde o checklist. Um segundo
+// modelo de pick-up liberado para todos derrubaria aquele teste.
+criarDiario(empresaA, 'cobranca-compacto', 'compacto_leve')
+criarDiario(empresaA, 'cobranca-caminhao', 'caminhao')
+
 const cgMecanicoA = criarCargo(empresaA, 'Mecanico')
 // CPF proprio: 604.829.173-69 e' o que o teste de cadastro usa para criar um
 // usuario novo, e ocupa-lo aqui faria aquele teste falhar por conflito.
@@ -1769,4 +1790,106 @@ test('notificacao: a caixa de entrada e de uma pessoa so', async () => {
 
 test('notificacao: sem sessao, nao ha caixa de entrada', async () => {
   assert.equal((await chamar('GET', '/api/notificacoes')).status, 401)
+})
+
+// ----------------------------------- criterio: checklist nao realizado
+
+test('cobranca: so e cobrado quem usa veiculo todos os dias', async () => {
+  // Roadmap 11.2.2. Quem nao usa carro todo dia so faz checklist quando pede
+  // um — cobrar dela seria inventar falta.
+  const frota = await entrar('frota.a@teste.local')
+
+  // Um dia util qualquer, sem execucao nenhuma: quinta-feira.
+  const quinta = '2026-09-03'
+  const r = await chamar('GET', `/api/execucoes/faltando?dia=${quinta}`, { token: frota })
+  assert.equal(r.status, 200)
+  assert.equal(r.dados.exigido, true, 'os modelos diarios da fixture valem de seg a sex')
+
+  const nomes = r.dados.faltantes.map((f) => f.nome)
+  assert.ok(!nomes.includes('Vendas A'), 'vendas nao usa carro todo dia')
+  assert.ok(!nomes.includes('Bloqueado A'), 'quem nao esta ativo nao e cobrado')
+})
+
+test('cobranca: fim de semana nao cobra ninguem', async () => {
+  // O relatorio real do PROLOG tem 62 execucoes no sabado e 13 no domingo,
+  // contra ~170 nos dias uteis (roadmap 24.1). Cobrar fim de semana criaria
+  // ~90 faltas falsas por mes.
+  const frota = await entrar('frota.a@teste.local')
+  for (const dia of ['2026-09-05', '2026-09-06']) {
+    const r = await chamar('GET', `/api/execucoes/faltando?dia=${dia}`, { token: frota })
+    assert.equal(r.dados.exigido, false, `${dia} nao deveria exigir checklist`)
+    assert.deepEqual(r.dados.faltantes, [])
+    assert.equal(r.dados.cobrados, 0)
+  }
+})
+
+test('cobranca: quem fez sai da lista', async () => {
+  const frota = await entrar('frota.a@teste.local')
+  const diarista = await entrar('diarista@teste.local', 'diarista2026')
+
+  const hoje = diaLocal()
+  const antes = await chamar('GET', `/api/execucoes/faltando?dia=${hoje}`, { token: frota })
+  // O teste do checklist avulso ja fez um checklist hoje com este usuario.
+  const eu = (await chamar('GET', '/api/auth/eu', { token: diarista })).dados.usuario
+  const faltando = antes.dados.faltantes.map((f) => f.usuario_id)
+  assert.ok(!faltando.includes(eu.id),
+    'quem ja mandou o checklist de hoje nao pode aparecer como faltante')
+})
+
+test('cobranca: um checklist por pessoa, nao um por modelo', async () => {
+  // O cargo Motorista e' liberado em varios modelos (um por tipo de veiculo).
+  // Isso nao vira quatro cobrancas: quem sai com carro faz o diario do carro
+  // que pegou.
+  const frota = await entrar('frota.a@teste.local')
+  const r = await chamar('GET', '/api/execucoes/faltando?dia=2026-09-03', { token: frota })
+  const porPessoa = new Map()
+  for (const f of r.dados.faltantes) {
+    porPessoa.set(f.usuario_id, (porPessoa.get(f.usuario_id) || 0) + 1)
+  }
+  assert.ok([...porPessoa.values()].every((n) => n === 1),
+    'ninguem pode aparecer duas vezes na mesma lista')
+  const comVarios = r.dados.faltantes.find((f) => f.modelos.length > 1)
+  assert.ok(comVarios, 'a fixture tem cargo liberado em mais de um modelo')
+})
+
+test('cobranca: colaborador nao ve quem faltou', async () => {
+  const vendas = await entrar('vendas.a@teste.local')
+  const r = await chamar('GET', '/api/execucoes/faltando?dia=2026-09-03', { token: vendas })
+  assert.equal(r.status, 403)
+})
+
+// ------------------------------- criterio: recorrencia da ocorrencia
+
+test('ocorrencia: o detalhe mostra quantas vezes a peca ja deu problema', async () => {
+  // E' o dado que muda a conversa: deixa de ser mais uma ocorrencia e vira um
+  // problema que o conserto anterior nao resolveu.
+  const frota = await entrar('frota.a@teste.local')
+
+  const abrir = (dias) => {
+    const id = novoId('ocorrencia')
+    executar(
+      `INSERT INTO ocorrencias (id, empresa_id, veiculo_id, pergunta_id, descricao,
+                                prioridade, status, aberta_em)
+       VALUES (?, ?, ?, 'freios', 'Folga no pedal', 'alta', 'encerrada', ?)`,
+      [id, empresaA, veiculoA4, new Date(Date.now() - dias * 86400000).toISOString()])
+    return id
+  }
+  abrir(90)
+  abrir(45)
+  const atual = abrir(1)
+
+  const r = await chamar('GET', `/api/ocorrencias/${atual}`, { token: frota })
+  assert.equal(r.status, 200)
+  assert.equal(r.dados.recorrencia.length, 2, 'as duas anteriores da MESMA peca no MESMO carro')
+  assert.ok(r.dados.recorrencia.every((o) => o.id !== atual), 'a atual nao conta a si mesma')
+
+  // Peca diferente no mesmo carro nao entra na conta.
+  const outraPeca = novoId('ocorrencia')
+  executar(
+    `INSERT INTO ocorrencias (id, empresa_id, veiculo_id, pergunta_id, descricao,
+                              prioridade, status, aberta_em)
+     VALUES (?, ?, ?, 'lataria', 'Risco', 'baixa', 'aberta', ?)`,
+    [outraPeca, empresaA, veiculoA4, agora()])
+  const depois = await chamar('GET', `/api/ocorrencias/${atual}`, { token: frota })
+  assert.equal(depois.dados.recorrencia.length, 2, 'outra peca nao e recorrencia desta')
 })

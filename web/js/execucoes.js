@@ -54,6 +54,7 @@ export async function telaExecucoes(raiz, contexto) {
   }
 
   const areaLista = elemento('div', {})
+  const areaFaltando = elemento('div', {})
   const resumo = elemento('div', { classe: 'campo-dica' })
   const campoDe = elemento('input', { type: 'date', value: filtros.de })
   const campoAte = elemento('input', { type: 'date', value: filtros.ate })
@@ -76,6 +77,61 @@ export async function telaExecucoes(raiz, contexto) {
       resumo.textContent = ''
       areaLista.replaceChildren(vazio(falha.message))
     }
+    await carregarFaltando()
+  }
+
+  // "O dia fechou?" nao se responde olhando so o que foi feito. Quem devia ter
+  // feito e nao fez vem logo acima da lista, e so quando o intervalo e' de UM
+  // dia — faltou e' pergunta de dia, nao de mes.
+  async function carregarFaltando() {
+    if (!contexto.ehFrota || filtros.de !== filtros.ate) {
+      areaFaltando.replaceChildren()
+      return
+    }
+    try {
+      const r = await api.faltando(filtros.de)
+      areaFaltando.replaceChildren(desenharFaltando(r))
+    } catch {
+      areaFaltando.replaceChildren()
+    }
+  }
+
+  function desenharFaltando(r) {
+    if (!r.exigido) {
+      return elemento('div', { classe: 'aviso aviso--info' }, [
+        elemento('strong', { texto: 'Nenhum checklist obrigatorio neste dia. ' }),
+        'Os modelos diarios valem de segunda a sexta.',
+      ])
+    }
+
+    const vencidos = r.faltantes.filter((f) => f.vencido)
+    const aguardando = r.faltantes.filter((f) => !f.vencido)
+
+    if (!r.faltantes.length) {
+      return elemento('div', { classe: 'aviso aviso--ok' }, [
+        elemento('strong', { texto: 'Dia fechado. ' }),
+        `Todos os ${r.cobrados} colaboradores cobrados fizeram o checklist.`,
+      ])
+    }
+
+    const nomes = (lista) => lista.map((f) => elemento('span', { classe: 'selo s-critico' },
+      [`${f.nome}${f.horario_limite ? ` · ate ${f.horario_limite}` : ''}`]))
+
+    return elemento('div', { classe: 'aviso aviso--erro' }, [
+      elemento('div', {}, [
+        elemento('strong', {
+          texto: vencidos.length
+            ? `${vencidos.length} de ${r.cobrados} nao fizeram o checklist. `
+            : 'Ninguem passou do prazo ainda. ',
+        }),
+        aguardando.length
+          ? `${aguardando.length} ainda dentro do prazo.`
+          : '',
+      ]),
+      vencidos.length
+        ? elemento('div', { classe: 'card-detalhe esp-t-1' }, nomes(vencidos))
+        : null,
+    ].filter(Boolean))
   }
 
   function atualizarRotuloMes() {
@@ -221,6 +277,7 @@ export async function telaExecucoes(raiz, contexto) {
         : null,
     ].filter(Boolean)),
 
+    areaFaltando,
     resumo,
     areaLista,
   )
