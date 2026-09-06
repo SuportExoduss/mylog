@@ -2479,3 +2479,63 @@ test('contrato: o resumo traz os campos que o aplicativo le', async () => {
   assert.ok(Number.isInteger(envio.dados.inspecao.numero) && envio.dados.inspecao.numero > 0,
     'numero e sequencial por empresa, e e o que a operacao cita em voz alta')
 })
+
+test('contrato: /api/app/inicio nao cita nenhum modelo que ele mesmo nao mande', async () => {
+  // A promessa da rota e' "tudo que o aplicativo precisa para funcionar offline
+  // pelo resto do dia". A versao testavel disso e' um invariante: toda tarefa,
+  // preventiva e carro avulso aponta para um `template_id`, e TODOS eles tem
+  // que estar em `modelos`, com a estrutura junto.
+  //
+  // Faltar um nao da erro em lugar nenhum: da' um checklist que abre no patio,
+  // sem sinal, sem pergunta nenhuma. E' a pior falha possivel da promessa
+  // offline, porque acontece longe de qualquer tela que pudesse avisar.
+  const vistos = { tarefas: 0, preventivas: 0, avulso: 0 }
+
+  const conferir = async (email, senha) => {
+    const token = await entrar(email, senha)
+    const r = await chamar('GET', '/api/app/inicio', { token })
+    assert.equal(r.status, 200, `${email}: ${JSON.stringify(r.dados)}`)
+    const d = r.dados
+
+    assert.ok(d.politicas, `${email}: politicas fazem parte do contexto offline`)
+    assert.ok(d.gerado_em, `${email}: sem gerado_em o app nao sabe se a copia esta velha`)
+
+    const disponiveis = new Set(d.modelos.map((m) => m.id))
+    for (const m of d.modelos) {
+      assert.ok(Array.isArray(m.estrutura?.perguntas),
+        `${email}: modelo ${m.codigo} veio sem estrutura — abriria vazio no patio`)
+    }
+
+    const citados = [
+      ...d.tarefas.map((t) => ['tarefa', t.template_id]),
+      ...d.preventivas.map((t) => ['preventiva', t.template_id]),
+      ...d.avulso.flatMap((a) => a.templates.map((id) => ['avulso', id])),
+    ]
+    vistos.tarefas += d.tarefas.length
+    vistos.preventivas += d.preventivas.length
+    vistos.avulso += d.avulso.length
+
+    for (const [origem, id] of citados) {
+      assert.ok(disponiveis.has(id),
+        `${email}: ${origem} aponta para o modelo ${id}, que nao veio em "modelos"`)
+    }
+  }
+
+  await conferir('motorista.a@teste.local', SENHA)
+  await conferir('mecanico.a@teste.local', SENHA)
+  await conferir('diarista@teste.local', 'diarista2026')
+
+  // O teste nao pode passar por nao ter exercitado nada.
+  assert.ok(vistos.tarefas > 0, 'nenhuma tarefa apareceu: o invariante nao foi exercitado')
+  assert.ok(vistos.preventivas > 0, 'nenhuma preventiva apareceu')
+  assert.ok(vistos.avulso > 0, 'nenhum avulso apareceu')
+})
+
+test('contrato: o contexto offline nao traz modelo de outra empresa', async () => {
+  const token = await entrar('motorista.a@teste.local')
+  const r = await chamar('GET', '/api/app/inicio', { token })
+  for (const m of r.dados.modelos) {
+    const dono = consultarUm('SELECT empresa_id FROM templates WHERE id = ?', [m.id])
+    assert.equal(dono.empresa_id, empresaA, `o modelo ${m.codigo} e de outra empresa`)
+  }
+})
