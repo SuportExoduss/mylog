@@ -620,3 +620,109 @@ test('painel: o clique no selo nao dispara o do card por baixo', async () => {
     chamadas.restaurar()
   }
 })
+
+// ------------------------------------------- modelos: padrao x preventiva
+
+const { telaTemplates } = await import('../../web/js/templates.js')
+
+// Servidor de mentira que guarda o corpo enviado, nao so o caminho: o que esta
+// em julgamento aqui e' o que a tela MANDA.
+function servidorComCorpo(rota) {
+  const pedidos = []
+  const anterior = globalThis.fetch
+  globalThis.fetch = async (caminho, opcoes = {}) => {
+    pedidos.push({ caminho, corpo: opcoes.body ? JSON.parse(opcoes.body) : null })
+    const r = rota(caminho, opcoes)
+    return { ok: r.status < 400, status: r.status, json: async () => r.corpo }
+  }
+  pedidos.restaurar = () => { globalThis.fetch = anterior }
+  return pedidos
+}
+
+const RESPOSTAS = (caminho) => {
+  if (caminho.startsWith('/api/cargos')) {
+    return { status: 200, corpo: { cargos: [{ id: 'cg1', nome: 'Manutencao' }] } }
+  }
+  if (caminho.startsWith('/api/templates')) {
+    return { status: 200, corpo: { templates: [], template: { id: 't-novo' } } }
+  }
+  return { status: 200, corpo: {} }
+}
+
+test('modelos: a secao de preventiva CRIA modelo de preventiva', async () => {
+  // Este era o buraco: `criarTemplate` nunca mandava `finalidade`, entao o
+  // servidor gravava 'padrao' sempre. Nao havia como criar um modelo de
+  // preventiva pela interface — so a semente criava — e a tela de agendamento
+  // pedia um modelo que ninguem podia fazer.
+  const pedidos = servidorComCorpo(RESPOSTAS)
+  const raiz = tela.documento.createElement('div')
+  tela.corpo.append(raiz)
+  try {
+    await telaTemplates(raiz, {
+      ehFrota: true,
+      parametros: { finalidade: 'preventiva' },
+      irPara: () => {},
+    })
+    await assentar()
+
+    // A lista ja pede so os de preventiva.
+    assert.ok(pedidos.some((p) => p.caminho.includes('finalidade=preventiva')),
+      `a lista tem que filtrar por finalidade; pediu: ${pedidos.map((p) => p.caminho).join(' ')}`)
+
+    botaoPorTexto(raiz, '+ Novo modelo de preventiva').click()
+    await assentar()
+
+    const modal = tela.documento.getElementById('area-modal')
+    assert.match(modal.textContent, /Novo modelo de preventiva/)
+    // O aviso do que a preventiva exige, para quem esta montando nao descobrir
+    // depois, no patio.
+    assert.match(modal.textContent, /Saida e retorno sao obrigatorios/)
+    // Frequencia nao existe para preventiva: quem diz quando ela acontece e' o
+    // agendamento, por KM ou por data.
+    assert.ok(!/Com que frequencia/.test(modal.textContent),
+      'oferecer ritmo semanal a uma preventiva e oferecer uma cobranca que nunca vai existir')
+
+    const campos = modal.querySelectorAll('input')
+    campos[0].value = 'Preventiva de 10.000 km'
+    campos[1].value = 'preventiva-10k'
+    botaoPorTexto(modal, 'Criar rascunho').click()
+    await assentar()
+
+    const criacao = pedidos.find((p) => p.corpo && p.corpo.codigo === 'preventiva-10k')
+    assert.ok(criacao, 'a criacao tem que sair')
+    assert.equal(criacao.corpo.finalidade, 'preventiva',
+      'sem isto o servidor grava "padrao" e o modelo nunca aparece no agendamento')
+  } finally {
+    pedidos.restaurar()
+  }
+})
+
+test('modelos: a secao padrao continua criando padrao', async () => {
+  const pedidos = servidorComCorpo(RESPOSTAS)
+  const raiz = tela.documento.createElement('div')
+  tela.corpo.append(raiz)
+  try {
+    await telaTemplates(raiz, { ehFrota: true, parametros: {}, irPara: () => {} })
+    await assentar()
+
+    assert.ok(pedidos.some((p) => p.caminho.includes('finalidade=padrao')))
+
+    botaoPorTexto(raiz, '+ Novo checklist').click()
+    await assentar()
+
+    const modal = tela.documento.getElementById('area-modal')
+    assert.match(modal.textContent, /Com que frequencia/,
+      'o checklist padrao continua tendo ritmo, que e o que alimenta a cobranca')
+
+    const campos = modal.querySelectorAll('input')
+    campos[0].value = 'Diario padrao'
+    campos[1].value = 'diario-padrao'
+    botaoPorTexto(modal, 'Criar rascunho').click()
+    await assentar()
+
+    const criacao = pedidos.find((p) => p.corpo && p.corpo.codigo === 'diario-padrao')
+    assert.equal(criacao.corpo.finalidade, 'padrao')
+  } finally {
+    pedidos.restaurar()
+  }
+})

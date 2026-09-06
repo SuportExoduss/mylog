@@ -35,12 +35,19 @@ function idAPartirDo(texto, usados) {
 
 // ------------------------------------------------------------------ criar
 
-async function novoChecklist(contexto) {
+// O mesmo formulario cria os dois tipos de modelo. `finalidade` nao e' um campo
+// que a pessoa escolhe no meio do caminho: ela ja chegou aqui pela secao certa —
+// Checklists cria padrao, Preventivas cria preventiva —, e trocar isso depois de
+// criado nao existe, porque muda o que o aplicativo exige na execucao.
+async function novoChecklist(contexto, finalidade = 'padrao') {
+  const preventiva = finalidade === 'preventiva'
   const { cargos } = await api.cargos()
   const area = document.getElementById('area-modal')
 
-  const nome = elemento('input', { required: true, placeholder: 'Checklist padrao diario' })
-  const codigo = elemento('input', { required: true, placeholder: 'diario-padrao' })
+  const nome = elemento('input', { required: true,
+    placeholder: preventiva ? 'Preventiva de 10.000 km' : 'Checklist padrao diario' })
+  const codigo = elemento('input', { required: true,
+    placeholder: preventiva ? 'preventiva-10k' : 'diario-padrao' })
   const tipo = elemento('select', {}, TIPOS.map((t) =>
     elemento('option', { value: t.valor, texto: t.rotulo })))
   const assinatura = elemento('input', { type: 'checkbox' })
@@ -136,6 +143,7 @@ async function novoChecklist(contexto) {
           nome: nome.value.trim(), codigo: codigo.value.trim().toLowerCase(),
           tipo_veiculo: tipo.value, cargos_liberados: selecionados,
           exige_assinatura: assinatura.checked,
+          finalidade,
           periodicidade: periodicidade.value,
           dias_semana: periodicidade.value === 'diario'
             ? caixasDia.filter((d) => d.caixa.checked).map((d) => d.n)
@@ -154,9 +162,18 @@ async function novoChecklist(contexto) {
       }
     },
   }, [
-    elemento('h3', { texto: 'Novo checklist' }),
+    elemento('h3', { texto: preventiva ? 'Novo modelo de preventiva' : 'Novo checklist' }),
     elemento('p', { classe: 'modal-sub',
-      texto: 'Nasce como rascunho. So passa a valer no aplicativo quando for publicado.' }),
+      texto: preventiva
+        ? 'Nasce como rascunho. Depois de publicado, pode ser amarrado a uma preventiva agendada.'
+        : 'Nasce como rascunho. So passa a valer no aplicativo quando for publicado.' }),
+    preventiva
+      ? elemento('div', { classe: 'aviso aviso--info' }, [
+          elemento('strong', { texto: 'Saida e retorno sao obrigatorios. ' }),
+          'Toda pergunta pede relatorio, e no retorno cada foto pergunta se houve '
+          + 'manutencao. No fim, quem executou informa quando vence a proxima.',
+        ])
+      : null,
     aviso,
     elemento('div', { classe: 'campo' }, [elemento('label', { texto: 'Nome' }), nome]),
     elemento('div', { classe: 'campo' }, [
@@ -177,21 +194,24 @@ async function novoChecklist(contexto) {
     elemento('div', { classe: 'campo' }, [
       elemento('label', { classe: 'campo-linha' }, [assinatura, 'Exigir assinatura digital ao finalizar']),
     ]),
-    elemento('div', { classe: 'campo' }, [
+    // A preventiva nao tem ritmo proprio: quem diz quando ela acontece e' o
+    // agendamento, por KM ou por data. Oferecer "diario, nos dias marcados"
+    // aqui seria oferecer uma cobranca que nunca vai existir.
+    preventiva ? null : elemento('div', { classe: 'campo' }, [
       elemento('label', { texto: 'Com que frequencia' }), periodicidade,
       elemento('div', { classe: 'campo-dica',
         texto: 'Avulso nao cobra ninguem. As demais entram na conta de quem usa veiculo todos os dias.' }),
     ]),
-    campoDias,
-    campoDiaSemana,
-    linhaPrazo,
-    campoHorario,
+    preventiva ? null : campoDias,
+    preventiva ? null : campoDiaSemana,
+    preventiva ? null : linhaPrazo,
+    preventiva ? null : campoHorario,
     elemento('div', { classe: 'modal-acoes' }, [
       elemento('button', { classe: 'botao botao--suave', type: 'button', texto: 'Cancelar',
         aoClick: () => area.replaceChildren() }),
       elemento('button', { classe: 'botao', type: 'submit', texto: 'Criar rascunho' }),
     ]),
-  ])
+  ].filter(Boolean))
 
   area.replaceChildren(elemento('div', { classe: 'fundo-modal' }, [formulario]))
 }
@@ -201,17 +221,27 @@ async function novoChecklist(contexto) {
 export async function telaTemplates(raiz, contexto) {
   if (contexto.parametros.id) return editor(raiz, contexto, contexto.parametros.id)
 
+  // A mesma tela lista os dois tipos. Chegando pela secao de Preventivas, ela
+  // mostra so os de preventiva e cria desse tipo.
+  const finalidade = contexto.parametros.finalidade === 'preventiva' ? 'preventiva' : 'padrao'
+  const soPreventivas = finalidade === 'preventiva'
+
   const areaLista = elemento('div', {})
   const { cargos } = await api.cargos()
   const nomeCargo = (id) => cargos.find((c) => c.id === id)?.nome || id
 
   async function recarregar() {
-    const { templates } = await api.templates()
+    const { templates } = await api.templates({ finalidade })
     areaLista.replaceChildren(desenhar(templates))
   }
 
   function desenhar(templates) {
-    if (!templates.length) return vazio('Nenhum checklist ainda. Crie o primeiro modelo da empresa.')
+    if (!templates.length) {
+      return vazio(soPreventivas
+        ? 'Nenhum modelo de preventiva ainda. Sem ele, uma preventiva agendada nao tem '
+          + 'checklist para executar.'
+        : 'Nenhum checklist ainda. Crie o primeiro modelo da empresa.')
+    }
 
     return tabela(['Checklist', 'Veiculo', 'Cargos', 'Versao', 'Situacao', 'Publicado', ''],
       templates.map((t) => {
@@ -267,15 +297,30 @@ export async function telaTemplates(raiz, contexto) {
       }))
   }
 
-  raiz.append(
+  raiz.append(...[
     cabecalhoTela({
-      titulo: 'Checklists',
-      descricao: 'Modelos versionados. O aplicativo executa a versao publicada do tipo de veiculo e do cargo.',
-      acoes: [elemento('button', { classe: 'botao', texto: '+ Novo checklist',
-        aoClick: () => novoChecklist(contexto) })],
+      titulo: soPreventivas ? 'Modelos de preventiva' : 'Checklists',
+      descricao: soPreventivas
+        ? 'O checklist que a oficina executa: saida antes do servico, retorno depois. '
+          + 'Amarrado a uma preventiva agendada, ele e a execucao dela.'
+        : 'Modelos versionados. O aplicativo executa a versao publicada do tipo de veiculo e do cargo.',
+      acoes: [elemento('button', {
+        classe: 'botao',
+        texto: soPreventivas ? '+ Novo modelo de preventiva' : '+ Novo checklist',
+        aoClick: () => novoChecklist(contexto, finalidade),
+      })],
     }),
+    soPreventivas
+      ? elemento('div', { classe: 'filtros' }, [
+          elemento('button', {
+            classe: 'botao botao--suave botao--pequeno', type: 'button',
+            texto: 'Ver os checklists padrao',
+            aoClick: () => contexto.irPara('templates'),
+          }),
+        ])
+      : null,
     areaLista,
-  )
+  ].filter(Boolean))
   await recarregar()
 }
 

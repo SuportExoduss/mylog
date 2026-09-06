@@ -257,8 +257,18 @@ export async function telaPreventivas(raiz, contexto) {
       titulo: 'Preventivas',
       descricao: 'Manutencao programada por quilometragem ou por data. Vencidas aparecem primeiro.',
       acoes: podeEscrever
-        ? [elemento('button', { classe: 'botao', texto: '+ Nova preventiva',
-            aoClick: () => novaPreventiva(recarregar) })]
+        ? [
+            // O modelo de preventiva mora aqui, e nao junto dos checklists
+            // padrao: quem cuida de manutencao e' quem sabe o que a oficina
+            // precisa conferir. Sem esta porta, o tipo so existia na semente —
+            // a tela de agendamento pedia um modelo que ninguem podia criar.
+            elemento('button', {
+              classe: 'botao botao--suave', texto: 'Modelos de preventiva',
+              aoClick: () => contexto.irPara('templates', { finalidade: 'preventiva' }),
+            }),
+            elemento('button', { classe: 'botao', texto: '+ Nova preventiva',
+              aoClick: () => novaPreventiva(recarregar) }),
+          ]
         : [],
     }),
     elemento('div', { classe: 'filtros' }, [seletorStatus]),

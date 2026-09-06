@@ -973,6 +973,25 @@ O resto é igual: tipo de veículo, cargos liberados, assinatura, foto de
 exibição, modos de captura e opções de problema são configurados na criação do
 modelo exatamente como no checklist convencional. É o mesmo editor.
 
+**Onde se cria, e por quê.** A porta fica em Preventivas — *"Modelos de
+preventiva"* —, e não junto dos checklists padrão: quem cuida de manutenção é
+quem sabe o que a oficina precisa conferir. A lista dali mostra só os modelos de
+preventiva, e o botão de criar já cria desse tipo. **A finalidade não é um campo
+que se escolhe no meio do formulário:** a pessoa chegou pela seção certa, e
+trocar depois de criado não existe, porque muda o que o aplicativo exige na
+execução.
+
+**Preventiva não tem frequência.** O bloco de periodicidade — diário, dias da
+semana, horário limite — some do formulário. Quem diz quando a preventiva
+acontece é o agendamento, por KM ou por data; oferecer "diário, nos dias
+marcados" aqui seria oferecer uma cobrança que nunca vai existir.
+
+> Isto **estava escrito aqui e não existia no código**. `criarTemplate` nunca
+> mandava `finalidade`, então o servidor gravava `padrao` em tudo: não havia
+> como criar um modelo de preventiva pela interface — só a semente criava — e a
+> tela de agendamento pedia um modelo que ninguém podia fazer. O consumidor
+> existia, o produtor não.
+
 #### 14.2.2 A tela do retorno
 
 O retorno é a parte nova. Ele repete as mesmas perguntas da saída, mas o que
@@ -1502,11 +1521,12 @@ abertura ao fechamento.
 | Freio | Conta, troca de senha, e varredura por IP sem punir o escritório |
 | Cabeçalhos | CSP em toda resposta, nenhum script embutido, câmera preservada |
 | Painel | O alerta vai ao destino do servidor; o selo abre a lista filtrada |
+| Modelos | A seção de preventiva cria modelo de preventiva; a padrão, padrão |
 | Performance | Painel com volume e sincronização concorrente |
 
 ### Onde a cobertura começa e onde termina
 
-São 236 testes em três camadas:
+São 238 testes em três camadas:
 
 | Camada | Arquivo | O que prova |
 |---|---|---|
