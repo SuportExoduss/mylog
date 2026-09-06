@@ -764,6 +764,10 @@ test('sino: marcar todas que falha nao apaga o ponto vermelho', async () => {
 // dar-lhe frase e' teste vermelho, nao tela muda no patio.
 const motor = await import('../../compartilhado/template.js')
 const preventivas = await import('../src/nucleo/preventivas.js')
+const ocorrenciasSrv = await import('../src/rotas/ocorrencias.js')
+const solicitacoesSrv = await import('../src/rotas/solicitacoes.js')
+const usuariosSrv = await import('../src/rotas/usuarios.js')
+const veiculosSrv = await import('../src/rotas/veiculos.js')
 
 test('vocabulario: todo status e prioridade do dominio tem rotulo e tom', () => {
   const pares = [
@@ -772,6 +776,14 @@ test('vocabulario: todo status e prioridade do dominio tem rotulo e tom', () => 
     ['status de preventiva', preventivas.STATUS_PREVENTIVA,
       uiDoTeste.ROTULO_STATUS_PREVENTIVA, uiDoTeste.TOM_STATUS_PREVENTIVA],
     ['tipo de veiculo', motor.TIPOS_VEICULO, uiDoTeste.ROTULO_TIPO_VEICULO, null],
+    ['status de ocorrencia', ocorrenciasSrv.STATUS_OCORRENCIA,
+      uiDoTeste.ROTULO_STATUS_OCORRENCIA, uiDoTeste.TOM_STATUS_OCORRENCIA],
+    ['status de solicitacao', solicitacoesSrv.STATUS_SOLICITACAO,
+      uiDoTeste.ROTULO_STATUS_SOLICITACAO, uiDoTeste.TOM_STATUS_SOLICITACAO],
+    ['status de credencial', usuariosSrv.STATUS_CREDENCIAL,
+      uiDoTeste.ROTULO_STATUS_USUARIO, uiDoTeste.TOM_STATUS_USUARIO],
+    ['status de veiculo', veiculosSrv.STATUS_VEICULO,
+      uiDoTeste.ROTULO_STATUS_VEICULO, uiDoTeste.TOM_STATUS_VEICULO],
   ]
 
   for (const [nome, valores, rotulos, tons] of pares) {

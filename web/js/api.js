@@ -67,6 +67,11 @@ export const api = {
 
   // ---------------------------------------------------------- solicitacoes
   solicitacoes: (filtros) => pedir('GET', comQuery('/api/solicitacoes', filtros)),
+  // Antes de registrar a devolucao: ja passou do prazo? O servidor responde, e
+  // a tela pergunta o motivo so quando ele diz que precisa.
+  conferirDevolucao: (id) => pedir('GET', `/api/solicitacoes/${id}/devolucao`),
+  devolver: (id, motivo_atraso) =>
+    pedir('POST', `/api/solicitacoes/${id}/devolver`, { motivo_atraso }),
   // Lista de placas livres numa janela. So a Frota chama: e' na liberacao que
   // o pedido ganha carro (roadmap 10.4).
   veiculosLivres: (janela_inicio, janela_fim, categoria_id) =>

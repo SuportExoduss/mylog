@@ -214,6 +214,48 @@ function recusar(s, recarregar) {
 
 // --------------------------------------------------------------- tela
 
+// Registrar a devolucao pela Frota. O prazo quem confere e' o servidor: a
+// mesma rota que o aplicativo consulta antes de perguntar o motivo.
+async function devolver(solicitacao, recarregar) {
+  let conferencia
+  try {
+    conferencia = await api.conferirDevolucao(solicitacao.id)
+  } catch (falha) {
+    notificar(falha.message)
+    return
+  }
+
+  abrirModal({
+    titulo: `Registrar devolucao do pedido #${solicitacao.numero}`,
+    subtitulo: conferencia.atrasada
+      ? `${conferencia.mensagem} Passou ${minutosEmTexto(conferencia.minutos_de_atraso)} do prazo.`
+      : 'Dentro do prazo. O veiculo volta a ficar disponivel, a menos que um '
+        + 'checklist o tenha deixado bloqueado ou com pendencia.',
+    campos: conferencia.exige_motivo
+      ? [{ nome: 'motivo_atraso', rotulo: 'Motivo do atraso', tipo: 'textarea',
+           obrigatorio: true,
+           dica: 'Fica no historico do pedido e no relatorio. Quem devolveu nao '
+               + 'esta aqui para explicar depois.' }]
+      : [],
+    confirmar: 'Registrar devolucao',
+    aoConfirmar: async (valores) => {
+      await api.devolver(solicitacao.id, valores.motivo_atraso || undefined)
+      notificar(conferencia.atrasada
+        ? 'Devolucao registrada com atraso justificado.'
+        : 'Devolucao registrada.')
+      await recarregar()
+    },
+  })
+}
+
+// "1h20" diz mais que "80 minutos" para quem esta olhando um atraso.
+function minutosEmTexto(minutos) {
+  if (minutos < 60) return `${minutos} min`
+  const h = Math.floor(minutos / 60)
+  const m = minutos % 60
+  return m ? `${h}h${String(m).padStart(2, '0')}` : `${h}h`
+}
+
 export async function telaSolicitacoes(raiz, contexto) {
   const ehFrota = contexto.ehFrota
   const filtros = { status: contexto.parametros.status || '' }
@@ -264,6 +306,16 @@ export async function telaSolicitacoes(raiz, contexto) {
             separar: true,
             aoClick: () => window.open(`/relatorio/solicitacao/${s.id}`, '_blank'),
           })
+        }
+        // A devolucao normal e' registrada pelo motorista, no aplicativo, junto
+        // com o checklist de retorno. Mas o servidor sempre permitiu que a
+        // Frota registrasse tambem — e o painel nao tinha o botao.
+        //
+        // Sem ele, um carro cujo motorista ficou sem bateria, sem sinal ou sem
+        // vinculo com a empresa fica `em_uso` para sempre: a placa segue
+        // ocupada na agenda e `cancelar` nao alcanca esse estado.
+        if (ehFrota && s.status === 'em_uso') {
+          acoes.push({ rotulo: 'Registrar devolucao', aoClick: () => devolver(s, recarregar) })
         }
         if (['pendente', 'aprovada'].includes(s.status)) {
           acoes.push({ rotulo: 'Cancelar', perigo: true, separar: true, aoClick: async () => {

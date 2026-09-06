@@ -208,7 +208,7 @@ Ao abrir, a Frota deve enxergar o que exige ação sem entrar em menus.
 | Frota | Total por status | Filtrar e abrir veículo. |
 | Checklists | Hoje, saídas em aberto | Ver lista e detalhe. |
 | Ocorrências | Críticas, abertas, recorrentes | Abrir e atribuir. |
-| **Solicitações** | Pendentes de aprovação, em uso, atrasadas na devolução | Aprovar, recusar, ver detalhe. |
+| **Solicitações** | Pendentes de aprovação, em uso, atrasadas na devolução | Aprovar, recusar, cancelar, registrar devolução. |
 | Preventivas | Vencidas, próximas, em dia | Abrir e reagendar. |
 | Usuários | Pendentes de primeiro acesso, bloqueados | Abrir cadastro. |
 | Alertas | Eventos de prioridade alta | Navegar direto para a origem. |
@@ -461,6 +461,10 @@ categoria descreve a frota que existe.
    SAÍDA**. O checklist que abre é o do **tipo do veículo liberado** (10.3).
 6. **Uso.** O veículo fica associado a ele durante a janela aprovada.
 7. **Devolução.** Ele devolve até o prazo e executa o **checklist de RETORNO**.
+   Quando não dá — celular sem bateria, sem sinal, pessoa que já saiu da
+   empresa —, a **Frota registra a devolução pelo painel**. Sem isso o pedido
+   ficaria `em_uso` para sempre: a placa segue ocupada na agenda, e *cancelar*
+   não alcança esse estado.
    **O retorno é obrigatório aqui, e só aqui** — carro pedido tem que voltar
    para a mão de quem o entregou (8.2).
 8. **Fora do prazo.** Se a devolução passar do horário pedido, antes de encerrar
@@ -1546,7 +1550,7 @@ abertura ao fechamento.
 
 ### Onde a cobertura começa e onde termina
 
-São 259 testes em três camadas:
+São 260 testes em três camadas:
 
 | Camada | Arquivo | O que prova |
 |---|---|---|

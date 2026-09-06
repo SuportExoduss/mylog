@@ -2539,3 +2539,49 @@ test('contrato: o contexto offline nao traz modelo de outra empresa', async () =
     assert.equal(dono.empresa_id, empresaA, `o modelo ${m.codigo} e de outra empresa`)
   }
 })
+
+test('devolucao: a Frota registra quando o motorista nao pode', async () => {
+  // A devolucao normal e' do motorista, no aplicativo, junto com o retorno.
+  // Mas celular sem bateria, sem sinal, ou pessoa que saiu da empresa deixariam
+  // o pedido em_uso para sempre: a placa segue ocupada na agenda e `cancelar`
+  // nao alcanca esse estado. O servidor sempre permitiu a Frota; faltava a
+  // porta no painel.
+  const frota = await entrar('frota.a@teste.local')
+  const motorista = await entrar('motorista.a@teste.local')
+  const solicitacao = await reservar(frota, motorista, veiculoContrato2, 900)
+
+  // Saida coloca o pedido em uso.
+  const app = await chamar('GET', '/api/app/inicio', { token: motorista })
+  const tarefa = app.dados.tarefas.find((t) => t.solicitacao_id === solicitacao)
+  await chamar('POST', '/api/inspecoes', {
+    token: motorista,
+    corpo: {
+      cliente_uuid: 'uuid-devolucao-frota', solicitacao_id: solicitacao,
+      template_id: tarefa.template_id, momento: 'saida',
+      respostas: { lataria: { desfecho: 'ok' }, pneus: { desfecho: 'ok' } },
+    },
+  })
+
+  const conferencia = await chamar('GET', `/api/solicitacoes/${solicitacao}/devolucao`,
+    { token: frota })
+  assert.equal(conferencia.status, 200, 'a Frota consulta o prazo antes de registrar')
+  assert.equal(conferencia.dados.atrasada, false, 'a janela deste pedido ainda nao venceu')
+
+  // Antes: um colaborador que nao e o solicitante nao devolve o pedido alheio.
+  // A permissao abre para a Frota, nao para qualquer um.
+  const estranho = await entrar('vendas.a@teste.local')
+  const negado = await chamar('POST', `/api/solicitacoes/${solicitacao}/devolver`,
+    { token: estranho })
+  assert.equal(negado.status, 403, 'pedido de outra pessoa nao se devolve')
+
+  const r = await chamar('POST', `/api/solicitacoes/${solicitacao}/devolver`, { token: frota })
+  assert.equal(r.status, 200, JSON.stringify(r.dados))
+
+  const depois = await chamar('GET', `/api/solicitacoes/${solicitacao}`, { token: frota })
+  assert.equal(depois.dados.solicitacao.status, 'devolvida')
+
+  // E o carro volta para a agenda.
+  const veiculo = await chamar('GET', `/api/veiculos/${veiculoContrato2}`, { token: frota })
+  assert.equal(veiculo.dados.veiculo.status, 'disponivel')
+})
+
