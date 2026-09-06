@@ -587,11 +587,30 @@ lista de liberados; não existe atalho por nível.
 | Campo | Opções |
 |---|---|
 | Título da pergunta | ex.: Lateral do carro |
-| Foto de exibição | imagem de exemplo mostrando como a foto deve ser tirada; é a mesma imagem que o colaborador vê na tela da pergunta |
+| Foto de exemplo | **upload de imagem** mostrando como a foto deve ser tirada; é a mesma imagem que o colaborador vê na tela da pergunta |
 | Captura de fotos ao selecionar OK | **Obrigatório** (abre a câmera direto) · **Opcional** (pergunta se quer abrir a câmera, inserir foto ou seguir sem foto) · **Não capturar** (segue sozinho) |
 | Quantidade máxima de fotos | número digitável — ex.: 4 |
 
 #### Opções de problema para ocorrência
+
+A imagem é **enviada ali mesmo**, não é uma URL digitada: quem cadastra o
+checklist tem a foto no computador, não um endereço. A tela mostra a prévia em
+tamanho grande — uma miniatura não responde à única pergunta que importa aqui,
+que é se a imagem realmente *mostra* como fotografar a peça.
+
+Vale igual para os dois tipos de modelo: **padrão e preventiva usam o mesmo
+editor**. No checklist de preventiva a imagem tem peso a mais — é ela que a
+foto tirada pelo mecânico substitui na tela do retorno (14.2.2).
+
+> **Onde a imagem fica.** No mesmo storage das evidências, em ramo próprio
+> (`empresa/modelos/template/`): ela não pertence a veículo nem a inspeção
+> nenhuma — pertence ao modelo, e sobrevive a todas as execuções dele.
+>
+> É servida em `/imagens/modelo/...`, **fora de `/api/`**. O service worker
+> ignora `/api/` de propósito — dado de frota velho é pior que dado ausente —
+> mas guarda o resto. Assim a foto de exemplo entra no cache e o checklist abre
+> no pátio sem sinal (seção 19). Continua passando por sessão e por empresa:
+> link vazado não vira acesso.
 
 Ainda na criação da pergunta monta-se a lista de problemas padrão daquela
 pergunta, para o colaborador não precisar escrever tudo toda vez. Cada opção:

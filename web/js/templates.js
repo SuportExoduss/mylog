@@ -309,6 +309,42 @@ async function editor(raiz, contexto, id) {
 
   // ---------------------------------------------------------- pergunta
 
+  // Comprime antes de subir: uma foto de celular tem 4 MB e nao precisa ter.
+  // A imagem de exemplo e' vista num retangulo de tela — 1200px de lado bastam,
+  // e o arquivo menor tambem entra no cache do aplicativo mais rapido.
+  const LADO_MAXIMO = 1200
+
+  async function comprimir(arquivo) {
+    try {
+      const bitmap = await createImageBitmap(arquivo)
+      const escala = Math.min(1, LADO_MAXIMO / Math.max(bitmap.width, bitmap.height))
+      const tela = new OffscreenCanvas(
+        Math.round(bitmap.width * escala), Math.round(bitmap.height * escala))
+      tela.getContext('2d').drawImage(bitmap, 0, 0, tela.width, tela.height)
+      bitmap.close()
+      return await tela.convertToBlob({ type: 'image/jpeg', quality: 0.82 })
+    } catch {
+      // Navegador sem OffscreenCanvas: sobe o original em vez de perder a foto.
+      return arquivo
+    }
+  }
+
+  function comoBase64(blob) {
+    return new Promise((resolve, reject) => {
+      const leitor = new FileReader()
+      leitor.onload = () => resolve(String(leitor.result).split(',')[1] || '')
+      leitor.onerror = () => reject(new Error('Nao consegui ler a imagem.'))
+      leitor.readAsDataURL(blob)
+    })
+  }
+
+  async function enviarImagem(arquivo) {
+    const comprimida = await comprimir(arquivo)
+    const conteudo = await comoBase64(comprimida)
+    const { url } = await api.enviarImagemModelo(template.id, conteudo, comprimida.type || arquivo.type)
+    return url
+  }
+
   function formularioPergunta(indice) {
     const criando = indice === null
     const p = criando
@@ -321,8 +357,10 @@ async function editor(raiz, contexto, id) {
       campos: [
         { nome: 'titulo', rotulo: 'Titulo da pergunta', valor: p.titulo || '', obrigatorio: true,
           dica: 'E o que ele le na tela do celular. Ex.: Lateral esquerda.' },
-        { nome: 'foto_exibicao', rotulo: 'Foto de exibicao (URL)', valor: p.foto_exibicao || '',
-          dica: 'Exemplo de como a foto deve ser tirada. Aparece no meio da tela.' },
+        { nome: 'foto_exibicao', rotulo: 'Foto de exemplo', tipo: 'imagem',
+          valor: p.foto_exibicao || '',
+          dica: 'Mostra COMO fotografar esta peca. E a imagem que o colaborador ve no meio da tela, e a que a foto tirada por ele substitui.',
+          aoEnviar: enviarImagem },
         { nome: 'foto_ok', rotulo: 'Captura de foto ao marcar OK', tipo: 'select',
           opcoes: MODOS_FOTO, valor: p.foto_ok || 'obrigatorio' },
         { nome: 'max_fotos_ok', rotulo: 'Maximo de fotos no OK', tipo: 'number',

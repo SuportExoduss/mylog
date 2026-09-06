@@ -909,6 +909,30 @@ tbody tr:hover { background: var(--superficie-2); }
 .escolha:last-child { border-bottom: none; }
 .escolha:hover { background: var(--superficie-2); }
 .escolha input { accent-color: var(--marca); width: 16px; height: 16px; }
+
+/* Campo de imagem de exemplo (roadmap 11.3). A previa e' grande de proposito:
+   quem cadastra precisa ver se a foto realmente MOSTRA como fotografar a peca,
+   e uma miniatura nao responde essa pergunta. */
+.campo-imagem { display: flex; flex-direction: column; gap: var(--e-2); }
+
+.previa-imagem {
+  width: 100%;
+  max-height: 220px;
+  object-fit: contain;
+  background: var(--superficie-2);
+  border: 1px solid var(--borda);
+  border-radius: var(--r-2);
+}
+.previa-imagem--vazia {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 120px;
+  border-style: dashed;
+  color: var(--texto-fraco);
+  font-size: var(--t-pequeno);
+}
+.campo-imagem-acoes { display: flex; gap: var(--e-2); }
 .modal-sub {
   margin: var(--e-1) 0 var(--e-4);
   color: var(--texto-fraco);

@@ -5,6 +5,9 @@
 // significado de inspecoes ja feitas. Editar cria a versao seguinte.
 import { consultar, consultarUm, executar, novoId, agora, transacao } from '../nucleo/banco.js'
 import { erro } from '../nucleo/http.js'
+import {
+  caminhoDeImagemModelo, gravar, ler, tipoAceito, LIMITE_BYTES,
+} from '../nucleo/storage.js'
 import { registrarEvento } from '../nucleo/auditoria.js'
 import { exigirAutenticado } from '../seguranca/sessao.js'
 import { exigirFrota } from '../seguranca/nivel.js'
@@ -233,6 +236,66 @@ export function registrarRotasTemplates(rotas) {
       depois: { codigo: template.codigo, versao: template.versao, ...conferencia.resumo }, ip: ctx.ip,
     })
     return { template: buscarNaEmpresa(eu.empresa_id, template.id) }
+  })
+
+  // --------------------------------------------- imagem de exemplo
+  // A foto que o colaborador ve no meio da tela, mostrando COMO fotografar
+  // aquela peca (roadmap 11.3). Vale para os dois tipos de modelo: o padrao e
+  // o de preventiva usam o mesmo editor.
+  rotas.post('/api/templates/:id/imagem', async (ctx) => {
+    const eu = exigirFrota(exigirAutenticado(ctx))
+    const template = buscarNaEmpresa(eu.empresa_id, ctx.params.id)
+
+    const mime = String(ctx.corpo.tipo_mime || '').toLowerCase()
+    if (!tipoAceito(mime)) throw erro.requisicao('Envie uma imagem JPEG, PNG ou WebP.')
+
+    const base64 = String(ctx.corpo.conteudo || '').replace(/^data:[^,]+,/, '')
+    if (!base64) throw erro.requisicao('Imagem vazia.')
+    const buffer = Buffer.from(base64, 'base64')
+    if (!buffer.length) throw erro.requisicao('Imagem ilegivel.')
+    if (buffer.length > LIMITE_BYTES) {
+      throw erro.requisicao(`Imagem acima do limite de ${Math.round(LIMITE_BYTES / 1024 / 1024)} MB.`)
+    }
+
+    // O caminho e' derivado aqui, nunca recebido: nome de arquivo vindo do
+    // cliente escolheria onde gravar.
+    const caminho = caminhoDeImagemModelo({ empresaId: eu.empresa_id, templateId: template.id, mime })
+    gravar(caminho, buffer)
+
+    registrarEvento({
+      empresaId: eu.empresa_id, ator: eu, acao: 'checklist.imagem',
+      entidade: 'template', entidadeId: template.id,
+      depois: { bytes: buffer.length, tipo: mime }, ip: ctx.ip,
+    })
+    // A URL vai para dentro da estrutura da pergunta, junto com o resto.
+    return { url: `/imagens/modelo/${template.id}/${caminho.split(/[\\/]/).pop()}` }
+  })
+
+  // Servir a imagem passa por sessao e por tenant, como qualquer dado. Um link
+  // vazado nao vira acesso.
+  rotas.get('/imagens/modelo/:template/:arquivo', async (ctx) => {
+    const eu = exigirAutenticado(ctx)
+    const template = consultarUm('SELECT id FROM templates WHERE id = ? AND empresa_id = ?',
+      [ctx.params.template, eu.empresa_id])
+    if (!template) throw erro.naoEncontrado('Imagem nao encontrada.')
+
+    const arquivo = String(ctx.params.arquivo)
+    if (!/^[a-f0-9]{16}\.(jpg|png|webp)$/.test(arquivo)) {
+      throw erro.naoEncontrado('Imagem nao encontrada.')
+    }
+    const conteudo = ler(`${eu.empresa_id}/modelos/${template.id}/${arquivo}`)
+    if (!conteudo) throw erro.naoEncontrado('Imagem nao encontrada.')
+
+    const tipo = arquivo.endsWith('.png') ? 'image/png'
+      : arquivo.endsWith('.webp') ? 'image/webp' : 'image/jpeg'
+    ctx.res.writeHead(200, {
+      'content-type': tipo,
+      'content-length': conteudo.length,
+      // Modelo publicado e' imutavel e o nome do arquivo e' sorteado: pode
+      // ficar em cache por muito tempo sem risco de servir a foto errada.
+      'cache-control': 'private, max-age=86400',
+    })
+    ctx.res.end(conteudo)
   })
 
   // ---------------------------------------------------------- nova versao

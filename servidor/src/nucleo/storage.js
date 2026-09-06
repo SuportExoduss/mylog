@@ -31,6 +31,18 @@ export function caminhoDe({ empresaId, veiculoId, inspecaoId, perguntaId, mime }
     seguro(empresaId), seguro(veiculoId), seguro(inspecaoId), seguro(perguntaId), nome)
 }
 
+// Imagem de exemplo de uma pergunta de checklist (roadmap 11.3). Vive no mesmo
+// storage, em ramo proprio: nao pertence a veiculo nem a inspecao nenhuma —
+// pertence ao MODELO, e sobrevive a todas as execucoes dele.
+//
+//   empresa/modelos/template/arquivo.jpg
+//
+export function caminhoDeImagemModelo({ empresaId, templateId, mime }) {
+  const seguro = (v) => String(v || 'sem').replace(/[^A-Za-z0-9_-]/g, '')
+  const nome = `${crypto.randomBytes(8).toString('hex')}.${EXTENSAO[mime] || 'bin'}`
+  return path.join(seguro(empresaId), 'modelos', seguro(templateId), nome)
+}
+
 export function gravar(caminhoRelativo, buffer) {
   const destino = path.join(config.storageCaminho, caminhoRelativo)
   const raiz = path.resolve(config.storageCaminho)

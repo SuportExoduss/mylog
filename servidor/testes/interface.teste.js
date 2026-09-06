@@ -28,6 +28,13 @@ const uiDoTeste = await import('../../web/js/ui.js')
 const { elemento, abrirModal, limpar } = uiDoTeste
 
 const area = () => tela.documento.getElementById('area-modal')
+
+// Drena a fila de microtarefas. Um `setImmediate` so nao basta quando a cadeia
+// tem mais de um `await` — e a do campo de imagem tem: comprimir, subir,
+// desenhar.
+const assentar = async (voltas = 3) => {
+  for (let i = 0; i < voltas; i += 1) await new Promise((r) => setImmediate(r))
+}
 const botaoPorTexto = (raiz, texto) =>
   raiz.querySelectorAll('button').find((b) => b.textContent.trim() === texto)
 
@@ -263,4 +270,96 @@ test('menu: lista de acoes vazia nao rende gatilho nenhum', () => {
   const caixa = menuAcoes([null, false, undefined])
   assert.equal(caixa.tagName, 'SPAN')
   assert.equal(caixa.filhos.length, 0)
+})
+
+// ------------------------------------------------- campo de imagem
+
+test('modal: o campo de imagem sobe o arquivo e mostra a previa', async () => {
+  // Roadmap 11.3: a criacao da pergunta pede upload, nao uma URL digitada.
+  // Vale para os dois tipos de modelo — padrao e preventiva usam este editor.
+  let enviado = null
+  let salvo = null
+
+  abrirModal({
+    titulo: 'Nova pergunta',
+    campos: [
+      { nome: 'titulo', rotulo: 'Titulo', valor: 'Pinca de freio' },
+      { nome: 'foto_exibicao', rotulo: 'Foto de exemplo', tipo: 'imagem', valor: '',
+        aoEnviar: async (arquivo) => { enviado = arquivo; return '/imagens/modelo/t1/abc.jpg' } },
+    ],
+    confirmar: 'Adicionar',
+    aoConfirmar: async (v) => { salvo = v },
+  })
+
+  const bloco = area().querySelector('.campo-imagem')
+  assert.ok(bloco, 'o campo de imagem precisa existir')
+  assert.match(area().textContent, /Nenhuma imagem escolhida/)
+  assert.ok(botaoPorTexto(area(), 'Escolher imagem'))
+  // Sem CSS aqui: "escondido" e a classe `oculto`, que e como o resto do
+  // painel esconde coisa.
+  const escondido = (b) => b.classList.contains('oculto')
+  assert.equal(escondido(botaoPorTexto(area(), 'Remover')), true, 'sem imagem, nada a remover')
+  assert.equal(escondido(bloco.querySelector('img')), true)
+
+  // O navegador dispara "change" depois de escolher o arquivo.
+  const entrada = bloco.querySelector('input')
+  entrada.files = [{ name: 'pinca.jpg', type: 'image/jpeg' }]
+  entrada.dispatchEvent(new Event('change'))
+  await assentar()
+
+  assert.equal(enviado.name, 'pinca.jpg', 'o arquivo vai para quem sabe onde guardar')
+  assert.match(area().textContent, /Imagem salva/)
+  assert.equal(bloco.querySelector('img').getAttribute('src'), '/imagens/modelo/t1/abc.jpg')
+  assert.equal(escondido(botaoPorTexto(area(), 'Remover')), false)
+  assert.equal(escondido(bloco.querySelector('img')), false)
+  assert.ok(botaoPorTexto(area(), 'Trocar imagem'), 'com imagem, o botao muda de nome')
+
+  botaoPorTexto(area(), 'Adicionar').click()
+  await new Promise((r) => setImmediate(r))
+  assert.equal(salvo.foto_exibicao, '/imagens/modelo/t1/abc.jpg',
+    'o que fica na estrutura da pergunta e a URL')
+})
+
+test('modal: remover a imagem limpa o valor', async () => {
+  let salvo = null
+  abrirModal({
+    titulo: 'Editar pergunta',
+    campos: [
+      { nome: 'foto_exibicao', rotulo: 'Foto de exemplo', tipo: 'imagem',
+        valor: '/imagens/modelo/t1/antiga.jpg',
+        aoEnviar: async () => '/imagens/modelo/t1/nova.jpg' },
+    ],
+    aoConfirmar: async (v) => { salvo = v },
+  })
+
+  // Abre ja com a imagem que a pergunta tinha.
+  assert.equal(area().querySelector('img').getAttribute('src'), '/imagens/modelo/t1/antiga.jpg')
+
+  botaoPorTexto(area(), 'Remover').click()
+  assert.match(area().textContent, /Nenhuma imagem escolhida/)
+
+  botaoPorTexto(area(), 'Salvar').click()
+  await new Promise((r) => setImmediate(r))
+  assert.equal(salvo.foto_exibicao, '')
+})
+
+test('modal: falha no envio nao apaga a imagem que ja estava la', async () => {
+  abrirModal({
+    titulo: 'Editar pergunta',
+    campos: [
+      { nome: 'foto_exibicao', rotulo: 'Foto de exemplo', tipo: 'imagem',
+        valor: '/imagens/modelo/t1/antiga.jpg',
+        aoEnviar: async () => { throw new Error('Imagem acima do limite de 4 MB.') } },
+    ],
+    aoConfirmar: async () => {},
+  })
+
+  const entrada = area().querySelector('.campo-imagem input')
+  entrada.files = [{ name: 'enorme.jpg', type: 'image/jpeg' }]
+  entrada.dispatchEvent(new Event('change'))
+  await assentar()
+
+  assert.match(area().textContent, /acima do limite/)
+  assert.equal(area().querySelector('img').getAttribute('src'), '/imagens/modelo/t1/antiga.jpg',
+    'envio que falhou nao pode derrubar o que ja funcionava')
 })

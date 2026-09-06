@@ -209,8 +209,75 @@ export function abrirModal({ titulo, subtitulo, campos = [], confirmar = 'Salvar
     }
   }
 
+  // Campo de imagem: escolher arquivo, ver a previa, trocar ou remover.
+  // Recebe `aoEnviar(arquivo) -> url` de quem abriu o modal; e' quem sabe para
+  // onde a imagem vai. O modal so cuida da tela.
+  function campoImagem(campo, guardarValor) {
+    const entrada = elemento('input', { type: 'file', accept: 'image/*', classe: 'oculto' })
+    const previa = elemento('img', { classe: 'previa-imagem oculto', alt: 'Previa da imagem' })
+    const vazio = elemento('div', { classe: 'previa-imagem previa-imagem--vazia',
+      texto: 'Nenhuma imagem escolhida' })
+    const estado = elemento('div', { classe: 'campo-dica' })
+
+    function mostrar(url) {
+      guardarValor(url || '')
+      previa.classList.toggle('oculto', !url)
+      vazio.classList.toggle('oculto', Boolean(url))
+      if (url) previa.src = url
+      remover.classList.toggle('oculto', !url)
+      escolher.textContent = url ? 'Trocar imagem' : 'Escolher imagem'
+    }
+
+    const escolher = elemento('button', {
+      classe: 'botao botao--suave botao--pequeno', type: 'button', texto: 'Escolher imagem',
+      aoClick: () => entrada.click(),
+    })
+    const remover = elemento('button', {
+      classe: 'botao botao--suave botao--pequeno oculto', type: 'button', texto: 'Remover',
+      aoClick: () => { estado.textContent = ''; mostrar('') },
+    })
+
+    entrada.addEventListener('change', async () => {
+      const arquivo = entrada.files?.[0]
+      if (!arquivo) return
+      estado.textContent = 'Enviando imagem...'
+      try {
+        const url = await campo.aoEnviar(arquivo)
+        estado.textContent = 'Imagem salva.'
+        mostrar(url)
+      } catch (falha) {
+        estado.textContent = falha.message
+      } finally {
+        // Limpa para que escolher o MESMO arquivo de novo volte a disparar.
+        entrada.value = ''
+      }
+    })
+
+    mostrar(campo.valor || '')
+    return elemento('div', { classe: 'campo-imagem' }, [
+      previa, vazio, entrada,
+      elemento('div', { classe: 'campo-imagem-acoes' }, [escolher, remover]),
+      estado,
+    ])
+  }
+
   const corpoCampos = campos.map((campo) => {
     let entrada
+    if (campo.tipo === 'imagem') {
+      // Guarda o valor num input escondido: o resto do modal (visibilidade
+      // condicional, coleta na hora de salvar) continua lendo `.value`.
+      entrada = elemento('input', { id: `campo-${campo.nome}`, type: 'hidden' })
+      const bloco = campoImagem(campo, (url) => { entrada.value = url })
+      controles[campo.nome] = entrada
+      const envolucroImagem = elemento('div', { classe: 'campo' }, [
+        elemento('label', { texto: campo.rotulo }),
+        bloco,
+        entrada,
+        campo.dica ? elemento('div', { classe: 'campo-dica', texto: campo.dica }) : null,
+      ])
+      envolucros[campo.nome] = envolucroImagem
+      return envolucroImagem
+    }
     if (campo.tipo === 'select') {
       entrada = elemento('select', { id: `campo-${campo.nome}` },
         campo.opcoes.map((op) => elemento('option', { value: op.valor, texto: op.rotulo,

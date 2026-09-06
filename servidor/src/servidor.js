@@ -112,9 +112,17 @@ function servirArquivo(destino, raiz, res) {
 const servidor = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`)
 
-  // /relatorio/* devolve HTML, mas passa pelo roteador (precisa de sessao e
-  // de consulta ao banco) — nao e' arquivo estatico.
-  const ehRota = url.pathname.startsWith('/api/') || url.pathname.startsWith('/relatorio/')
+  // /relatorio/* devolve HTML e /imagens/* devolve binario, mas os dois passam
+  // pelo roteador: precisam de sessao e de consulta ao banco, e nao sao
+  // arquivo estatico.
+  //
+  // /imagens/ fica FORA de /api/ de proposito: o service worker do aplicativo
+  // ignora /api/ (dado de frota velho e' pior que dado ausente), mas guarda o
+  // resto. Assim a foto de exemplo de cada pergunta fica no cache e o
+  // checklist abre no patio sem sinal (roadmap 19).
+  const ehRota = url.pathname.startsWith('/api/')
+    || url.pathname.startsWith('/relatorio/')
+    || url.pathname.startsWith('/imagens/')
 
   if (!ehRota) {
     if (req.method !== 'GET' && req.method !== 'HEAD') { res.writeHead(405).end(); return }

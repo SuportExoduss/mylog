@@ -90,6 +90,10 @@ export const api = {
   novaVersaoTemplate: (id) => pedir('POST', `/api/templates/${id}/versao`, {}),
   descartarTemplate: (id) => pedir('DELETE', `/api/templates/${id}`),
   conferirTemplate: (estrutura) => pedir('POST', '/api/templates/conferir', { estrutura }),
+  // A imagem sobe assim que a pessoa escolhe o arquivo, e o que fica na
+  // estrutura da pergunta e' so a URL.
+  enviarImagemModelo: (id, conteudo, tipo_mime) =>
+    pedir('POST', `/api/templates/${id}/imagem`, { conteudo, tipo_mime }),
 
   // ----------------------------------------------------------- ocorrencias
   ocorrencias: (filtros) => pedir('GET', comQuery('/api/ocorrencias', filtros)),

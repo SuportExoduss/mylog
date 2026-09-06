@@ -13,23 +13,52 @@
 // Se um teste precisar de algo que nao esta aqui, o certo e' acrescentar o
 // pedaco que falta, nao trocar isto por um navegador de verdade.
 
-// Seletor suportado: lista separada por virgula, cada item sendo `tag`,
-// `.classe`, `#id` ou combinacao (`div.campo`, `button#salvar`).
-function analisarSeletor(seletor) {
-  return String(seletor).split(',').map((parte) => {
-    const bruto = parte.trim()
-    const tag = bruto.match(/^[a-zA-Z][\w-]*/)?.[0] || null
-    const id = bruto.match(/#([\w-]+)/)?.[1] || null
-    const classes = [...bruto.matchAll(/\.([\w-]+)/g)].map((m) => m[1])
-    return { tag, id, classes }
-  })
+// Seletor suportado: lista separada por virgula, e dentro de cada item uma
+// cadeia de descendentes separada por espaco. Cada elo e' `tag`, `.classe`,
+// `#id` ou combinacao (`div.campo`, `button#salvar`).
+//
+// O combinador descendente precisa existir: sem ele, ".campo-imagem input"
+// casava com a propria div e o teste disparava evento no elemento errado —
+// silenciosamente, que e' o pior jeito de errar num arcabouco de teste.
+function analisarElo(bruto) {
+  return {
+    tag: bruto.match(/^[a-zA-Z][\w-]*/)?.[0] || null,
+    id: bruto.match(/#([\w-]+)/)?.[1] || null,
+    classes: [...bruto.matchAll(/\.([\w-]+)/g)].map((m) => m[1]),
+  }
 }
 
-function combina(no, partes) {
-  return partes.some(({ tag, id, classes }) =>
-    (!tag || no.tagName === tag.toUpperCase())
+function analisarSeletor(seletor) {
+  const texto = String(seletor)
+  // O que este DOM nao entende ele recusa, em vez de casar com outra coisa.
+  if (/[>+~[\]:]/.test(texto)) {
+    throw new Error(
+      `Seletor "${texto}" usa sintaxe que o DOM de teste nao implementa. `
+      + 'Acrescente o suporte em testes/dom.js ou simplifique o seletor.')
+  }
+  return texto.split(',').map((parte) => parte.trim().split(/\s+/).filter(Boolean).map(analisarElo))
+}
+
+function eloCombina(no, { tag, id, classes }) {
+  return (!tag || no.tagName === tag.toUpperCase())
     && (!id || no.id === id)
-    && classes.every((c) => no.classList.contains(c)))
+    && classes.every((c) => no.classList.contains(c))
+}
+
+// A cadeia e' lida de tras para frente: o ultimo elo tem que ser o proprio no,
+// e os anteriores tem que aparecer entre os ancestrais, na ordem.
+function combina(no, cadeias) {
+  return cadeias.some((cadeia) => {
+    if (!cadeia.length) return false
+    if (!eloCombina(no, cadeia[cadeia.length - 1])) return false
+    let atual = no.parentNode
+    for (let i = cadeia.length - 2; i >= 0; i -= 1) {
+      while (atual && !eloCombina(atual, cadeia[i])) atual = atual.parentNode
+      if (!atual) return false
+      atual = atual.parentNode
+    }
+    return true
+  })
 }
 
 // Atributo booleano <-> propriedade, como o navegador faz.
@@ -92,6 +121,15 @@ class No {
 
   get type() { return this.atributos.get('type') || '' }
   set type(v) { this.atributos.set('type', String(v)) }
+
+  // `img.src = url` e `a.href = url` escrevem o ATRIBUTO no navegador. Sem
+  // refletir, um teste que le getAttribute('src') recebe null enquanto a tela
+  // real mostraria a imagem — e o teste acusaria um defeito que nao existe.
+  get src() { return this.atributos.get('src') || '' }
+  set src(v) { this.atributos.set('src', String(v)) }
+
+  get href() { return this.atributos.get('href') || '' }
+  set href(v) { this.atributos.set('href', String(v)) }
 
   // No navegador, o atributo `value` de um controle define o valor INICIAL; a
   // propriedade `.value` e' estado vivo e passa a mandar assim que alguem
