@@ -109,6 +109,9 @@ const ESTILO = `
   .comparativo { display:grid; grid-template-columns:1fr 1fr; gap:12px }
   .comparativo h3 { margin:0 0 8px; font-size:13px; text-transform:uppercase; letter-spacing:.06em; color:var(--fraco) }
   .mudou { border-left:4px solid var(--critica); padding-left:8px }
+  .numero { display:inline-block; min-width:24px; color:var(--fraco); font-variant-numeric:tabular-nums }
+  .relato { margin:6px 0 0; font-style:italic; color:var(--tinta) }
+  .comparativo figure { margin:0 }
   .imprimir { margin-bottom:16px }
   .imprimir button { padding:8px 16px; background:var(--marca); color:#fff; border:none;
                      border-radius:6px; font:inherit; font-weight:600; cursor:pointer }
@@ -119,7 +122,7 @@ const ESTILO = `
   }
 `
 
-function pagina({ titulo, corpo, empresa }) {
+function pagina({ titulo, corpo, empresa, gerador }) {
   return `<!doctype html>
 <html lang="pt-BR"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -138,7 +141,7 @@ function pagina({ titulo, corpo, empresa }) {
 </div>
 ${corpo}
 <div class="rodape">
-  Documento gerado pelo MyLog. As evidencias fotograficas estao vinculadas a
+  ${gerador ? `Gerado por <strong>${e(gerador)}</strong> em ${dataHora(new Date().toISOString())}. ` : ''}Documento gerado pelo MyLog. As evidencias fotograficas estao vinculadas a
   inspecao, ao veiculo e a pergunta que as originou, com data e hora de captura.
 </div>
 </body></html>`
@@ -174,6 +177,32 @@ function carregarInspecao(empresaId, id) {
     'SELECT id, pergunta_id, capturado_em FROM evidencias WHERE inspecao_id = ? ORDER BY capturado_em', [id])
   inspecao.ocorrencias = consultar('SELECT * FROM ocorrencias WHERE inspecao_id = ?', [id])
   return inspecao
+}
+
+// O documento circula: vai para a oficina, para o seguro, para o cliente. O
+// CPF inteiro num papel que anda nao serve a ninguem — os quatro digitos
+// bastam para conferir quem e' (roadmap 27.1). Copiado do PROLOG porque esta
+// certo.
+function mascararCpf(cpf) {
+  const so = String(cpf || '').replace(/\D/g, '')
+  if (so.length !== 11) return '—'
+  return `${so.slice(0, 3)}.***.***-${so.slice(9)}`
+}
+
+// Nome da opcao de problema escolhida, ou o relatorio escrito quando nao houve
+// opcao. E' o mesmo texto que a fila de ocorrencias mostra.
+function opcaoNome(pergunta, resposta) {
+  const opcao = (pergunta.opcoes_problema || []).find((o) => o.id === resposta.opcao_id)
+  return opcao ? opcao.nome : (resposta.relatorio || 'Ocorrencia')
+}
+
+function duracaoDe(inspecao) {
+  if (!inspecao?.iniciada_em || !inspecao?.finalizada_em) return '—'
+  const seg = Math.max(0,
+    Math.round((new Date(inspecao.finalizada_em) - new Date(inspecao.iniciada_em)) / 1000))
+  const m = Math.floor(seg / 60)
+  return m < 60 ? `${m}min ${String(seg % 60).padStart(2, '0')}s`
+    : `${Math.floor(m / 60)}h${String(m % 60).padStart(2, '0')}`
 }
 
 function fichaInspecao(i) {
@@ -357,6 +386,145 @@ export function registrarRotasRelatorios(rotas) {
   })
 
   // ------------------------------------------------------ frota (executivo)
+  // ------------------------------------------------ dossie de preventiva
+  // O documento que prova o servico (roadmap 27.1). Estruturado a partir do
+  // PDF que a operacao ja le no PROLOG, com uma diferenca que muda tudo: as
+  // fotos vem em DUAS COLUNAS, antes e depois.
+  rotas.get('/relatorio/preventiva/:id', async (ctx) => {
+    const eu = exigirFrota(exigirAutenticado(ctx))
+    const prev = consultarUm(
+      `SELECT p.*, v.placa, v.marca, v.modelo, v.ano, v.tipo, v.km_atual,
+              u.nome AS concluida_por_nome, t.nome AS checklist_nome
+         FROM preventivas p
+         JOIN veiculos v ON v.id = p.veiculo_id
+         LEFT JOIN usuarios u ON u.id = p.concluida_por
+         LEFT JOIN templates t ON t.id = p.template_id
+        WHERE p.id = ? AND p.empresa_id = ?`, [ctx.params.id, eu.empresa_id])
+    if (!prev) throw erro.naoEncontrado('Preventiva nao encontrada.')
+
+    const empresa = consultarUm('SELECT nome FROM empresas WHERE id = ?', [eu.empresa_id])
+    const saida = prev.inspecao_saida ? carregarInspecao(eu.empresa_id, prev.inspecao_saida) : null
+    const retorno = prev.inspecao_retorno
+      ? carregarInspecao(eu.empresa_id, prev.inspecao_retorno) : null
+
+    const indexar = (insp) => {
+      if (!insp) return { respostas: new Map(), evid: new Map() }
+      const evid = new Map()
+      for (const ev of insp.evidencias) {
+        if (!evid.has(ev.pergunta_id)) evid.set(ev.pergunta_id, [])
+        evid.get(ev.pergunta_id).push(ev)
+      }
+      return { respostas: new Map(insp.respostas.map((r) => [r.pergunta_id, r])), evid }
+    }
+    const mS = indexar(saida)
+    const mR = indexar(retorno)
+
+    const estrutura = (retorno || saida)?.estrutura
+    const perguntas = estrutura?.perguntas || []
+
+    // Contagens do cabecalho, no espirito do PDF do PROLOG.
+    const mexidas = [...mR.respostas.values()].filter((r) => r.manutencao_feita).length
+    const achados = saida ? saida.ocorrencias.length : 0
+    const porPrioridade = { baixa: 0, media: 0, alta: 0, critica: 0 }
+    for (const o of (saida?.ocorrencias || [])) {
+      if (o.prioridade in porPrioridade) porPrioridade[o.prioridade] += 1
+    }
+
+    const fotos = (lista) => (lista || []).map((ev) =>
+      `<figure><img src="/api/evidencias/${e(ev.id)}" alt="Evidencia">
+         <figcaption class="foto-legenda">${dataHora(ev.capturado_em)}</figcaption></figure>`).join('')
+
+    const linhas = perguntas.map((p, i) => {
+      const rs = mS.respostas.get(p.id)
+      const rr = mR.respostas.get(p.id)
+      const feita = rr?.manutencao_feita === 1 || rr?.manutencao_feita === true
+
+      const antes = rs
+        ? `${rs.desfecho === 'ocorrencia'
+              ? `<span class="selo s-alta">${e(opcaoNome(p, rs))}</span>`
+              : '<span class="selo s-ok">Sem apontamento</span>'}
+           ${rs.relatorio ? `<p class="relato">"${e(rs.relatorio)}"</p>` : ''}
+           <div class="fotos">${fotos(mS.evid.get(p.id))}</div>`
+        : '<div class="vazio">Sem registro de saida.</div>'
+
+      const depois = rr
+        ? `<span class="selo ${feita ? 's-media' : 's-ok'}">
+             Manutencao: ${feita ? 'SIM' : 'NAO'}</span>
+           ${rr.relatorio ? `<p class="relato">"${e(rr.relatorio)}"</p>` : ''}
+           <div class="fotos">${fotos(mR.evid.get(p.id))}</div>`
+        : '<div class="vazio">Sem registro de retorno.</div>'
+
+      return `<div class="pergunta">
+        <div class="pergunta-topo">
+          <span class="pergunta-titulo">
+            <span class="numero">${String(i + 1).padStart(2, '0')}</span> ${e(p.titulo)}
+          </span>
+          ${feita ? '<span class="selo s-media">servico executado</span>' : ''}
+        </div>
+        <div class="comparativo">
+          <div><h3>Antes — saida</h3>${antes}</div>
+          <div class="${feita ? 'mudou' : ''}"><h3>Depois — retorno</h3>${depois}</div>
+        </div>
+      </div>`
+    }).join('')
+
+    const executante = retorno || saida
+    const assinatura = executante?.assinatura
+      ? `<h2>Assinatura</h2><div class="assinatura">
+           <img src="${e(executante.assinatura)}" alt="Assinatura de ${e(executante.usuario_nome)}">
+           <div class="foto-legenda">${e(executante.usuario_nome)} · CPF ${e(mascararCpf(executante.cpf))}</div>
+         </div>`
+      : ''
+
+    const alvoAtual = prev.modo === 'km'
+      ? `${numero(prev.proximo_km)} km` : dataCurta(prev.proxima_data)
+    const proxima = consultarUm(
+      `SELECT modo, proximo_km, proxima_data FROM preventivas
+        WHERE empresa_id = ? AND veiculo_id = ? AND status <> 'realizada'
+        ORDER BY criado_em DESC LIMIT 1`, [eu.empresa_id, prev.veiculo_id])
+
+    responderHtml(ctx, pagina({
+      titulo: `Preventiva — ${prev.placa}`,
+      empresa,
+      gerador: eu.nome,
+      corpo: `
+        <h1>${e(prev.checklist_nome || 'Preventiva')}</h1>
+        <p class="sub">${e(prev.placa)} · ${e(prev.marca || '')} ${e(prev.modelo)} ·
+           checklist ${retorno?.numero ? `#${e(retorno.numero)}` : '—'}</p>
+
+        <div class="ficha">
+          <div><dt>Placa</dt><dd class="dado">${e(prev.placa)}</dd></div>
+          <div><dt>Tipo</dt><dd>${e(rotular(ROTULO_TIPO, prev.tipo))}</dd></div>
+          <div><dt>KM na saida</dt><dd class="dado">${numero(saida?.km_informado)} km</dd></div>
+          <div><dt>KM no retorno</dt><dd class="dado">${numero(retorno?.km_informado)} km</dd></div>
+          <div><dt>Executado por</dt><dd>${e(executante?.usuario_nome || '—')}</dd></div>
+          <div><dt>CPF</dt><dd class="dado">${e(mascararCpf(executante?.cpf))}</dd></div>
+          <div><dt>Concluida em</dt><dd class="dado">${dataHora(prev.concluida_em)}</dd></div>
+          <div><dt>Duracao</dt><dd class="dado">${duracaoDe(retorno)}</dd></div>
+        </div>
+
+        <h2>A manutencao</h2>
+        <div class="ficha">
+          <div><dt>Alvo que venceu</dt><dd class="dado">${e(alvoAtual)}</dd></div>
+          <div><dt>Itens verificados</dt><dd>${perguntas.length}</dd></div>
+          <div><dt>Itens com servico</dt><dd>${mexidas}</dd></div>
+          <div><dt>Apontados na saida</dt><dd>${achados}</dd></div>
+        </div>
+        ${proxima ? `<p class="sub"><strong>Proxima preventiva:</strong>
+           ${proxima.modo === 'km'
+             ? `${numero(proxima.proximo_km)} km` : dataCurta(proxima.proxima_data)}</p>` : ''}
+        ${achados ? `<p class="sub">Prioridades apontadas na saida:
+           ${['critica', 'alta', 'media', 'baixa']
+             .filter((k) => porPrioridade[k])
+             .map((k) => `<span class="selo s-${k}">${porPrioridade[k]} ${rotular(ROTULO_PRIORIDADE, k).toLowerCase()}</span>`)
+             .join(' ')}</p>` : ''}
+
+        <h2>Peca a peca</h2>
+        ${linhas || '<div class="vazio">Nenhuma peca registrada nesta preventiva.</div>'}
+        ${assinatura}`,
+    }))
+  })
+
   rotas.get('/relatorio/frota', async (ctx) => {
     const eu = exigirFrota(exigirAutenticado(ctx))
     const empresa = consultarUm('SELECT nome FROM empresas WHERE id = ?', [eu.empresa_id])

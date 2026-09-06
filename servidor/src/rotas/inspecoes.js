@@ -15,6 +15,7 @@ import {
   avaliarInspecao, cargoLiberado, conferirProximaPreventiva, MOMENTOS,
 } from '../../../compartilhado/template.js'
 import { encerrarCiclo } from '../nucleo/ciclo_preventiva.js'
+import { avaliarPreventivas } from '../nucleo/preventivas.js'
 
 function politicas(empresaId) {
   const linha = consultarUm('SELECT politicas FROM empresas WHERE id = ?', [empresaId])
@@ -42,6 +43,12 @@ export function registrarRotasInspecoes(rotas) {
     const eu = exigirAutenticado(ctx)
     const p = politicas(eu.empresa_id)
 
+    // O status da preventiva e' derivado do relogio e do hodometro. Sem
+    // recalcular aqui, o aplicativo mostraria "em dia" numa preventiva ja
+    // vencida — o painel recalcula, o app nao recalculava, e os dois diziam
+    // coisas diferentes sobre a mesma linha.
+    avaliarPreventivas(eu.empresa_id)
+
     const solicitacoes = consultar(
       `SELECT s.*, v.placa, v.modelo, v.marca, v.tipo, v.km_atual, v.status AS veiculo_status
          FROM solicitacoes s JOIN veiculos v ON v.id = s.veiculo_id
@@ -62,6 +69,9 @@ export function registrarRotasInspecoes(rotas) {
         codigo: modelo.codigo,
         nome: modelo.nome,
         versao: modelo.versao,
+        // O aplicativo escolhe a TELA por aqui: preventiva no retorno tem
+        // outro fluxo (roadmap 14.2.2). Sem o campo, cairia no padrao.
+        finalidade: modelo.finalidade,
         exige_assinatura: Boolean(modelo.exige_assinatura),
         periodicidade: modelo.periodicidade,
         dias_semana: JSON.parse(modelo.dias_semana || '[]'),
@@ -154,6 +164,7 @@ export function registrarRotasInspecoes(rotas) {
             codigo: modelo.codigo,
             nome: modelo.nome,
             versao: modelo.versao,
+            finalidade: modelo.finalidade,
             exige_assinatura: Boolean(modelo.exige_assinatura),
             periodicidade: modelo.periodicidade,
             dias_semana: JSON.parse(modelo.dias_semana || '[]'),

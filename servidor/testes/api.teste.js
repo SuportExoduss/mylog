@@ -1551,3 +1551,76 @@ test('preventiva: o cadastro so aceita modelo de preventiva publicado', async ()
   })
   assert.equal(inexistente.status, 404)
 })
+
+test('dossie de preventiva: antes e depois lado a lado, com CPF mascarado', async () => {
+  // Roadmap 27.1. O documento circula — oficina, seguro, cliente — e por isso
+  // o CPF sai mascarado, como no PDF que a operacao ja le hoje.
+  const mecanico = await entrar('mecanico.a@teste.local')
+  const frota = await entrar('frota.a@teste.local')
+
+  const prev = criarPreventivaComModelo(empresaA, veiculoA, modeloPreventivaA)
+
+  await chamar('POST', '/api/inspecoes', {
+    token: mecanico,
+    corpo: {
+      cliente_uuid: 'uuid-dossie-saida', preventiva_id: prev,
+      template_id: modeloPreventivaA, momento: 'saida', km_informado: 20100,
+      respostas: {
+        pinca: { desfecho: 'ocorrencia', opcao_id: 'pastilha', fotos: 1,
+          relatorio: 'Pastilha no limite.' },
+        correia: { desfecho: 'ok', fotos: 1 },
+      },
+    },
+  })
+  const retorno = await chamar('POST', '/api/inspecoes', {
+    token: mecanico,
+    corpo: {
+      cliente_uuid: 'uuid-dossie-retorno', preventiva_id: prev,
+      template_id: modeloPreventivaA, momento: 'retorno', km_informado: 20150,
+      respostas: {
+        pinca: { manutencao_feita: true, fotos: 1, relatorio: 'Pastilha e disco trocados.' },
+        correia: { manutencao_feita: false, fotos: 1 },
+      },
+      proxima_preventiva: { modo: 'data', proxima_data: '2027-03-15' },
+    },
+  })
+  assert.equal(retorno.status, 200, JSON.stringify(retorno.dados))
+
+  const resposta = await fetch(`${base}/relatorio/preventiva/${prev}`, {
+    headers: { authorization: `Bearer ${frota}` },
+  })
+  assert.equal(resposta.status, 200)
+  const html = await resposta.text()
+
+  assert.match(html, /Antes — saida/)
+  assert.match(html, /Depois — retorno/)
+  assert.match(html, /Manutencao: SIM/)
+  assert.match(html, /Manutencao: NAO/)
+  assert.match(html, /Pastilha e disco trocados/)
+  assert.match(html, /Pastilha no limite/)
+  assert.match(html, /Proxima preventiva/)
+  assert.match(html, /15\/03\/2027/)
+
+  // CPF mascarado: quatro digitos bastam para conferir quem e.
+  assert.match(html, /\d{3}\.\*\*\*\.\*\*\*-\d{2}/)
+  assert.doesNotMatch(html, /111\.222\.333-96|11122233396/, 'o CPF inteiro nao pode sair no papel')
+
+  // Quem gerou fica no rodape, como no documento do PROLOG.
+  assert.match(html, /Gerado por/)
+})
+
+test('dossie de preventiva: colaborador nao abre, e outra empresa nem enxerga', async () => {
+  const vendas = await entrar('vendas.a@teste.local')
+  const frotaB = await entrar('frota.b@teste.local')
+  const prev = criarPreventivaComModelo(empresaA, veiculoA2, modeloPreventivaA)
+
+  const doColaborador = await fetch(`${base}/relatorio/preventiva/${prev}`, {
+    headers: { authorization: `Bearer ${vendas}` },
+  })
+  assert.equal(doColaborador.status, 403)
+
+  const deOutraEmpresa = await fetch(`${base}/relatorio/preventiva/${prev}`, {
+    headers: { authorization: `Bearer ${frotaB}` },
+  })
+  assert.equal(deOutraEmpresa.status, 404)
+})

@@ -155,6 +155,36 @@ function concluir(p, recarregar) {
   })
 }
 
+// Amarra um modelo de preventiva ao agendamento (roadmap 14.2). A partir daqui
+// a preventiva aparece no aplicativo de quem tem o cargo, e o retorno encerra o
+// ciclo sozinho.
+async function escolherChecklist(preventiva, recarregar) {
+  const { templates } = await api.templates({ finalidade: 'preventiva', status: 'publicado' })
+  if (!templates.length) {
+    return notificar('Nenhum checklist de preventiva publicado. Crie um em Modelos de checklist.')
+  }
+  abrirModal({
+    titulo: `Checklist de ${preventiva.placa}`,
+    subtitulo: 'Quem tiver o cargo liberado passa a ver esta preventiva no aplicativo.',
+    campos: [
+      { nome: 'template_id', rotulo: 'Modelo de preventiva', tipo: 'select',
+        valor: preventiva.template_id || '',
+        opcoes: [
+          { valor: '', rotulo: 'Sem checklist — concluir pelo painel' },
+          ...templates.map((t) => ({ valor: t.id, rotulo: `${t.nome} (v${t.versao})` })),
+        ],
+        dica: 'Saida antes do servico, retorno depois. O retorno encerra a preventiva e agenda a proxima.' },
+    ],
+    aoConfirmar: async (v) => {
+      await api.reagendarPreventiva(preventiva.id, { template_id: v.template_id || null })
+      notificar(v.template_id
+        ? 'Checklist amarrado. A preventiva ja aparece no aplicativo.'
+        : 'Checklist removido. A conclusao volta a ser pelo painel.')
+      await recarregar()
+    },
+  })
+}
+
 export async function telaPreventivas(raiz, contexto) {
   const podeEscrever = contexto.ehFrota
   const filtros = { status: contexto.parametros.status || '', historico: '' }
@@ -170,18 +200,32 @@ export async function telaPreventivas(raiz, contexto) {
 
     return tabela(['Veiculo', 'Metodo', 'Alvo', 'Situacao', 'Ultima execucao', ''],
       preventivas.map((p) => {
-        const acoes = podeEscrever && p.status !== 'realizada' ? [
-          { rotulo: 'Concluir e agendar proxima', aoClick: () => concluir(p, recarregar) },
-          { rotulo: 'Reagendar', aoClick: () => reagendar(p, recarregar) },
-        ] : []
+        const acoes = []
+        if (podeEscrever && p.status !== 'realizada') {
+          acoes.push({ rotulo: 'Concluir e agendar proxima', aoClick: () => concluir(p, recarregar) })
+          acoes.push({ rotulo: 'Reagendar', aoClick: () => reagendar(p, recarregar) })
+          acoes.push({ rotulo: p.template_id ? 'Trocar checklist' : 'Usar checklist de preventiva',
+            separar: true, aoClick: () => escolherChecklist(p, recarregar) })
+        }
+        // O dossie so existe depois do retorno: e' o antes x depois.
+        if (p.inspecao_retorno) {
+          acoes.push({ rotulo: 'Dossie da preventiva', separar: true,
+            aoClick: () => window.open(`/relatorio/preventiva/${p.id}`, '_blank') })
+        }
 
         return elemento('tr', {}, [
           elemento('td', {}, [
             elemento('div', { classe: 'celula-forte dado', texto: p.placa }),
             elemento('div', { classe: 'celula-fraca', texto: p.modelo }),
           ]),
-          elemento('td', { classe: 'celula-fraca',
-            texto: p.modo === 'km' ? 'Quilometragem' : 'Data' }),
+          elemento('td', { classe: 'celula-fraca' }, [
+            elemento('div', { texto: p.modo === 'km' ? 'Quilometragem' : 'Data' }),
+            // Preventiva com checklist e' executada no aplicativo pelo
+            // mecanico; sem checklist, so pelo botao do painel.
+            p.checklist_nome
+              ? elemento('div', { classe: 'card-detalhe' }, [selo('por checklist', 's-marca')])
+              : null,
+          ].filter(Boolean)),
           elemento('td', {}, [
             elemento('div', { classe: 'dado', texto: alvoDe(p) }),
             elemento('div', { classe: 'celula-fraca',
