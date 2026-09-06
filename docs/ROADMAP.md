@@ -141,12 +141,18 @@ Frota cadastra cargo  →  Frota cadastra usuário com senha inicial
 | Worker/Jobs | Processos assíncronos | Relatórios, processamento de imagem, lembretes de preventiva. |
 | PDF/Relatórios | Saída documental | Relatório operacional, executivo e dossiê de evidências. |
 
-### Por que PWA e não app nativo
+### Por que PWA primeiro, e não app nativo
 
 O risco concentrado da fase de campo não é a linguagem: é a **fila de fotos
 offline**. Um app nativo colocaria uma stack nova exatamente em cima do trecho
 mais arriscado do projeto. O PWA usa o mesmo stack já dominado, e a API
 permanece agnóstica de cliente — trocar por Kotlin depois não mexe no backend.
+
+> **Atualização de 06/09/2026.** O Android nativo está decidido, e será escrito
+> **do zero**. O PWA passa a regime de manutenção
+> ([ARQUITETURA 4.1](ARQUITETURA.md)): continua sendo o cliente de campo até o
+> APK existir, e para de receber investimento novo. O que se aproveita no
+> nativo é o **contrato**, não o cliente.
 
 ### O motor de checklist é um arquivo só
 
@@ -1349,8 +1355,15 @@ nada no contrato muda. Faz parte da A0 por decisão de arquitetura, mas é a
 
 ### Sobre o aplicativo Android
 
-Será escrito **do zero, em Android Studio** — não é o PWA empacotado. O PWA
-continua existindo e funcionando; o nativo é outro cliente do mesmo servidor.
+Será escrito **do zero, em Android Studio**, original — não é o PWA
+empacotado, e nenhuma linha dele é reaproveitada. O PWA continua existindo e
+funcionando como cliente de campo até o APK sair; o nativo é outro cliente do
+mesmo servidor.
+
+O PWA serve ao Android de **implementação de referência**: não código a copiar,
+mas uma resposta que funciona para o que o nativo terá que resolver — o que o
+servidor espera em cada envio, como a dependência foto→inspeção é respeitada, e
+o que a tela mostra quando o servidor recusa.
 
 A **API é o contrato entre os dois**, e está documentada em
 [`docs/API.md`](API.md): as quatro rotas que fecham o ciclo de checklist, a

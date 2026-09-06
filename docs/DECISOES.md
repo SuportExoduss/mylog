@@ -690,3 +690,27 @@ precisa de um teste que olhe o **produto**, não a política. A varredura agora
 cobre as páginas do painel **e** os relatórios, e procura tanto `<script>`
 embutido quanto **atributo `on*`** — que é a forma mais fácil de escrever script
 inline sem perceber que é script inline.
+
+## D46 — O PWA entra em regime de manutenção
+
+**Decisão do dono do projeto, 06/09/2026.** O aplicativo de campo Android será
+escrito **do zero, original**, em Android Studio. Nada do PWA vira código nele.
+
+**Consequência para o trabalho.** O `app/` só é tocado quando quebra o painel, o
+servidor ou o contrato da API — ou quando estiver impedindo a homologação em
+aparelho real. Todo o resto do esforço vai para painel, servidor e contrato.
+
+**O que se aproveita não é o cliente, é o contrato.** Por isso
+[`API.md`](API.md) deixa de ser documentação para depois e passa a ser entrega
+de primeira classe desta fase: é o único artefato desta etapa que o app nativo
+vai consumir literalmente.
+
+**E o PWA não é descartável enquanto o APK não existir.** Ele é o único jeito de
+executar um checklist durante a construção, e é a implementação de referência
+para quem escrever o nativo — não código a copiar, mas uma resposta funcionando
+às perguntas que o Android terá que responder.
+
+> Isto corrige um deslize meu: implementei a retentativa com espera crescente da
+> fila offline (D44) durante a fase do painel. Era trabalho de cliente de campo,
+> e eu devia ter perguntado antes de emendar. Fica — é pequena, testada e não
+> atrapalha —, mas a regra passa a valer daqui em diante.

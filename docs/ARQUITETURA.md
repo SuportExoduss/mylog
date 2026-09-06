@@ -41,7 +41,7 @@ do notebook está na seção 5.
 | Servidor | Cloud Functions | Autoridade. Autorização, regras, re-julgamento, jobs. |
 | Arquivos | Cloudflare R2 | Fotos e branding. Privado, nunca URL pública permanente. |
 | Cliente web | Painel administrativo | Supervisão, cadastro, configuração, relatórios. |
-| Cliente de campo | PWA hoje, Android nativo depois | Mesmo contrato, mesmo domínio. |
+| Cliente de campo | PWA **em regime de manutenção**, Android nativo em seguida | Mesmo contrato, mesmo domínio. Ver 4.1. |
 
 **Regra de ouro.** A URL identifica o contexto. A autenticação identifica a
 pessoa. O membership determina o vínculo. O `empresaId` determina o tenant. A
@@ -99,6 +99,33 @@ realização · auditoria é append-only.
 O motor `compartilhado/template.js` é o ativo central: determinístico, sem
 banco, sem DOM, sem Node, **entrada explícita**, usado igual pelos dois lados.
 Não existirá um segundo motor no Android.
+
+### 4.1 O PWA está congelado
+
+**Decisão de 06/09/2026.** O aplicativo de campo Android será escrito **do zero,
+original**, em Android Studio. Nada do PWA vira código nele: a fila é
+JavaScript, a do Android será Kotlin.
+
+Portanto o `app/` entra em **regime de manutenção**. Só se mexe nele em duas
+situações:
+
+1. quando algo ali quebrar o painel, o servidor ou o contrato da API;
+2. quando o próprio PWA estiver impedindo a homologação em aparelho real — que
+   é o que produz a evidência sobre o campo.
+
+Todo o resto do esforço vai para o **painel, o servidor e o contrato**.
+
+**Isso não é abandono, e o PWA não é desperdício.** Ele é o único cliente de
+campo que existe até o APK sair: sem ele, ninguém executa checklist nenhum
+durante a construção. E ele é a **implementação de referência** para quem
+escrever o Android — não como código a copiar, mas como resposta funcionando às
+perguntas que o nativo vai ter que responder: o que o servidor espera em cada
+envio, como a dependência foto→inspeção é respeitada, o que a tela mostra quando
+o servidor recusa.
+
+**O que de fato se aproveita no Android é o contrato**, não o cliente. Por isso
+[`API.md`](API.md) é trabalho de primeira classe desta fase, e não documentação
+para depois.
 
 ---
 
