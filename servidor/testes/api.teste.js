@@ -105,6 +105,11 @@ const veiculoA4 = criarVeiculo(empresaA, 'AAA4A44')
 // (ocorrencia, bloqueio, reserva) ao longo do arquivo, e um teste que depende
 // de "disponivel" nao pode disputar veiculo com os vizinhos.
 const veiculoNotificacao = criarVeiculo(empresaA, 'AAA5A55')
+// Mesma razao, para os testes de significado do contrato: um deles BLOQUEIA o
+// carro de proposito (e' o que prova que o julgamento e' do servidor), entao
+// nao da para os dois dividirem a placa.
+const veiculoContrato = criarVeiculo(empresaA, 'AAA6A66')
+const veiculoContrato2 = criarVeiculo(empresaA, 'AAA7A77')
 
 // Categoria de uso: e' o que o colaborador pede (roadmap 10.3). A placa so
 // aparece na liberacao, escolhida pela Frota.
@@ -189,7 +194,8 @@ const mecanicoA = criarUsuario(empresaA, 'Mecanico A', '11122233396', 'mecanico.
   cgMecanicoA, true)
 const modeloPreventivaA = criarModeloPreventiva(empresaA, 'preventiva-teste', [cgMecanicoA])
 
-const catA = criarCategoria(empresaA, 'Comercial A', [veiculoA, veiculoA2, veiculoA4])
+const catA = criarCategoria(empresaA, 'Comercial A',
+  [veiculoA, veiculoA2, veiculoA4, veiculoContrato, veiculoContrato2])
 const catVazia = criarCategoria(empresaA, 'Sem carro nenhum', [])
 criarCategoria(empresaB, 'Comercial B', [veiculoB])
 
@@ -2376,4 +2382,100 @@ test('offline: terminar antes de comecar nao passa', async () => {
   assert.equal(envio.status, 200)
   assert.equal(envio.dados.inspecao.finalizada_em, inicio,
     'duracao negativa quebraria o dossie e o calculo de tempo de checklist')
+})
+
+// ============== o contrato tem significado, e nao so forma (docs/API.md 5)
+
+test('contrato: o resultado que o aplicativo manda nao entra na conta', async () => {
+  // "O julgamento e' do servidor" e' a afirmacao mais repetida do projeto —
+  // D17, roadmap 12, secao 5 da API. Nao havia um teste que MENTISSE e
+  // provasse que a mentira nao passa.
+  //
+  // Um cliente adulterado, ou so velho demais, e' o caso realista: uma versao
+  // antiga do app com regra desatualizada julga "aprovado" o que a regra de
+  // hoje reprova.
+  const frota = await entrar('frota.a@teste.local')
+  const motorista = await entrar('motorista.a@teste.local')
+  const solicitacao = await reservar(frota, motorista, veiculoContrato, 800)
+  const app = await chamar('GET', '/api/app/inicio', { token: motorista })
+  const tarefa = app.dados.tarefas.find((t) => t.solicitacao_id === solicitacao)
+
+  const envio = await chamar('POST', '/api/inspecoes', {
+    token: motorista,
+    corpo: {
+      cliente_uuid: 'uuid-mentira-do-cliente', solicitacao_id: solicitacao,
+      template_id: tarefa.template_id, momento: 'saida',
+      // Tudo o que um cliente mentiroso mandaria:
+      resultado: 'aprovado',
+      estado_veiculo_previsto: 'disponivel',
+      resumo: { resultado: 'aprovado', ocorrencias: [], pode_finalizar: true },
+      ocorrencias: [],
+      respostas: {
+        lataria: { desfecho: 'ok', fotos: 1 },
+        // ...enquanto a resposta real diz pneu liso, que e' critico.
+        pneus: { desfecho: 'ocorrencia', opcao_id: 'liso', fotos: 1 },
+      },
+    },
+  })
+  assert.equal(envio.status, 200, JSON.stringify(envio.dados))
+
+  assert.notEqual(envio.dados.resumo.resultado, 'aprovado',
+    'o servidor aceitou o julgamento do cliente')
+  assert.equal(envio.dados.inspecao.resultado, envio.dados.resumo.resultado,
+    'o que fica gravado e o que o servidor julgou')
+  assert.equal(envio.dados.resumo.maior_prioridade, 'critica')
+  assert.equal(envio.dados.resumo.ocorrencias.length, 1,
+    'a ocorrencia nasce do julgamento do servidor, nao da lista que o cliente mandou')
+
+  // E o efeito no mundo tambem e' do servidor: o carro fica bloqueado, mesmo
+  // com o cliente afirmando "disponivel".
+  const veiculo = await chamar('GET', `/api/veiculos/${veiculoContrato}`, { token: frota })
+  assert.equal(veiculo.dados.veiculo.status, 'bloqueado')
+})
+
+test('contrato: momento so aceita saida e retorno', async () => {
+  const motorista = await entrar('motorista.a@teste.local')
+  const app = await chamar('GET', '/api/app/inicio', { token: motorista })
+  const tarefa = app.dados.tarefas[0]
+  assert.ok(tarefa, 'precisa de uma tarefa aberta para este teste')
+
+  const r = await chamar('POST', '/api/inspecoes', {
+    token: motorista,
+    corpo: {
+      cliente_uuid: 'uuid-momento-invalido', solicitacao_id: tarefa.solicitacao_id,
+      template_id: tarefa.template_id, momento: 'meio_do_caminho',
+      respostas: {},
+    },
+  })
+  assert.equal(r.status, 400)
+  assert.match(r.dados.mensagem, /saida ou retorno/,
+    'a mensagem tem que dizer o que vale, nao so que o valor e invalido')
+})
+
+test('contrato: o resumo traz os campos que o aplicativo le', async () => {
+  // O app decide o que mostrar na tela final a partir daqui. Campo que some do
+  // resumo vira `undefined` na tela de quem esta no patio.
+  const frota = await entrar('frota.a@teste.local')
+  const motorista = await entrar('motorista.a@teste.local')
+  const solicitacao = await reservar(frota, motorista, veiculoContrato2, 810)
+  const app = await chamar('GET', '/api/app/inicio', { token: motorista })
+  const tarefa = app.dados.tarefas.find((t) => t.solicitacao_id === solicitacao)
+
+  const envio = await chamar('POST', '/api/inspecoes', {
+    token: motorista,
+    corpo: {
+      cliente_uuid: 'uuid-forma-do-resumo', solicitacao_id: solicitacao,
+      template_id: tarefa.template_id, momento: 'saida',
+      respostas: { lataria: { desfecho: 'ok', fotos: 1 }, pneus: { desfecho: 'ok', fotos: 1 } },
+    },
+  })
+  assert.equal(envio.status, 200, JSON.stringify(envio.dados))
+
+  for (const campo of ['resultado', 'conformes', 'ocorrencias',
+    'maior_prioridade', 'estado_veiculo_previsto', 'pode_finalizar']) {
+    assert.ok(campo in envio.dados.resumo, `o resumo documentado tem ${campo}`)
+  }
+  assert.ok(Array.isArray(envio.dados.resumo.ocorrencias))
+  assert.ok(Number.isInteger(envio.dados.inspecao.numero) && envio.dados.inspecao.numero > 0,
+    'numero e sequencial por empresa, e e o que a operacao cita em voz alta')
 })
