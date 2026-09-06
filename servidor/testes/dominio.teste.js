@@ -282,3 +282,30 @@ test('auditoria: guarda quem fez e sobre quem foi feito', async () => {
   assert.equal(e.ator_id, 'usr_frota')
   assert.equal(e.alvo_id, 'usr_colab')
 })
+
+// ----------------------------------- contrato entre o servidor e o painel
+
+// O `destino` de uma notificacao e' a chave de uma tela do painel. Se o
+// servidor gravar uma chave que o painel nao conhece, `navegar` cai na tela
+// padrao **em silencio**: o clique no sino leva a pessoa para outro lugar e
+// nada acusa. E' o tipo de defeito que so aparece em producao, num aviso
+// especifico, semanas depois.
+test('sino: todo destino gravado pelo servidor e uma tela que existe no painel', () => {
+  const raiz = path.join(import.meta.dirname, '..', '..')
+
+  const fontes = ['servidor/src/rotas', 'servidor/src/nucleo']
+    .flatMap((dir) => fs.readdirSync(path.join(raiz, dir))
+      .filter((f) => f.endsWith('.js'))
+      .map((f) => fs.readFileSync(path.join(raiz, dir, f), 'utf8')))
+    .join(' ')
+
+  const destinos = new Set([...fontes.matchAll(/destino:\s*'([^']+)'/g)].map((m) => m[1]))
+  assert.ok(destinos.size >= 4, 'a varredura precisa achar destinos; achou ' + destinos.size)
+
+  const app = fs.readFileSync(path.join(raiz, 'web/js/app.js'), 'utf8')
+  const telas = new Set([...app.matchAll(/\{\s*chave:\s*'([^']+)'/g)].map((m) => m[1]))
+  assert.ok(telas.has('painel'), 'a varredura precisa achar as telas')
+
+  const orfaos = [...destinos].filter((d) => !telas.has(d))
+  assert.deepEqual(orfaos, [], `destino sem tela correspondente: ${orfaos.join(', ')}`)
+})
