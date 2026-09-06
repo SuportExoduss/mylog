@@ -221,7 +221,9 @@ POST /api/inspecoes
   "momento": "saida",
   "km_informado": 41850,
   "assinatura": "data:image/png;base64,...",
+
   "iniciada_em": "2026-09-06T07:12:00.000Z",
+  "finalizada_em": "2026-09-06T07:20:00.000Z",
 
   "respostas": {
     "lateral_esquerda": {
@@ -239,6 +241,32 @@ POST /api/inspecoes
   "proxima_preventiva": { "modo": "km", "proximo_km": 116000 }
 }
 ```
+
+### Os dois instantes são obrigatórios num app offline
+
+`iniciada_em` e `finalizada_em` dizem quando o checklist **aconteceu**. Se o app
+não mandar, o servidor usa a hora em que **recebeu** — e num envio offline isso é
+a hora em que o aparelho pegou sinal.
+
+O estrago não é cosmético. Quem preenche às 07h50 no galpão e só tem rede às 14h
+aparece como **atrasado** num modelo com prazo até 08h30; e quem termina às 23h50
+e sincroniza à meia-noite e dez cai no dia seguinte, some do dia certo e vira
+**falta** no relatório de quem não fez.
+
+**Mande os dois, sempre**, no relógio do aparelho, em ISO-8601 com fuso.
+
+O servidor aceita dentro de uma janela e não confia cegamente — relógio de
+celular atrasa, adianta e pode ser mexido:
+
+| Situação | O que o servidor faz |
+|---|---|
+| Mais de 5 min no futuro | Usa a hora do recebimento e registra na auditoria |
+| Mais de 30 dias atrás | Idem |
+| `finalizada_em` antes de `iniciada_em` | Usa `iniciada_em` |
+| Ilegível ou ausente | Usa a hora do recebimento, sem registro |
+
+Fora da janela **a inspeção não é recusada** — ela aconteceu no mundo. Só a hora
+informada é descartada.
 
 ### `cliente_uuid` — a peça que faz o offline funcionar
 
@@ -326,6 +354,13 @@ POST /api/inspecoes/:id/evidencias
 - `cliente_id` torna o reenvio idempotente, como o `cliente_uuid` da inspeção.
 - Tipos aceitos: `image/jpeg`, `image/png`, `image/webp`.
 - `gps_lat` e `gps_lon` são opcionais e ficam gravados com a foto.
+
+> **Quem decide o tipo são os bytes, não o `tipo_mime`.** O servidor lê a
+> assinatura do arquivo. Conteúdo que não é imagem aceita é recusado com **400**,
+> mesmo declarado como `image/png`. E o contrário também vale: uma imagem de
+> verdade com `tipo_mime` errado **é aceita**, e o servidor grava o tipo real —
+> mandar o rótulo errado é defeito de cliente, não motivo para perder a foto que
+> o motorista já tirou. O `tipo_mime` do corpo entra só na mensagem de erro.
 
 Antes de reenviar a fila, consulte o que já chegou:
 
@@ -439,7 +474,7 @@ Checklist de outra pessoa na mesma empresa dá **403**; de outra empresa dá
 |---|---|---|
 | 400 | `requisicao_invalida` | Mostrar `mensagem` ao usuário. Ela é escrita para ser lida |
 | 401 | `nao_autenticado` | Token vencido ou revogado → tela de login |
-| 403 | `permissao` | Cargo ou nível não alcança |
+| 403 | `sem_permissao` | Cargo ou nível não alcança |
 | 403 | `troca_de_senha_obrigatoria` | Tela de troca de senha |
 | 404 | `nao_encontrado` | Registro não existe **nesta empresa** |
 | 409 | `conflito` | Estado mudou no servidor → recarregar e mostrar `mensagem` |
@@ -447,6 +482,11 @@ Checklist de outra pessoa na mesma empresa dá **403**; de outra empresa dá
 
 As mensagens são em português e escritas para o usuário final. Mostrá-las é
 melhor do que traduzir para "erro ao salvar".
+
+**Toda resposta traz `x-requisicao-id`.** Numa falha inesperada (500) o mesmo
+número vem dentro da mensagem e no campo `requisicao_id`. Guarde-o junto do item
+na fila e mostre-o na tela de erro: é o que liga a queixa de quem está no pátio à
+linha certa do log do servidor.
 
 **409 no envio de checklist** quase sempre significa que a solicitação mudou de
 estado enquanto o aparelho estava offline. Não descarte a inspeção da fila sem

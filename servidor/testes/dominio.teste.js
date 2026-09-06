@@ -499,3 +499,104 @@ test('implantacao: recusar subir sem segredo diz COMO resolver', () => {
   assert.match(saida, /Sugestao: MYLOG_SEGREDO=\S{20,}/,
     'a mensagem tem que trazer um valor pronto para colar')
 })
+
+// ================================== o contrato da API contra o servidor real
+
+// docs/API.md e' o unico artefato desta fase que o aplicativo Android vai
+// consumir literalmente: ele e' escrito do zero, e nada do PWA vira codigo la
+// dentro (ARQUITETURA 4.1). Documento errado ali nao e' documentacao
+// desatualizada — e' cliente construido contra uma coisa que nao existe.
+//
+// Ja aconteceu: o exemplo do envio de checklist mostrava `iniciada_em` e nao
+// `finalizada_em`. Quem seguisse o documento nao mandaria a hora do termino, e
+// todo checklist offline voltaria a ser gravado com a hora da sincronizacao.
+
+const API_MD = fs.readFileSync(
+  path.join(import.meta.dirname, '..', '..', 'docs', 'API.md'), 'utf8')
+
+const FONTE_ROTAS = ['servidor/src/rotas']
+  .flatMap((dir) => fs.readdirSync(path.join(import.meta.dirname, '..', '..', dir))
+    .filter((f) => f.endsWith('.js'))
+    .map((f) => fs.readFileSync(
+      path.join(import.meta.dirname, '..', '..', dir, f), 'utf8')))
+  .join(' ')
+
+test('contrato: toda rota citada na API.md existe no servidor', () => {
+  const citadas = new Set(
+    [...API_MD.matchAll(/\b(GET|POST|PATCH|DELETE)\s+(\/[A-Za-z0-9_\-/:.]+)/g)]
+      .map(([, metodo, caminho]) => `${metodo} ${caminho.replace(/[.,;]$/, '')}`))
+  assert.ok(citadas.size >= 8, `a varredura precisa achar rotas; achou ${citadas.size}`)
+
+  const registradas = new Set(
+    [...FONTE_ROTAS.matchAll(/rotas\.(get|post|patch|delete)\(\s*'([^']+)'/g)]
+      .map(([, m, c]) => `${m.toUpperCase()} ${c}`))
+
+  const inexistentes = [...citadas].filter((r) => !registradas.has(r)).sort()
+  assert.deepEqual(inexistentes, [],
+    `documentadas e inexistentes: ${inexistentes.join(' | ')}`)
+})
+
+test('contrato: os dois corpos que o aplicativo envia sao lidos por inteiro', () => {
+  // Campo documentado que o servidor ignora e' dado perdido em silencio: o
+  // aplicativo manda, acha que mandou, e nada acontece. Foi o que houve com
+  // `finalizada_em`, que sumiu do exemplo e levou junto a hora do checklist
+  // feito offline.
+  //
+  // Sao estes dois os corpos que importam: o envio do checklist e o da foto.
+  // Recortados por secao, e ate onde comeca a RESPOSTA — bloco de resposta tem
+  // chaves que sao do servidor, nao do corpo, e cobra-las aqui seria ruido.
+  const recortar = (de, ate) => {
+    const inicio = API_MD.indexOf(de)
+    assert.ok(inicio > 0, `secao nao encontrada: ${de}`)
+    const fim = API_MD.indexOf(ate, inicio)
+    assert.ok(fim > inicio, `fim de secao nao encontrado: ${ate}`)
+    return API_MD.slice(inicio, fim)
+  }
+
+  const trechos = [
+    ['envio do checklist', recortar('## 5. Enviar um checklist', '### Resposta')],
+    ['envio da foto', recortar('## 6. Fotos', 'Antes de reenviar')],
+  ]
+
+  const lidos = new Set([...FONTE_ROTAS.matchAll(/corpo\.(\w+)/g)].map((m) => m[1]))
+
+  for (const [nome, trecho] of trechos) {
+    const chaves = new Set()
+    for (const linha of trecho.split('\n')) {
+      // So o primeiro nivel: `respostas` e' um mapa cujas chaves sao ids de
+      // pergunta, inventados pelo modelo de cada empresa.
+      const m = linha.replace(/\r$/, '').match(/^ {2}"([a-z_]+)"\s*:/)
+      if (m) chaves.add(m[1])
+    }
+    assert.ok(chaves.size >= 4, `${nome}: a varredura achou so ${chaves.size} campos`)
+
+    const ignorados = [...chaves].filter((c) => !lidos.has(c)).sort()
+    assert.deepEqual(ignorados, [],
+      `${nome}: documentados e ignorados pelo servidor: ${ignorados.join(', ')}`)
+  }
+
+  // E o que nao pode faltar, porque a falta e' silenciosa e cara.
+  const checklist = trechos[0][1]
+  for (const obrigatorio of ['cliente_uuid', 'iniciada_em', 'finalizada_em']) {
+    assert.ok(checklist.includes(`"${obrigatorio}"`),
+      `o corpo documentado precisa trazer ${obrigatorio}`)
+  }
+})
+
+test('contrato: todo codigo de erro da tabela existe no servidor', () => {
+  const tabela = API_MD.slice(API_MD.indexOf('## 10. Erros'))
+  const codigos = new Set(
+    [...tabela.matchAll(/\|\s*\d{3}\s*\|\s*`([a-z_]+)`/g)].map((m) => m[1]))
+  assert.ok(codigos.size >= 5, `esperava a tabela de erros; achei ${codigos.size}`)
+
+  // `seguranca/` tambem emite codigo proprio: a troca de senha obrigatoria
+  // nasce na sessao, nao numa rota.
+  const raiz = path.join(import.meta.dirname, '..', 'src')
+  const extras = ['nucleo/http.js', 'seguranca/sessao.js', 'seguranca/nivel.js']
+    .map((f) => fs.readFileSync(path.join(raiz, f), 'utf8')).join(' ')
+  const universo = extras + FONTE_ROTAS
+
+  const inventados = [...codigos].filter((c) => !universo.includes(`'${c}'`)).sort()
+  assert.deepEqual(inventados, [],
+    `codigos documentados que o servidor nunca emite: ${inventados.join(', ')}`)
+})
