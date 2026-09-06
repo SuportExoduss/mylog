@@ -7,6 +7,7 @@
 import { consultar, consultarUm, executar, agora } from '../nucleo/banco.js'
 import { erro } from '../nucleo/http.js'
 import { registrarEvento } from '../nucleo/auditoria.js'
+import { notificar } from '../nucleo/notificacoes.js'
 import { exigirAutenticado } from '../seguranca/sessao.js'
 import { exigirFrota } from '../seguranca/nivel.js'
 import { PRIORIDADES } from '../../../compartilhado/template.js'
@@ -131,6 +132,14 @@ export function registrarRotasOcorrencias(rotas) {
     const novoStatus = antes.status === 'aberta' ? 'em_tratamento' : antes.status
     executar('UPDATE ocorrencias SET responsavel_id = ?, status = ? WHERE id = ? AND empresa_id = ?',
       [responsavel.id, novoStatus, antes.id, eu.empresa_id])
+
+    // Ser responsavel por algo sem saber disso e' o mesmo que nao ser.
+    notificar({
+      empresaId: eu.empresa_id, destinatarios: [responsavel.id], tipo: 'ocorrencia',
+      nivel: antes.prioridade === 'critica' ? 'critico' : 'atencao',
+      texto: `Voce ficou responsavel por uma ocorrencia ${antes.prioridade} em ${antes.placa}.`,
+      destino: 'ocorrencias', entidadeId: antes.id, exceto: eu.id,
+    })
 
     registrarEvento({
       empresaId: eu.empresa_id, ator: eu, alvoId: responsavel.id, acao: 'ocorrencia.atribuida',

@@ -6,6 +6,7 @@
 import { consultar, consultarUm, executar, novoId, agora, transacao } from '../nucleo/banco.js'
 import { erro } from '../nucleo/http.js'
 import { registrarEvento } from '../nucleo/auditoria.js'
+import { notificar, notificarFrota } from '../nucleo/notificacoes.js'
 import { exigirAutenticado } from '../seguranca/sessao.js'
 import { exigirFrota, ehFrota } from '../seguranca/nivel.js'
 
@@ -201,6 +202,17 @@ export function registrarRotasSolicitacoes(rotas) {
       depois: { numero, categoria: categoria.nome, inicio, fim, sem_antecedencia: semAntecedencia },
       ip: ctx.ip,
     })
+    // Quem decide precisa saber que ha o que decidir. Sem isto o pedido fica
+     // esperando alguem abrir a tela por acaso.
+    notificarFrota({
+      empresaId: eu.empresa_id, tipo: 'solicitacao',
+      nivel: semAntecedencia ? 'atencao' : 'informativo',
+      texto: semAntecedencia
+        ? `${eu.nome} pediu ${categoria.nome} com menos de ${horas}h de antecedencia.`
+        : `${eu.nome} pediu um veiculo: ${categoria.nome}.`,
+      destino: 'solicitacoes', entidadeId: id, exceto: eu.id,
+    })
+
     return {
       solicitacao: buscarNaEmpresa(eu.empresa_id, id),
       aviso_antecedencia: semAntecedencia
@@ -264,6 +276,14 @@ export function registrarRotasSolicitacoes(rotas) {
       },
       ip: ctx.ip,
     })
+    // Quem pediu precisa saber QUAL carro: e' o que ele vai procurar no patio.
+    notificar({
+      empresaId: eu.empresa_id, destinatarios: [antes.solicitante_id],
+      tipo: 'solicitacao',
+      texto: `Seu pedido #${antes.numero} foi liberado: ${veiculo.placa} — ${veiculo.modelo}.`,
+      destino: 'solicitacoes', entidadeId: antes.id, exceto: eu.id,
+    })
+
     return { solicitacao: buscarNaEmpresa(eu.empresa_id, antes.id) }
   })
 
@@ -281,6 +301,14 @@ export function registrarRotasSolicitacoes(rotas) {
       `UPDATE solicitacoes SET status = 'recusada', motivo_recusa = ?, aprovada_por = ?, atualizado_em = ?
         WHERE id = ? AND empresa_id = ?`,
       [motivo, eu.id, agora(), antes.id, eu.empresa_id])
+
+    // Recusa sem aviso deixa a pessoa esperando um carro que nao vem.
+    notificar({
+      empresaId: eu.empresa_id, destinatarios: [antes.solicitante_id],
+      tipo: 'solicitacao', nivel: 'atencao',
+      texto: `Seu pedido #${antes.numero} foi recusado: ${motivo}`,
+      destino: 'solicitacoes', entidadeId: antes.id, exceto: eu.id,
+    })
     registrarEvento({
       empresaId: eu.empresa_id, ator: eu, alvoId: antes.solicitante_id, acao: 'solicitacao.recusada',
       entidade: 'solicitacao', entidadeId: antes.id,
@@ -358,6 +386,17 @@ export function registrarRotasSolicitacoes(rotas) {
           WHERE id = ? AND status NOT IN ('bloqueado','manutencao','com_pendencia')`,
         [ts, antes.veiculo_id])
     })
+
+    // Devolucao no prazo nao precisa avisar ninguem: e' o esperado, e avisar o
+    // esperado enche a caixa de entrada de ruido. Atraso, sim — a frota
+    // precisa saber, e o motivo escrito vem junto.
+    if (atrasada) {
+      notificarFrota({
+        empresaId: eu.empresa_id, tipo: 'solicitacao', nivel: 'atencao',
+        texto: `${antes.solicitante_nome} devolveu ${antes.placa} fora do prazo: "${motivoAtraso}"`,
+        destino: 'solicitacoes', entidadeId: antes.id, exceto: eu.id,
+      })
+    }
 
     registrarEvento({
       empresaId: eu.empresa_id, ator: eu, alvoId: antes.solicitante_id,

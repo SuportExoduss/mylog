@@ -304,6 +304,31 @@ CREATE TABLE IF NOT EXISTS preventivas (
 );
 CREATE INDEX IF NOT EXISTS ix_prev_empresa ON preventivas(empresa_id, status);
 
+-- ------------------------------------------------------------ notificacoes
+-- Aviso dirigido a UMA pessoa. Nasce no momento do fato, nunca por varredura:
+-- quem sabe que um pedido chegou e' a rota que o criou.
+--
+-- Diferente de eventos_auditoria: aquilo e' historico de tudo que aconteceu,
+-- imutavel e para todos. Isto e' caixa de entrada de alguem, e some da lista
+-- quando a pessoa le.
+CREATE TABLE IF NOT EXISTS notificacoes (
+  id             TEXT PRIMARY KEY,
+  empresa_id     TEXT NOT NULL REFERENCES empresas(id),
+  destinatario_id TEXT NOT NULL REFERENCES usuarios(id),
+  tipo           TEXT NOT NULL,
+  -- solicitacao|ocorrencia|preventiva|checklist|veiculo|usuario
+  nivel          TEXT NOT NULL DEFAULT 'informativo',  -- informativo|atencao|critico
+  texto          TEXT NOT NULL,
+  -- Para onde o clique leva: chave de tela do painel e id do registro.
+  destino        TEXT,
+  entidade_id    TEXT,
+  lida_em        TEXT,
+  criado_em      TEXT NOT NULL
+);
+-- A consulta que a tela faz o tempo todo e' "as minhas, nao lidas primeiro".
+CREATE INDEX IF NOT EXISTS ix_notif_destinatario
+  ON notificacoes(destinatario_id, lida_em, criado_em);
+
 -- ------------------------------------------------------- eventos_auditoria
 -- Historico imutavel: sem UPDATE e sem DELETE em nenhuma rota.
 -- Tambem alimenta o historico completo do usuario (roadmap 8.5).

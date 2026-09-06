@@ -1028,7 +1028,62 @@ determinística e explicável: a tela consegue dizer *por que* está amarelo.
 
 ---
 
-## 15. Motor de alertas
+## 15. Notificações e alertas
+
+São duas coisas diferentes, e confundi-las produz um painel que grita sem
+dizer nada.
+
+| | **Fila de ação** (painel) | **Notificação** (sino) |
+|---|---|---|
+| O que é | O estado da frota agora | Um fato que acabou de acontecer |
+| Como nasce | Calculada a cada abertura do painel | Gravada no instante do fato |
+| De quem é | De todo mundo que abre o painel | De **uma pessoa** |
+| Some quando | O problema é resolvido | A pessoa lê |
+
+A fila de ação responde *"o que está errado?"*. A notificação responde *"o que
+mudou desde a última vez que olhei?"*.
+
+### 15.1 O sino
+
+Fica no alto, à direita, em **todas as telas** do painel — por isso não mora no
+cabeçalho de nenhuma delas. Um **ponto vermelho** aparece quando há aviso não
+lido.
+
+**Sem número.** O que importa é *"tem coisa nova"*. Um contador grande vira
+aviso que a pessoa aprende a ignorar, e aviso ignorado não é aviso.
+
+Clicar abre a lista: não lidas primeiro, mais recente no topo. Cada linha leva
+à tela que resolve — pedido novo abre Solicitações, ocorrência crítica abre
+Ocorrências — e marca aquela como lida no caminho. Lida **não some da lista**:
+quem quiser reler, relê.
+
+### 15.2 O que gera notificação, e para quem
+
+| Fato | Quem recebe | Nível |
+|---|---|---|
+| Pedido de veículo | Equipe da frota | informativo, ou **atenção** sem as 24 h |
+| Pedido liberado, com a placa | Quem pediu | informativo |
+| Pedido recusado, com o motivo | Quem pediu | atenção |
+| Devolução **fora do prazo**, com o motivo escrito | Equipe da frota | atenção |
+| Ocorrência **crítica** no checklist | Equipe da frota | **crítico** |
+| Checklist com ocorrência de prioridade alta | Equipe da frota | atenção |
+| Ocorrência atribuída a alguém | O responsável | conforme a prioridade |
+| Preventiva concluída | Equipe da frota | informativo |
+
+Duas regras que valem para todas:
+
+**Ninguém é notificado da própria ação.** Receber aviso do que você mesmo
+acabou de fazer é ruído, e ruído ensina a ignorar o sino.
+
+**Devolução no prazo não avisa ninguém.** É o esperado, e avisar o esperado
+enche a caixa de entrada do que não exige decisão. Só o atraso avisa.
+
+> **Não confundir com a auditoria.** `eventos_auditoria` é o histórico de tudo
+> que aconteceu, imutável, para prestar contas. A notificação é caixa de
+> entrada: some do destaque quando a pessoa lê, e ninguém presta contas com
+> base nela.
+
+### 15.3 Regras da fila de ação
 
 | Regra | Ação |
 |---|---|
@@ -1659,8 +1714,10 @@ Pontos que ainda dependem de decisão da operação:
    deixa a Frota decidir na hora de escolher a placa?
 3. **Login por CPF** — hoje é por email. Digitar email de luva, em pátio, sob
    sol, é pior que digitar CPF. Vale trocar?
-4. **Quem recebe a notificação** de pedido novo, de devolução atrasada e de
-   checklist **não realizado** (11.2.2).
+4. **Notificação fora do painel.** O sino já existe (15.1) e cobre quem está
+   com o MyLog aberto. Falta decidir se pedido novo e ocorrência crítica
+   também disparam **e-mail ou WhatsApp** — e para quem, já que o sino hoje
+   avisa a equipe da frota inteira.
 5. **Exportação do histórico do PROLOG** — bloqueia a F8. O resumo já chegou
    (24.1); falta o detalhe pergunta a pergunta, com fotos.
 6. **Horário limite de cada modelo** — os dados mostram o pico às 07h–08h, mas

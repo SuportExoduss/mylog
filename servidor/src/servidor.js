@@ -14,6 +14,7 @@ import { registrarRotasTemplates } from './rotas/templates.js'
 import { registrarRotasPreventivas } from './rotas/preventivas.js'
 import { registrarRotasOcorrencias, registrarRotasAuditoria } from './rotas/ocorrencias.js'
 import { registrarRotasCategorias } from './rotas/categorias.js'
+import { registrarRotasNotificacoes } from './rotas/notificacoes.js'
 import { registrarRotasSolicitacoes } from './rotas/solicitacoes.js'
 import { registrarRotasInspecoes } from './rotas/inspecoes.js'
 import { registrarRotasExecucoes } from './rotas/execucoes.js'
@@ -31,6 +32,7 @@ registrarRotasVeiculos(rotas)
 registrarRotasTemplates(rotas)
 registrarRotasPreventivas(rotas)
 registrarRotasCategorias(rotas)
+registrarRotasNotificacoes(rotas)
 registrarRotasSolicitacoes(rotas)
 registrarRotasOcorrencias(rotas)
 registrarRotasAuditoria(rotas)

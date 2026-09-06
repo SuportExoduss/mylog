@@ -101,6 +101,10 @@ const veiculoA2 = criarVeiculo(empresaA, 'AAA2A22')
 const veiculoB = criarVeiculo(empresaB, 'BBB1B11')
 
 const veiculoA4 = criarVeiculo(empresaA, 'AAA4A44')
+// Carro exclusivo do teste de notificacao critica: os outros acumulam estado
+// (ocorrencia, bloqueio, reserva) ao longo do arquivo, e um teste que depende
+// de "disponivel" nao pode disputar veiculo com os vizinhos.
+const veiculoNotificacao = criarVeiculo(empresaA, 'AAA5A55')
 
 // Categoria de uso: e' o que o colaborador pede (roadmap 10.3). A placa so
 // aparece na liberacao, escolhida pela Frota.
@@ -1623,4 +1627,146 @@ test('dossie de preventiva: colaborador nao abre, e outra empresa nem enxerga', 
     headers: { authorization: `Bearer ${frotaB}` },
   })
   assert.equal(deOutraEmpresa.status, 404)
+})
+
+// ------------------------------------------- criterio: notificacoes
+
+const naoLidas = async (token) =>
+  (await chamar('GET', '/api/notificacoes', { token })).dados.nao_lidas
+
+test('notificacao: pedido novo avisa a frota, e nao avisa quem pediu', async () => {
+  const colaborador = await entrar('vendas.a@teste.local')
+  const frota = await entrar('frota.a@teste.local')
+
+  const antes = await naoLidas(frota)
+  const pedido = await pedir(colaborador, {
+    inicio: daquiAHoras(6000), fim: daquiAHoras(6004),
+    motivo: 'Pedido para conferir a notificacao da frota.',
+  })
+  assert.equal(pedido.status, 200)
+
+  const r = await chamar('GET', '/api/notificacoes', { token: frota })
+  assert.equal(r.dados.nao_lidas, antes + 1)
+  const nova = r.dados.notificacoes[0]
+  assert.match(nova.texto, /pediu um veiculo/)
+  assert.equal(nova.destino, 'solicitacoes')
+  assert.equal(nova.entidade_id, pedido.dados.solicitacao.id)
+  assert.equal(nova.lida_em, null)
+})
+
+test('notificacao: ninguem e avisado da propria acao', async () => {
+  // Receber aviso do que voce mesmo fez e' ruido, e ruido ensina a ignorar o
+  // sino — que e' o pior estrago que uma notificacao pode fazer.
+  const frota = await entrar('frota.a@teste.local')
+  const antes = await naoLidas(frota)
+
+  // A propria frota pede um carro: ela nao deve receber o proprio aviso.
+  await pedir(frota, {
+    inicio: daquiAHoras(6100), fim: daquiAHoras(6104),
+    motivo: 'A frota pedindo carro para si mesma.',
+  })
+
+  const eu = (await chamar('GET', '/api/auth/eu', { token: frota })).dados.usuario
+  const r = await chamar('GET', '/api/notificacoes', { token: frota })
+  const minhas = r.dados.notificacoes.filter((n) => /A frota pedindo|frota.a/.test(n.texto))
+  assert.equal(minhas.length, 0)
+  assert.ok(eu.acessa_painel, 'quem pediu aqui e da frota, e mesmo assim nao se auto-notifica')
+  assert.equal(await naoLidas(frota), antes, 'a caixa dele nao mexeu')
+})
+
+test('notificacao: liberacao e recusa avisam quem pediu', async () => {
+  const colaborador = await entrar('vendas.a@teste.local')
+  const frota = await entrar('frota.a@teste.local')
+
+  const aprovado = await pedir(colaborador, {
+    inicio: daquiAHoras(6200), fim: daquiAHoras(6204), motivo: 'Pedido que sera liberado.',
+  })
+  await liberar(frota, aprovado.dados.solicitacao.id, veiculoA,
+    { motivo_categoria: 'Unico livre na janela.' })
+
+  const recusado = await pedir(colaborador, {
+    inicio: daquiAHoras(6300), fim: daquiAHoras(6304), motivo: 'Pedido que sera recusado.',
+  })
+  await chamar('POST', `/api/solicitacoes/${recusado.dados.solicitacao.id}/recusar`,
+    { token: frota, corpo: { motivo: 'Sem carro nessa data.' } })
+
+  const r = await chamar('GET', '/api/notificacoes', { token: colaborador })
+  const textos = r.dados.notificacoes.map((n) => n.texto).join(' | ')
+  assert.match(textos, /foi liberado: AAA1A11/, 'quem pediu precisa saber QUAL carro')
+  assert.match(textos, /foi recusado: Sem carro nessa data/,
+    'recusa sem aviso deixa a pessoa esperando um carro que nao vem')
+})
+
+test('notificacao: ocorrencia critica no checklist avisa a frota na hora', async () => {
+  const frota = await entrar('frota.a@teste.local')
+  const motorista = await entrar('motorista.a@teste.local')
+  const pedido = await pedir(motorista, {
+    inicio: daquiAHoras(6400), fim: daquiAHoras(6404), motivo: 'Pedido que vai achar defeito grave.',
+  })
+  const liberada = await liberar(frota, pedido.dados.solicitacao.id, veiculoNotificacao,
+    { motivo_categoria: 'Carro reservado para este teste.' })
+  assert.equal(liberada.status, 200, JSON.stringify(liberada.dados))
+
+  const app = await chamar('GET', '/api/app/inicio', { token: motorista })
+  const tarefa = app.dados.tarefas.find((t) => t.solicitacao_id === pedido.dados.solicitacao.id)
+  assert.ok(tarefa, 'a tarefa de saida precisa aparecer para quem pediu')
+
+  // Medido AQUI: o proprio pedido ja gerou uma notificacao para a frota, e
+  // contar desde antes dele mediria duas coisas de uma vez.
+  const antes = await naoLidas(frota)
+
+  await chamar('POST', '/api/inspecoes', {
+    token: motorista,
+    corpo: {
+      cliente_uuid: 'uuid-notif-critica', solicitacao_id: tarefa.solicitacao_id,
+      template_id: tarefa.template_id, momento: 'saida',
+      respostas: {
+        lataria: { desfecho: 'ok', fotos: 1 },
+        pneus: { desfecho: 'ocorrencia', opcao_id: 'liso', fotos: 1 },
+      },
+    },
+  })
+
+  const r = await chamar('GET', '/api/notificacoes', { token: frota })
+  assert.equal(r.dados.nao_lidas, antes + 1)
+  const nova = r.dados.notificacoes[0]
+  assert.equal(nova.nivel, 'critico')
+  assert.match(nova.texto, /BLOQUEADO/, 'quem libera veiculo precisa saber que um parou')
+  assert.equal(nova.destino, 'ocorrencias')
+})
+
+test('notificacao: marcar como lida apaga o ponto, uma ou todas', async () => {
+  const frota = await entrar('frota.a@teste.local')
+  const lista = await chamar('GET', '/api/notificacoes', { token: frota })
+  assert.ok(lista.dados.nao_lidas > 1, 'os testes acima deixaram varias')
+
+  const uma = await chamar('POST', '/api/notificacoes/lidas',
+    { token: frota, corpo: { id: lista.dados.notificacoes[0].id } })
+  assert.equal(uma.dados.nao_lidas, lista.dados.nao_lidas - 1)
+
+  const todas = await chamar('POST', '/api/notificacoes/lidas', { token: frota, corpo: {} })
+  assert.equal(todas.dados.nao_lidas, 0)
+
+  // Lida nao some da lista: quem quer reler, rele.
+  const depois = await chamar('GET', '/api/notificacoes', { token: frota })
+  assert.ok(depois.dados.notificacoes.length > 0)
+  assert.ok(depois.dados.notificacoes.every((n) => n.lida_em))
+})
+
+test('notificacao: a caixa de entrada e de uma pessoa so', async () => {
+  const colaborador = await entrar('vendas.a@teste.local')
+  const frota = await entrar('frota.a@teste.local')
+
+  const doColaborador = await chamar('GET', '/api/notificacoes', { token: colaborador })
+  const alheia = doColaborador.dados.notificacoes[0]
+  assert.ok(alheia, 'o colaborador tem notificacoes proprias')
+
+  // Nem a frota marca a notificacao do outro como lida.
+  const r = await chamar('POST', '/api/notificacoes/lidas',
+    { token: frota, corpo: { id: alheia.id } })
+  assert.equal(r.status, 404)
+})
+
+test('notificacao: sem sessao, nao ha caixa de entrada', async () => {
+  assert.equal((await chamar('GET', '/api/notificacoes')).status, 401)
 })

@@ -115,6 +115,11 @@ export const api = {
 
   auditoria: (filtros) => pedir('GET', comQuery('/api/auditoria', filtros)),
 
+  // ---------------------------------------------------------- notificacoes
+  notificacoes: () => pedir('GET', '/api/notificacoes'),
+  // Sem id, marca todas: e' o "limpar" do sino.
+  marcarLida: (id) => pedir('POST', '/api/notificacoes/lidas', id ? { id } : {}),
+
   // ------------------------------------------------------ categorias de uso
   categorias: (filtros) => pedir('GET', comQuery('/api/categorias', filtros)),
   criarCategoria: (dados) => pedir('POST', '/api/categorias', dados),

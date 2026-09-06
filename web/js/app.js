@@ -9,6 +9,7 @@ import { telaPreventivas } from './preventivas.js'
 import { telaTemplates } from './templates.js'
 import { telaExecucoes } from './execucoes.js'
 import { telaCategorias } from './categorias.js'
+import { montarSino } from './sino.js'
 import { telaUsuarios } from './usuarios.js'
 
 // "frota" = so a equipe da frota alcanca. "todos" = qualquer usuario ativo.
@@ -184,6 +185,10 @@ function exigirTrocaDeSenha() {
   ]))
 }
 
+// O sino vive fora das telas: precisa sobreviver a navegacao, e por isso e'
+// montado uma vez ao entrar e desmontado ao sair.
+let sino = null
+
 function entrarNoApp(usuario) {
   estado.usuario = usuario
   document.getElementById('perfil-nome').textContent = usuario.nome
@@ -192,11 +197,18 @@ function entrarNoApp(usuario) {
   mostrar('tela-app')
 
   if (usuario.deve_trocar_senha) return exigirTrocaDeSenha()
+
+  sino?.parar()
+  sino = montarSino(contexto)
   navegar(location.hash.slice(1) || telaPadrao())
 }
 
 async function encerrarSessao() {
   try { await api.sair() } catch { /* a sessao ja podia estar invalida */ }
+  // Para o relogio do sino: sem isso ele continuaria batendo no servidor
+  // depois do logout, tomando 401 a cada minuto.
+  sino?.parar()
+  sino = null
   estado.usuario = null
   estado.telaAtual = null
   mostrar('tela-login')

@@ -584,7 +584,109 @@ a { color: var(--marca); }
 .perfil-papel { font-size: var(--t-mini); color: var(--texto-fraco); }
 .lateral-acoes { display: flex; gap: var(--e-1); margin-top: var(--e-2); }
 
+/* A coluna da direita virou duas linhas: a barra do sino em cima, o conteudo
+   embaixo. O sino precisa estar em TODA tela, e por isso nao pode morar no
+   cabecalho de cada uma. */
+.painel { display: flex; flex-direction: column; min-height: 100vh; }
+
+.barra-topo {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: var(--e-2);
+  padding: var(--e-3) var(--e-6) 0;
+  max-width: var(--largura-conteudo);
+  width: 100%;
+}
+
 .conteudo { padding: var(--e-5) var(--e-6) var(--e-8); max-width: var(--largura-conteudo); }
+
+/* ----------------------------------------------------------------- sino */
+
+.sino { position: relative; }
+
+.sino-gatilho {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px; height: 38px;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--r-2);
+  color: var(--texto-medio);
+  cursor: pointer;
+  transition: background var(--mov-rapido) var(--mov-curva),
+              color var(--mov-rapido) var(--mov-curva);
+}
+.sino-gatilho:hover { background: var(--superficie-2); color: var(--texto); }
+.sino-gatilho:focus-visible { outline: none; box-shadow: var(--anel-foco); }
+
+/* O ponto vermelho. Sem numero: o que importa e' "tem coisa nova", e um numero
+   grande vira aviso que a pessoa aprende a ignorar. */
+.sino-ponto {
+  position: absolute;
+  top: 6px; right: 7px;
+  width: 9px; height: 9px;
+  background: var(--critico);
+  border: 2px solid var(--fundo);
+  border-radius: 50%;
+}
+
+.sino-lista {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 40;
+  width: min(380px, calc(100vw - var(--e-6) * 2));
+  max-height: 70vh;
+  overflow: auto;
+  background: var(--superficie);
+  border: 1px solid var(--borda);
+  border-radius: var(--r-3);
+  box-shadow: var(--sombra-3);
+  animation: subir var(--mov-rapido) var(--mov-curva);
+}
+
+.sino-topo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--e-2);
+  padding: var(--e-3);
+  border-bottom: 1px solid var(--borda);
+  position: sticky;
+  top: 0;
+  background: var(--superficie);
+}
+.sino-topo strong { font-size: var(--t-pequeno); }
+
+.sino-item {
+  display: block;
+  width: 100%;
+  padding: var(--e-3);
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--borda);
+  border-left: 3px solid transparent;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  color: var(--texto-medio);
+}
+.sino-item:last-child { border-bottom: none; }
+.sino-item:hover { background: var(--superficie-2); }
+
+/* Nao lida ganha a barra na cor do nivel e o texto mais forte. Lida some do
+   destaque mas continua na lista: quem quer reler, rele. */
+.sino-item--nova { color: var(--texto); font-weight: var(--peso-medio); }
+.sino-item--informativo.sino-item--nova { border-left-color: var(--marca); }
+.sino-item--atencao.sino-item--nova { border-left-color: var(--atencao); }
+.sino-item--critico.sino-item--nova { border-left-color: var(--critico); }
+
+.sino-quando { display: block; margin-top: 2px; font-size: var(--t-mini); color: var(--texto-fraco); }
+.sino-vazio { padding: var(--e-5) var(--e-3); text-align: center; color: var(--texto-fraco);
+              font-size: var(--t-pequeno); }
 
 .topo {
   display: flex;

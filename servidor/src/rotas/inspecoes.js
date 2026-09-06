@@ -8,6 +8,7 @@
 import { consultar, consultarUm, executar, novoId, agora, transacao } from '../nucleo/banco.js'
 import { erro } from '../nucleo/http.js'
 import { registrarEvento } from '../nucleo/auditoria.js'
+import { notificarFrota } from '../nucleo/notificacoes.js'
 import { exigirAutenticado } from '../seguranca/sessao.js'
 import { ehFrota } from '../seguranca/nivel.js'
 import { registrarKm, agrava } from './veiculos.js'
@@ -431,6 +432,36 @@ export function registrarRotasInspecoes(rotas) {
           depois: { informado: km, atual: veiculo.km_atual, inspecao: id }, ip: ctx.ip,
         })
       }
+    }
+
+    // Ocorrencia critica para o carro. Quem libera veiculo precisa saber no
+    // momento em que acontece, nao quando abrir o painel — pode haver alguem
+    // esperando esse carro no patio agora.
+    const criticas = juizo.ocorrencias.filter((o) => o.prioridade === 'critica')
+    if (criticas.length) {
+      notificarFrota({
+        empresaId: eu.empresa_id, tipo: 'ocorrencia', nivel: 'critico',
+        texto: `${veiculo.placa}: ${criticas[0].titulo} — ${criticas[0].descricao}`
+          + (juizo.estado_veiculo_previsto === 'bloqueado' ? ' O veiculo foi BLOQUEADO.' : ''),
+        destino: 'ocorrencias', entidadeId: id, exceto: eu.id,
+      })
+    } else if (juizo.ocorrencias.length && juizo.maior_prioridade === 'alta') {
+      notificarFrota({
+        empresaId: eu.empresa_id, tipo: 'ocorrencia', nivel: 'atencao',
+        texto: `${veiculo.placa}: ${juizo.ocorrencias.length} ocorrencia(s), maior prioridade alta.`,
+        destino: 'ocorrencias', entidadeId: id, exceto: eu.id,
+      })
+    }
+
+    // Preventiva encerrada: a Frota precisa saber que o carro voltou da
+    // oficina e que ja existe um proximo alvo agendado.
+    if (preventiva && momento === 'retorno') {
+      notificarFrota({
+        empresaId: eu.empresa_id, tipo: 'preventiva',
+        texto: `Preventiva de ${veiculo.placa} concluida por ${eu.nome}: `
+          + `${juizo.itens_com_manutencao || 0} item(ns) com servico.`,
+        destino: 'preventivas', entidadeId: preventiva.id, exceto: eu.id,
+      })
     }
 
     registrarEvento({
