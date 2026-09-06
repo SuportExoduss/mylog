@@ -1535,6 +1535,7 @@ abertura ao fechamento.
 | Cabeçalhos | CSP em toda resposta, nenhum script embutido, câmera preservada |
 | Painel | O alerta vai ao destino do servidor; o selo abre a lista filtrada |
 | Vocabulário | Todo status do domínio tem rótulo e tom na tela |
+| Nível de acesso | Nenhuma tela do painel é oferecida a quem foi cadastrado como somente aplicativo |
 | **Contrato** | **Forma:** rota, corpo de envio e código de erro conferidos contra o servidor.
   **Significado:** o resultado que o app manda é ignorado, `momento` só aceita dois valores,
   o resumo tem os campos que a tela final lê |
@@ -1545,7 +1546,7 @@ abertura ao fechamento.
 
 ### Onde a cobertura começa e onde termina
 
-São 258 testes em três camadas:
+São 259 testes em três camadas:
 
 | Camada | Arquivo | O que prova |
 |---|---|---|

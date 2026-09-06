@@ -714,3 +714,38 @@ para quem escrever o nativo — não código a copiar, mas uma resposta funciona
 > fila offline (D44) durante a fase do painel. Era trabalho de cliente de campo,
 > e eu devia ter perguntado antes de emendar. Fica — é pequena, testada e não
 > atrapalha —, mas a regra passa a valer daqui em diante.
+
+## D47 — O nível escolhido no cadastro vale na porta do painel
+
+**Contexto.** O `nivel.js` diz, no cabeçalho que define o conceito, *"Colaborador
+— somente aplicativo"*; o roadmap §3 repete na tabela do modelo de acesso, e a
+tabela de camadas atribui o painel à equipe da frota. O shell, porém, marcava
+**três** telas como `quem: 'todos'` — Frota, Solicitações e Checklists feitos —
+e mandava quem não tem painel para Solicitações. A regra valia pela metade, e
+nada acusava.
+
+**Decisão.** O nível é escolhido no cadastro — **total ou somente aplicativo** —
+e vale na porta: quem foi marcado como somente aplicativo não monta o painel. Vê
+o próprio nome, a frase *"seu acesso é pelo aplicativo"* e o link para `/app/`.
+
+**Onde a recusa mora, e por quê.** No **shell**, não no login do servidor.
+Barrar por um campo do corpo seria teatro — bastaria mandar `origem: 'app'` para
+passar — e ainda trancaria, sem explicação, um aplicativo Android que esquecesse
+o campo. O que se restringe é a **interface**, então é a interface que restringe.
+A sessão fica aberta de propósito: o aplicativo a reaproveita, e pedir a senha de
+novo seria castigo por ter errado a porta com a credencial certa.
+
+**Não é segurança, é coerência.** As rotas administrativas já recusam Colaborador
+com 403, e há teste provando. Duas interfaces para a mesma pessoa dobram o que há
+para manter, testar e proteger — e a fase seguinte multiplica cada tela por
+empresa.
+
+**O que se perde, dito por inteiro.** O painel era o único lugar onde um
+Colaborador via os próprios checklists enviados; o PWA não tem essa tela. Não a
+construo lá, porque o PWA está congelado ([D46](#)). Ela é requisito do cliente
+de campo e já está na lista do que o Android precisa implementar
+([API.md §12](API.md)). Até o APK existir, essa consulta fica com a Frota.
+
+> Achado por uma leitura externa do repositório, e confirmado contra os três
+> documentos antes de mexer em qualquer coisa — agir sobre o relato sem conferir
+> teria removido comportamento que talvez fosse proposital.

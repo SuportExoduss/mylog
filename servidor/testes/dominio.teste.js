@@ -600,3 +600,33 @@ test('contrato: todo codigo de erro da tabela existe no servidor', () => {
   assert.deepEqual(inventados, [],
     `codigos documentados que o servidor nunca emite: ${inventados.join(', ')}`)
 })
+
+// ------------------- a regra do nivel de acesso, escrita em tres lugares
+
+// O nivel e' escolhido no cadastro: total, ou somente aplicativo. Isso esta em
+// `nivel.js`, na tabela do modelo de acesso do roadmap, e na tabela de camadas.
+// O shell do painel, porem, marcava tres telas como `quem: 'todos'` e mandava
+// quem nao tem painel para Solicitacoes — a regra valia pela metade, e nada
+// acusava.
+test('acesso: nenhuma tela do painel e oferecida a quem nao tem painel', () => {
+  const raiz = path.join(import.meta.dirname, '..', '..')
+  const ler = (p) => fs.readFileSync(path.join(raiz, p), 'utf8')
+
+  // A regra, lida do documento — nao repetida aqui de cabeca.
+  const roadmap = ler('docs/ROADMAP.md')
+  assert.match(roadmap, /\*\*Colaborador\*\*\s*\|\s*Somente aplicativo/,
+    'o roadmap precisa continuar dizendo que Colaborador e somente aplicativo')
+
+  const app = ler('web/js/app.js')
+  const telas = [...app.matchAll(/\{\s*chave:\s*'([^']+)'[^}]*?quem:\s*'([^']+)'/g)]
+    .map(([, chave, quem]) => ({ chave, quem }))
+  assert.ok(telas.length >= 8, `a varredura precisa achar as telas; achou ${telas.length}`)
+
+  const abertas = telas.filter((t) => t.quem !== 'frota').map((t) => t.chave)
+  assert.deepEqual(abertas, [],
+    `telas oferecidas fora da Frota, contra a regra do cadastro: ${abertas.join(', ')}`)
+
+  // E a porta: o shell tem que recusar quem nao tem painel, em vez de montar.
+  assert.match(app, /if \(!usuario\.acessa_painel\)/,
+    'o shell precisa recusar quem foi cadastrado como somente aplicativo')
+})

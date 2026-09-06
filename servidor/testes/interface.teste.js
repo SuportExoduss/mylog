@@ -798,3 +798,4 @@ test('vocabulario: os estados de execucao que o motor produz sao os que a tela c
     assert.ok(motor.ESTADOS_EXECUCAO.includes(e), `${e} nao esta na lista de estados`)
   }
 })
+

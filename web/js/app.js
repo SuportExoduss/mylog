@@ -12,11 +12,14 @@ import { telaCategorias } from './categorias.js'
 import { montarSino } from './sino.js'
 import { telaUsuarios } from './usuarios.js'
 
-// "frota" = so a equipe da frota alcanca. "todos" = qualquer usuario ativo.
+// Todas as telas sao da Frota: o painel nao admite quem foi cadastrado como
+// somente aplicativo, e a recusa acontece no login (rotas/autenticacao.js).
+// `quem` continua aqui como segunda barreira — se algum dia alguem entrar por
+// um caminho que ninguem previu, nao encontra tela montada.
 const TELAS = [
   { chave: 'painel', rotulo: 'Painel', quem: 'frota', montar: telaPainel },
-  { chave: 'veiculos', rotulo: 'Frota', quem: 'todos', montar: telaVeiculos },
-  { chave: 'solicitacoes', rotulo: 'Solicitacoes', quem: 'todos', montar: telaSolicitacoes },
+  { chave: 'veiculos', rotulo: 'Frota', quem: 'frota', montar: telaVeiculos },
+  { chave: 'solicitacoes', rotulo: 'Solicitacoes', quem: 'frota', montar: telaSolicitacoes },
   { chave: 'ocorrencias', rotulo: 'Ocorrencias', quem: 'frota', montar: telaOcorrencias },
   { chave: 'preventivas', rotulo: 'Preventivas', quem: 'frota', montar: telaPreventivas },
   // "Checklists" abre duas linhas ao passar o mouse (roadmap 11.8). Sao coisas
@@ -24,7 +27,7 @@ const TELAS = [
   // dia; MODELOS e' cadastro, mexido de vez em quando.
   { chave: 'execucoes',
     rotulo: 'Checklists',
-    quem: 'todos',
+    quem: 'frota',
     montar: telaExecucoes,
     filhos: [
       { chave: 'execucoes', rotulo: 'Checklists feitos', dica: 'o que aconteceu' },
@@ -113,7 +116,7 @@ function desenharNavegacao() {
 // Onde cada nivel comeca: a Frota no panorama, o colaborador no que ele veio
 // fazer. Tambem e' o destino quando o #hash guardado nao vale para este usuario.
 function telaPadrao() {
-  return contexto.ehFrota ? 'painel' : 'solicitacoes'
+  return 'painel'
 }
 
 // `voltando` distingue a navegacao que a pessoa pediu da que o navegador
@@ -222,7 +225,36 @@ function exigirTrocaDeSenha() {
 // montado uma vez ao entrar e desmontado ao sair.
 let sino = null
 
+// O nivel de acesso e' escolhido no cadastro: total, ou somente aplicativo
+// (roadmap 3). Quem foi marcado como somente aplicativo errou de porta.
+//
+// A recusa acontece AQUI, no shell, e nao no login do servidor. O token nao
+// pertence a um cliente: barrar por um campo do corpo seria teatro — bastaria
+// mandar `origem: 'app'` para passar — e ainda trancaria, sem explicacao, um
+// aplicativo Android que esquecesse o campo. O que se restringe e' a
+// INTERFACE, entao a interface e' quem restringe.
+//
+// Nao e' seguranca: as rotas administrativas ja recusam com 403, e ha teste
+// provando. E' coerencia — duas interfaces para a mesma pessoa dobram o que ha
+// para manter, testar e proteger, e a fase seguinte multiplica cada tela por
+// empresa.
+function portaErrada(usuario) {
+  mostrar('tela-login')
+  const aviso = document.getElementById('login-aviso')
+  aviso.replaceChildren(
+    `${usuario.nome.split(' ')[0]}, seu acesso e pelo aplicativo. `,
+    elemento('a', { href: '/app/', texto: 'Abrir o aplicativo' }),
+  )
+  aviso.classList.remove('oculto')
+  document.getElementById('form-login').reset()
+  // A sessao fica aberta de proposito: o aplicativo vai reaproveita-la, e
+  // pedir a senha de novo na tela seguinte seria castigo por ter errado a
+  // porta com a credencial certa.
+}
+
 function entrarNoApp(usuario) {
+  if (!usuario.acessa_painel) return portaErrada(usuario)
+
   estado.usuario = usuario
   document.getElementById('perfil-nome').textContent = usuario.nome
   document.getElementById('perfil-papel').textContent =
