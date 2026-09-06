@@ -342,6 +342,43 @@ export function registrarRotasInspecoes(rotas) {
     const ts = agora()
     const km = ctx.corpo.km_informado
 
+    // QUANDO O CHECKLIST ACONTECEU, e nao quando ele chegou.
+    //
+    // `finalizada_em` era carimbado com a hora do recebimento. Num checklist
+    // feito offline isso e' a hora do sincronismo: quem preencheu as 07h50 no
+    // patio e so pegou sinal as 14h aparecia como atrasado, e quem terminou as
+    // 23h50 caia no dia seguinte — some do dia certo e vira falta no relatorio
+    // de quem nao fez. O aparelho ja mandava o instante certo, e o servidor o
+    // descartava. `iniciada_em` ja era aceito; era so `finalizada_em` que faltava.
+    //
+    // Aceitar nao e' confiar cegamente: relogio de celular atrasa, adianta e
+    // pode ser mexido. O instante e' aceito dentro de uma janela sensata e,
+    // fora dela, cai para a hora do recebimento com registro na auditoria —
+    // mesmo tratamento que o KM que nao bate ja recebe.
+    const instanteDoAparelho = (valor, { minimoIso } = {}) => {
+      const bruto = String(valor || '')
+      if (!bruto) return { iso: ts, informado: null }
+      const d = new Date(bruto)
+      if (Number.isNaN(d.getTime())) return { iso: ts, informado: bruto, recusado: 'ilegivel' }
+      const agoraMs = new Date(ts).getTime()
+      // Cinco minutos de folga para relogio adiantado; o futuro nao existe.
+      if (d.getTime() > agoraMs + 5 * 60_000) {
+        return { iso: ts, informado: bruto, recusado: 'no_futuro' }
+      }
+      // Trinta dias e' mais que qualquer fila offline plausivel.
+      if (d.getTime() < agoraMs - 30 * 86400_000) {
+        return { iso: ts, informado: bruto, recusado: 'antigo_demais' }
+      }
+      if (minimoIso && d.getTime() < new Date(minimoIso).getTime()) {
+        return { iso: minimoIso, informado: bruto, recusado: 'antes_do_inicio' }
+      }
+      return { iso: d.toISOString(), informado: bruto }
+    }
+
+    const inicio = instanteDoAparelho(ctx.corpo.iniciada_em)
+    const fim = instanteDoAparelho(ctx.corpo.finalizada_em, { minimoIso: inicio.iso })
+    const relogioSuspeito = [inicio, fim].filter((x) => x.recusado)
+
     transacao(() => {
       // Numero sequencial por empresa: e' o que a operacao cita em voz alta
       // ("confere o 21713016"). Calculado dentro da transacao para dois envios
@@ -358,7 +395,7 @@ export function registrarRotasInspecoes(rotas) {
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'finalizada', ?, ?, ?, ?, ?, ?, ?)`,
         [id, eu.empresa_id, numero, veiculo.id, eu.id, modeloLinha.id,
          solicitacao?.id ?? null, preventiva?.id ?? null,
-         momento, km ?? null, ctx.corpo.iniciada_em || ts, ts,
+         momento, km ?? null, inicio.iso, fim.iso,
          juizo.resultado, assinatura, clienteUuid, ts])
 
       for (const [perguntaId, r] of Object.entries(respostas)) {
@@ -487,6 +524,23 @@ export function registrarRotasInspecoes(rotas) {
       },
       ip: ctx.ip,
     })
+
+    // Relogio do aparelho fora da janela nao derruba a inspecao: ela aconteceu
+    // no mundo. Fica o registro de que a hora informada nao foi usada, para o
+    // caso de alguem perguntar depois por que aquele checklist esta com a hora
+    // da sincronizacao.
+    if (relogioSuspeito.length) {
+      registrarEvento({
+        empresaId: eu.empresa_id, ator: eu, acao: 'inspecao.relogio_recusado',
+        entidade: 'inspecao', entidadeId: id,
+        depois: {
+          recebido_em: ts,
+          iniciada: inicio.recusado ? { informado: inicio.informado, motivo: inicio.recusado } : null,
+          finalizada: fim.recusado ? { informado: fim.informado, motivo: fim.recusado } : null,
+        },
+        ip: ctx.ip,
+      })
+    }
 
     return {
       inspecao: consultarUm('SELECT * FROM inspecoes WHERE id = ?', [id]),

@@ -614,3 +614,30 @@ produção vai exigir inteira.
 
 **Fica em aberto:** o número ainda não entra na auditoria — isso é coluna nova
 em `eventos_auditoria`, e o banco atual não tem mecanismo de migração.
+
+## D43 — A hora do checklist é a do pátio, não a da sincronização
+
+**Contexto.** O servidor gravava `finalizada_em` com a hora do **recebimento**.
+Num checklist feito offline isso é a hora em que o aparelho pegou sinal. O
+aplicativo já mandava o instante certo — e `iniciada_em` já era aceito; só
+`finalizada_em` foi esquecido.
+
+**O estrago.** Quem preencheu às 07h50 no galpão e só pegou rede às 14h
+aparecia como **atrasado**, com prazo das 08h30. Pior: quem terminou às 23h50 e
+sincronizou à meia-noite e dez sumia do dia certo e virava **falta** no relatório
+de quem não fez — uma acusação contra alguém que fez o trabalho.
+
+**Decisão.** O instante vem do aparelho, dentro de uma janela sensata: nada no
+futuro (cinco minutos de folga para relógio adiantado), nada com mais de trinta
+dias (mais que qualquer fila offline plausível), e o fim nunca antes do início —
+duração negativa quebraria o dossiê. Fora da janela, cai para a hora do
+recebimento **com registro na auditoria**, o mesmo tratamento que o KM que não
+bate já recebia.
+
+**Aceitar não é confiar.** Relógio de celular atrasa, adianta e pode ser mexido.
+Mas recusar a inspeção por causa do relógio seria pior: ela aconteceu no mundo.
+
+**Prova.** Três testes. Um envia um checklist das 07h50 com prazo até 08h30 e
+exige `no_prazo`; conferido contra o defeito original. Outro manda uma data três
+dias no futuro e exige que ela seja recusada **e auditada** — esse fica vermelho
+com a correção ingênua, a de confiar cegamente no que o aparelho manda.

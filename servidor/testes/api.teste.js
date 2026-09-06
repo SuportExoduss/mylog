@@ -2283,3 +2283,97 @@ test('freio: varrer muitos emails do mesmo lugar e barrado', async () => {
     zerarFreio()
   }
 })
+
+// ======================= o checklist vale a hora em que foi FEITO
+
+test('offline: a hora do checklist e a do patio, nao a da sincronizacao', async () => {
+  // O caso real: preencheu as 07h50 no galpao sem sinal, so pegou rede as 14h.
+  // O servidor carimbava a hora do recebimento, entao o checklist virava
+  // "atrasado" com prazo das 08h30 — e quem fez no fim da noite caia no dia
+  // seguinte, sumindo do dia certo e virando falta no relatorio de quem nao fez.
+  const frota = await entrar('frota.a@teste.local')
+  const diarista = await entrar('diarista@teste.local', 'diarista2026')
+
+  const app = await chamar('GET', '/api/app/inicio', { token: diarista })
+  const escolhido = app.dados.avulso[0]
+  assert.ok(escolhido, 'o diarista escolhe o carro no galpao: precisa haver um');
+
+  // 07h50 de HOJE, na hora da operacao.
+  const hoje = diaLocal()
+  const inicio = new Date(`${hoje}T07:40:00`)
+  const fim = new Date(`${hoje}T07:50:00`)
+
+  const envio = await chamar('POST', '/api/inspecoes', {
+    token: diarista,
+    corpo: {
+      cliente_uuid: 'uuid-hora-do-patio',
+      template_id: escolhido.templates[0], veiculo_id: escolhido.veiculo.id, momento: 'saida',
+      iniciada_em: inicio.toISOString(),
+      finalizada_em: fim.toISOString(),
+      respostas: { lataria: { desfecho: 'ok' }, pneus: { desfecho: 'ok' } },
+    },
+  })
+  assert.equal(envio.status, 200, JSON.stringify(envio.dados))
+  assert.equal(envio.dados.inspecao.finalizada_em, fim.toISOString(),
+    'o servidor tem que guardar a hora em que a pessoa terminou, nao a do recebimento')
+  assert.equal(envio.dados.inspecao.iniciada_em, inicio.toISOString())
+
+  // E a consequencia que importa: com o prazo das 08h30, isso e' no prazo.
+  const lista = await chamar('GET', `/api/execucoes?de=${hoje}&ate=${hoje}`, { token: frota })
+  const linha = lista.dados.execucoes.find((e) => e.id === envio.dados.inspecao.id)
+  assert.ok(linha, 'o checklist tem que cair no dia em que foi feito')
+  assert.equal(linha.prazo, 'no_prazo',
+    'feito as 07h50 com prazo ate 08h30 nao pode aparecer como atrasado')
+})
+
+test('offline: relogio do aparelho fora da janela cai para a hora do recebimento', async () => {
+  // Relogio de celular atrasa, adianta e pode ser mexido. Aceitar o instante
+  // nao pode virar aceitar qualquer coisa.
+  const frota = await entrar('frota.a@teste.local')
+  const diarista = await entrar('diarista@teste.local', 'diarista2026')
+  const app = await chamar('GET', '/api/app/inicio', { token: diarista })
+  const escolhido = app.dados.avulso[0]
+
+  const daquiATresDias = new Date(Date.now() + 3 * 86400000).toISOString()
+  const envio = await chamar('POST', '/api/inspecoes', {
+    token: diarista,
+    corpo: {
+      cliente_uuid: 'uuid-relogio-no-futuro',
+      template_id: escolhido.templates[0], veiculo_id: escolhido.veiculo.id, momento: 'saida',
+      finalizada_em: daquiATresDias,
+      respostas: { lataria: { desfecho: 'ok' }, pneus: { desfecho: 'ok' } },
+    },
+  })
+  assert.equal(envio.status, 200, 'a inspecao aconteceu no mundo: nao se recusa por causa do relogio')
+  assert.notEqual(envio.dados.inspecao.finalizada_em, daquiATresDias)
+  assert.ok(new Date(envio.dados.inspecao.finalizada_em).getTime() <= Date.now() + 1000,
+    'sem isto, um checklist no futuro nunca apareceria em nenhum filtro de periodo')
+
+  // E fica o rastro de que a hora informada nao foi usada.
+  const auditoria = await chamar('GET', '/api/auditoria?acao=inspecao.relogio_recusado',
+    { token: frota })
+  const evento = auditoria.dados.eventos.find((e) => e.entidade_id === envio.dados.inspecao.id)
+  assert.ok(evento, 'recusar a hora informada sem registrar seria apagar a divergencia')
+  assert.equal(evento.depois.finalizada.motivo, 'no_futuro')
+})
+
+test('offline: terminar antes de comecar nao passa', async () => {
+  const diarista = await entrar('diarista@teste.local', 'diarista2026')
+  const app = await chamar('GET', '/api/app/inicio', { token: diarista })
+  const escolhido = app.dados.avulso[0]
+
+  const inicio = new Date(Date.now() - 3600_000).toISOString()
+  const fimImpossivel = new Date(Date.now() - 7200_000).toISOString()
+  const envio = await chamar('POST', '/api/inspecoes', {
+    token: diarista,
+    corpo: {
+      cliente_uuid: 'uuid-fim-antes-do-inicio',
+      template_id: escolhido.templates[0], veiculo_id: escolhido.veiculo.id, momento: 'saida',
+      iniciada_em: inicio, finalizada_em: fimImpossivel,
+      respostas: { lataria: { desfecho: 'ok' }, pneus: { desfecho: 'ok' } },
+    },
+  })
+  assert.equal(envio.status, 200)
+  assert.equal(envio.dados.inspecao.finalizada_em, inicio,
+    'duracao negativa quebraria o dossie e o calculo de tempo de checklist')
+})
