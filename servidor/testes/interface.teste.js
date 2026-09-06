@@ -726,3 +726,29 @@ test('modelos: a secao padrao continua criando padrao', async () => {
     pedidos.restaurar()
   }
 })
+
+test('sino: marcar todas que falha nao apaga o ponto vermelho', async () => {
+  // Apagar na tela o que o servidor nao marcou faria o aviso sumir e voltar no
+  // minuto seguinte, sem explicacao. O ponto vermelho e' a verdade ate o
+  // servidor confirmar.
+  const chamadas = servidorFalso((caminho) => (caminho.includes('/lidas')
+    ? { status: 500, corpo: { erro: 'erro_interno', mensagem: 'Falha inesperada.' } }
+    : { status: 200, corpo: { nao_lidas: 3, notificacoes: [aviso('n1', 'Preventiva vencida')] } }))
+  const sino = montarSino({ irPara: () => {} })
+  try {
+    await assentar()
+    const ponto = tela.documento.querySelector('.sino-ponto')
+    assert.ok(!ponto.classList.contains('oculto'))
+
+    tela.documento.querySelector('.sino-gatilho').click()
+    botaoPorTexto(tela.documento.body, 'Marcar todas como lidas').click()
+    await assentar()
+
+    assert.ok(!ponto.classList.contains('oculto'),
+      'o servidor recusou: o ponto tem que continuar vermelho')
+    assert.match(tela.documento.querySelector('.sino-lista').textContent, /3 nao lida/)
+  } finally {
+    sino.parar()
+    chamadas.restaurar()
+  }
+})

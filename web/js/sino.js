@@ -113,9 +113,16 @@ export function montarSino(contexto) {
               texto: 'Marcar todas como lidas',
               aoClick: async (evento) => {
                 evento.stopPropagation()
-                const r = await api.marcarLida()
-                naoLidas = r.nao_lidas
-                for (const n of notificacoes) n.lida_em = n.lida_em || new Date().toISOString()
+                try {
+                  const r = await api.marcarLida()
+                  naoLidas = r.nao_lidas
+                  for (const n of notificacoes) n.lida_em = n.lida_em || new Date().toISOString()
+                } catch {
+                  // Falhou: o ponto continua vermelho, que e' a verdade. Marcar
+                  // na tela o que o servidor nao marcou faria o aviso sumir e
+                  // voltar no proximo minuto, sem explicacao.
+                  return
+                }
                 atualizarPonto()
                 desenharLista()
               },

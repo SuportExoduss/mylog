@@ -66,16 +66,31 @@ async function escolherVeiculos(categoria, recarregar) {
     classe: 'campo-dica', texto: `${marcados.size} veiculo(s) nesta categoria`,
   })
 
+  // Este formulario nao passa por `abrirModal`, que trata a falha do servidor
+  // sozinho. Sem o try, uma recusa virava rejeicao nao tratada: o modal ficava
+  // aberto, nada era dito, e a pessoa nao sabia se salvou.
+  const avisoErro = elemento('div', { classe: 'aviso aviso--erro oculto' })
+
   const formulario = elemento('form', {
     classe: 'modal modal--alto',
     aoSubmit: async (evento) => {
       evento.preventDefault()
-      await api.definirVeiculosDaCategoria(categoria.id, [...marcados])
+      avisoErro.classList.add('oculto')
+      try {
+        await api.definirVeiculosDaCategoria(categoria.id, [...marcados])
+      } catch (falha) {
+        // Fica aberto de proposito: fechar apagaria as marcacoes que a pessoa
+        // acabou de fazer, e ela teria que refazer tudo para tentar de novo.
+        avisoErro.textContent = falha.message
+        avisoErro.classList.remove('oculto')
+        return
+      }
       area.replaceChildren()
       notificar(`${marcados.size} veiculo(s) atendem "${categoria.nome}".`)
       await recarregar()
     },
   }, [
+    avisoErro,
     elemento('h3', { texto: `Veiculos de "${categoria.nome}"` }),
     elemento('p', { classe: 'modal-sub',
       texto: 'A Frota so consegue liberar estes carros para quem pedir esta categoria — os outros exigem justificativa.' }),
