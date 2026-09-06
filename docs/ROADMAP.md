@@ -1260,10 +1260,29 @@ Valem para todas as telas de lista:
 | F4.1 — v3.1 | Categoria de uso, checklist diário avulso, ritmo do modelo, checklists feitos e planilha | **feita** |
 | F5 — Preventivas | Agenda por KM/data, reagendamento, alertas | **feita** |
 | F6 — Relatórios | Dossiês de impressão, comparativo, frota | **feita** |
+| F6.1 — v3.2 | Checklist de preventiva, dossie antes x depois, upload de imagem, notificacoes, cobranca de nao realizado | **feita** |
 | F7 — Piloto | Rodar em paralelo com o PROLOG | pendente — depende da empresa |
 | F8 — Migração | Migrar cadastros e histórico útil | pendente — depende da F0 |
 | F9 — Substituição | Homologar e retirar o PROLOG | pendente |
+| **A1 — App Android nativo** | Aplicativo em Android Studio, publicado na Play Store | pendente — contrato em `docs/API.md` |
 | F10 — Evolução | OCR, detecção visual, analytics | futuro |
+
+### Sobre o aplicativo Android
+
+Será escrito **do zero, em Android Studio** — não é o PWA empacotado. O PWA
+continua existindo e funcionando; o nativo é outro cliente do mesmo servidor.
+
+A **API é o contrato entre os dois**, e está documentada em
+[`docs/API.md`](API.md): as quatro rotas que fecham o ciclo de checklist, a
+distinção entre solicitação, preventiva e avulso, a idempotência que faz o
+offline funcionar, e o formato de cada erro.
+
+Duas coisas que o servidor **ainda não tem** e que o app nativo vai pedir:
+
+- **Push.** O servidor não conhece aparelho nenhum. Notificação fora do app
+  exige FCM no cliente e um registro de *device token* no servidor.
+- **Hospedagem com HTTPS.** Hoje o MyLog roda em `localhost`. Um app instalado
+  num celular precisa de um endereço que exista fora da máquina.
 
 Da F1 à F6 o software está escrito e coberto por testes. O que separa o MyLog
 do piloto não é mais código: é a F0 — sentar com quem usa o PROLOG hoje e
