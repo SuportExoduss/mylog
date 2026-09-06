@@ -143,11 +143,13 @@ migração de identidade, não durante: ou o bloqueio passa a ser verificado a c
 chamada na Cloud Function, ou a janela de revogação vira um número aceito e
 documentado.
 
-**Atomicidade acidental.** A aprovação de solicitação revalida o conflito de
-janela antes de gravar, e hoje isso é atômico porque o Node é single-thread e
-não há `await` entre a checagem e a escrita. Cloud Functions roda instâncias
-concorrentes: **a migração destrói essa garantia**. Ela precisa virar transação
-explícita antes da etapa 2.
+**Atomicidade acidental.** Resolvido na etapa 1 pela [D39](DECISOES.md):
+aprovação de reserva, liberação de veículo e encerramento de ocorrência gravam
+estado, efeito e auditoria dentro de uma transação, e `transacao()` usa `BEGIN
+IMMEDIATE` para que a leitura que decide já segure a trava. Continua valendo a
+ressalva: em Cloud Functions a serialização depende do banco, e o Firestore tem
+o próprio modelo de transação — a garantia precisa ser reescrita nele, não
+herdada.
 
 **Fuso horário.** Resolvido na etapa 1 pela [D37](DECISOES.md): o dia é da
 operação, vem de `MYLOG_FUSO`, e não do relógio do processo. Sem isso, subir
@@ -186,9 +188,19 @@ cliente de campo guarda o último branding confirmado para funcionar offline, e
 
 **Segurança.** Isolamento entre empresas provado por teste que chama a API com
 payload manipulado — esconder o recurso na tela não conta. Autorização sempre no
-servidor. Rate limiting em login, troca de senha e upload. CSP, HSTS e demais
-cabeçalhos. Content-Type **real** do arquivo, não o declarado. Segredos fora do
-código. HTTPS obrigatório.
+servidor. CSP, HSTS e demais cabeçalhos. Segredos fora do código. HTTPS
+obrigatório.
+
+Duas coisas já resolvidas na etapa 1, com uma ressalva cada:
+
+- **Content-Type real** ([D38](DECISOES.md)) — o tipo do arquivo sai dos bytes,
+  não do que o cliente declarou. Vale desde já, e passa a valer *mais* quando a
+  foto for servida por URL assinada do R2, sem `nosniff` na frente.
+- **Freio de tentativas** ([D40](DECISOES.md)) — login, troca de senha e
+  varredura por IP. **A contagem vive na memória do processo.** Em Cloud
+  Functions, cada instância teria a própria, e o freio afrouxaria na proporção
+  do número de instâncias: a contagem precisa mudar de lugar junto com o
+  servidor, para Firestore ou equivalente. É item obrigatório da etapa 2.
 
 **Concorrência.** Aprovação, liberação, fechamento de ocorrência, reenvio com o
 mesmo `cliente_uuid` e upload duplicado precisam de operação atômica. A

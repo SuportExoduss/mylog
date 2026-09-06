@@ -3,7 +3,7 @@
 // Nao existe condutor principal nem vinculo usuario-veiculo. Os carros trocam
 // de mao o tempo todo, e o controle de quem pega o carro e' fisico, pelo
 // galpao. Duplicar isso em software so produziria cadastro mentiroso.
-import { consultar, consultarUm, executar, novoId, agora } from '../nucleo/banco.js'
+import { consultar, consultarUm, executar, novoId, agora, transacao } from '../nucleo/banco.js'
 import { erro } from '../nucleo/http.js'
 import { registrarEvento } from '../nucleo/auditoria.js'
 import { exigirAutenticado } from '../seguranca/sessao.js'
@@ -220,12 +220,17 @@ export function registrarRotasVeiculos(rotas) {
       throw erro.requisicao('Informe o motivo para liberar um veiculo bloqueado.')
     }
 
-    executar('UPDATE veiculos SET status = ?, motivo_status = ?, atualizado_em = ? WHERE id = ? AND empresa_id = ?',
-      [novo, motivo, agora(), antes.id, eu.empresa_id])
-    registrarEvento({
-      empresaId: eu.empresa_id, ator: eu, acao: `veiculo.status.${novo}`,
-      entidade: 'veiculo', entidadeId: antes.id,
-      antes: { status: antes.status }, depois: { status: novo, motivo }, ip: ctx.ip,
+    // Liberar um carro bloqueado e registrar quem liberou, com que motivo, sao
+    // um ato so. Um carro que volta a rodar sem essa linha na auditoria e' o
+    // pior estado possivel do sistema.
+    transacao(() => {
+      executar('UPDATE veiculos SET status = ?, motivo_status = ?, atualizado_em = ? WHERE id = ? AND empresa_id = ?',
+        [novo, motivo, agora(), antes.id, eu.empresa_id])
+      registrarEvento({
+        empresaId: eu.empresa_id, ator: eu, acao: `veiculo.status.${novo}`,
+        entidade: 'veiculo', entidadeId: antes.id,
+        antes: { status: antes.status }, depois: { status: novo, motivo }, ip: ctx.ip,
+      })
     })
     return { veiculo: buscarNaEmpresa(eu.empresa_id, antes.id) }
   })

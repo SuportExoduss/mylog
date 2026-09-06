@@ -6,7 +6,7 @@
 import { consultar, consultarUm, executar, novoId, agora, transacao } from '../nucleo/banco.js'
 import { erro } from '../nucleo/http.js'
 import {
-  caminhoDeImagemModelo, gravar, ler, tipoAceito, LIMITE_BYTES,
+  caminhoDeImagemModelo, gravar, ler, tipoRealDe, LIMITE_BYTES,
 } from '../nucleo/storage.js'
 import { registrarEvento } from '../nucleo/auditoria.js'
 import { exigirAutenticado } from '../seguranca/sessao.js'
@@ -246,9 +246,6 @@ export function registrarRotasTemplates(rotas) {
     const eu = exigirFrota(exigirAutenticado(ctx))
     const template = buscarNaEmpresa(eu.empresa_id, ctx.params.id)
 
-    const mime = String(ctx.corpo.tipo_mime || '').toLowerCase()
-    if (!tipoAceito(mime)) throw erro.requisicao('Envie uma imagem JPEG, PNG ou WebP.')
-
     const base64 = String(ctx.corpo.conteudo || '').replace(/^data:[^,]+,/, '')
     if (!base64) throw erro.requisicao('Imagem vazia.')
     const buffer = Buffer.from(base64, 'base64')
@@ -256,6 +253,10 @@ export function registrarRotasTemplates(rotas) {
     if (buffer.length > LIMITE_BYTES) {
       throw erro.requisicao(`Imagem acima do limite de ${Math.round(LIMITE_BYTES / 1024 / 1024)} MB.`)
     }
+
+    // O tipo vem da assinatura do arquivo, nao do que o navegador declarou.
+    const mime = tipoRealDe(buffer)
+    if (!mime) throw erro.requisicao('Envie uma imagem JPEG, PNG ou WebP.')
 
     // O caminho e' derivado aqui, nunca recebido: nome de arquivo vindo do
     // cliente escolheria onde gravar.

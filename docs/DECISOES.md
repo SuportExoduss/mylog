@@ -498,3 +498,73 @@ para não passar por vacuidade. A suíte inteira roda verde sob
 **Fica em aberto:** o fuso é da instalação, não da empresa. Quando o SaaS
 multiempresa existir, ele passa a ser coluna de `empresas` — uma frota em
 Manaus e outra em São Paulo não fecham o dia na mesma hora.
+
+## D38 — Quem diz o que o arquivo é são os bytes
+
+**Contexto.** O `tipo_mime` chegava do aparelho e virava verdade: ia para a
+extensão no disco, para a coluna do banco e para o `content-type` da resposta. A
+conferência olhava só o rótulo. Um arquivo que não é imagem nenhuma entrava no
+acervo de evidências desde que viesse etiquetado como `image/png`.
+
+**Decisão.** O tipo sai da assinatura do conteúdo — três formatos, doze bytes.
+Não é imagem aceita, não entra. **E o byte vence a declaração em vez de
+contradizê-la em erro:** uma foto de verdade com rótulo errado é defeito de
+cliente, não ataque, e recusá-la perderia a evidência que o motorista já tirou.
+O PWA erra exatamente assim — quando o blob sai sem tipo, ele manda
+`image/jpeg` por padrão.
+
+**Por que importa.** Evidência de checklist é prova em acidente e em processo
+trabalhista. E hoje o `nosniff` segura o estrago no navegador; uma URL assinada
+do R2, que é o destino aprovado, não segura.
+
+## D39 — A mudança de estado e o registro dela são um ato só
+
+**Contexto.** Aprovar uma reserva, liberar um veículo bloqueado e encerrar uma
+ocorrência tinham a mesma forma: gravar o novo estado e, **depois**, fora de
+qualquer transação, registrar o evento de auditoria. Uma falha entre as duas
+deixaria o carro entregue — ou liberado — sem nenhuma linha dizendo por quem.
+
+**Decisão.** As três operações passam a gravar estado, efeito e auditoria dentro
+de uma transação. A notificação fica de fora de propósito: um aviso que não sai
+não pode desfazer uma liberação que já aconteceu.
+
+**E `BEGIN IMMEDIATE`, não `BEGIN`.** O `BEGIN` do SQLite é adiado — a trava de
+escrita só é tomada na primeira gravação. Numa transação que lê, decide e então
+grava, dois processos podem ler o mesmo estado, ambos concluírem que podem
+aprovar, e o segundo só descobrir o problema no fim, já tendo decidido sobre
+dados velhos.
+
+**Honestidade sobre o ganho.** Hoje nada disso acontece: o Node é de uma linha
+só e o SQLite aqui é síncrono, então nenhum outro pedido corre no meio. A
+atomicidade existia **por acidente de arquitetura**. O que muda é que ela passa a
+estar escrita — e é a migração para Cloud Functions, com instâncias
+concorrentes, que destruiria a versão acidental.
+
+## D40 — O freio conta pessoas, não tentativas
+
+**Contexto.** O login já tinha freio: oito tentativas por e-mail+IP em quinze
+minutos. Cobria o ataque óbvio — martelar a senha de uma pessoa — e deixava
+passar três outros. Espalhar uma senha por muitos e-mails do mesmo lugar nunca
+repete e-mail, então nunca cruzava o limite. A **troca de senha**, que pede a
+senha atual, não tinha freio nenhum: quem pegasse uma sessão aberta adivinhava à
+vontade. E o mapa de contagens nunca era limpo — uma chave por e-mail tentado é
+memória à disposição de quem quiser gastar a máquina.
+
+**Decisão.** Três frentes: por conta (8), por conta na troca de senha (5), e por
+IP contando **e-mails distintos** que falharam (15).
+
+**A contagem por alvo distinto é o ponto.** Se o freio por IP contasse falhas, a
+segunda-feira de manhã de uma frota atrás de um NAT — quatro pessoas errando a
+própria senha cinco vezes cada — passaria de vinte falhas e trancaria a operação
+inteira às sete da manhã. Contando e-mails distintos, são quatro, e nada
+acontece. A varredura de credencial vazada tem a forma oposta: uma senha só,
+muitos e-mails, e é ela que o limite pega.
+
+**Consequência.** O erro passa a ser **429**, não 400: o pedido está correto, o
+que sobra é a frequência, e o cliente precisa distinguir "você errou a senha" de
+"pare de tentar". A mensagem diz quantos minutos faltam, porque "tente mais
+tarde" faz a pessoa tentar de novo agora.
+
+**Fica em aberto:** a contagem vive na memória do processo. Em Cloud Functions,
+cada instância teria a própria, e o freio afrouxaria na proporção do número de
+instâncias. A contagem precisa mudar de lugar junto com o servidor.

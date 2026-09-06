@@ -443,6 +443,7 @@ Checklist de outra pessoa na mesma empresa dá **403**; de outra empresa dá
 | 403 | `troca_de_senha_obrigatoria` | Tela de troca de senha |
 | 404 | `nao_encontrado` | Registro não existe **nesta empresa** |
 | 409 | `conflito` | Estado mudou no servidor → recarregar e mostrar `mensagem` |
+| 429 | `muitas_tentativas` | Freio de tentativas. A `mensagem` diz em quantos minutos volta — **não** tente de novo em seguida |
 
 As mensagens são em português e escritas para o usuário final. Mostrá-las é
 melhor do que traduzir para "erro ao salvar".
@@ -450,6 +451,11 @@ melhor do que traduzir para "erro ao salvar".
 **409 no envio de checklist** quase sempre significa que a solicitação mudou de
 estado enquanto o aparelho estava offline. Não descarte a inspeção da fila sem
 mostrar o que aconteceu.
+
+**429 é erro de frequência, não de conteúdo.** Aparece no login e na troca de
+senha. A fila offline deve tratá-lo como erro temporário — espera crescente,
+nunca reenvio imediato —, e a tela deve mostrar a mensagem em vez de repetir o
+pedido, porque cada repetição só empurra o prazo para frente.
 
 ---
 

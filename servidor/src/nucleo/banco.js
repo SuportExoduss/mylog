@@ -40,9 +40,23 @@ export function executar(sql, params = []) {
   return abrirBanco().prepare(sql).run(...params)
 }
 
+// BEGIN IMMEDIATE, nao BEGIN.
+//
+// O `BEGIN` simples do SQLite e' adiado: a trava de escrita so e' tomada na
+// primeira gravacao. Numa transacao que LE, decide e entao grava — que e' a
+// forma de toda decisao critica daqui (aprovar reserva, liberar veiculo,
+// encerrar ocorrencia) — dois processos podem ler o mesmo estado, os dois
+// concluirem que podem gravar, e o segundo so descobrir o problema na hora de
+// subir a trava. `IMMEDIATE` toma a trava na abertura e serializa de verdade.
+//
+// Hoje isso nao muda nada: o Node e' de uma linha so e o SQLite aqui e'
+// sincrono, entao nenhum outro pedido corre no meio. Muda no dia em que houver
+// mais de um processo — cluster, ou as Cloud Functions do destino aprovado.
+// A garantia existe hoje por acidente de arquitetura; aqui ela passa a estar
+// escrita.
 export function transacao(fn) {
   const banco = abrirBanco()
-  banco.exec('BEGIN')
+  banco.exec('BEGIN IMMEDIATE')
   try {
     const r = fn()
     banco.exec('COMMIT')

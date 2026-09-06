@@ -15,6 +15,9 @@ export const erro = {
   permissao: (m) => new ErroHttp(403, 'sem_permissao', m),
   naoEncontrado: (m) => new ErroHttp(404, 'nao_encontrado', m),
   conflito: (m) => new ErroHttp(409, 'conflito', m),
+  // 429 e nao 400: o pedido esta correto, o que sobra e' a frequencia. O
+  // cliente precisa distinguir "voce errou a senha" de "pare de tentar".
+  excedeu: (m) => new ErroHttp(429, 'muitas_tentativas', m),
 }
 
 // Uma foto comprimida do app fica em ~300 KB; em base64, ~400 KB. O teto

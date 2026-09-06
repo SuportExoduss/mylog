@@ -4,7 +4,7 @@
 // respondida como Ocorrencia, quando a opcao de problema escolhida esta
 // marcada como "abrir ocorrencia: sim". A prioridade vem do modelo, nao e'
 // digitada na hora.
-import { consultar, consultarUm, executar, agora } from '../nucleo/banco.js'
+import { consultar, consultarUm, executar, agora, transacao } from '../nucleo/banco.js'
 import { erro } from '../nucleo/http.js'
 import { registrarEvento } from '../nucleo/auditoria.js'
 import { notificar } from '../nucleo/notificacoes.js'
@@ -93,25 +93,31 @@ export function registrarRotasOcorrencias(rotas) {
       throw erro.requisicao('Descreva o que foi feito para resolver.')
     }
 
+    // Tres gravacoes que sao um ato so: a transicao, o efeito dela sobre o
+    // veiculo e o registro de quem decidiu. Encerrar uma ocorrencia e deixar o
+    // carro em "com pendencia" por causa de uma falha no meio seria pior que
+    // nao ter encerrado.
     const ts = agora()
-    executar(
-      `UPDATE ocorrencias SET status = ?, resolucao = COALESCE(?, resolucao),
-              resolvida_em = CASE WHEN ? = 'resolvida' AND resolvida_em IS NULL THEN ? ELSE resolvida_em END
-        WHERE id = ? AND empresa_id = ?`,
-      [novo, resolucao, novo, ts, antes.id, eu.empresa_id])
+    transacao(() => {
+      executar(
+        `UPDATE ocorrencias SET status = ?, resolucao = COALESCE(?, resolucao),
+                resolvida_em = CASE WHEN ? = 'resolvida' AND resolvida_em IS NULL THEN ? ELSE resolvida_em END
+          WHERE id = ? AND empresa_id = ?`,
+        [novo, resolucao, novo, ts, antes.id, eu.empresa_id])
 
-    // Fechada a ultima ocorrencia aberta, o veiculo sai de "com pendencia"
-    // sozinho — a pendencia era consequencia dela. Bloqueio e manutencao nao
-    // saem por aqui: liberar veiculo bloqueado continua sendo decisao
-    // explicita da Frota, com motivo (roadmap 9.3).
-    if (['resolvida', 'encerrada'].includes(novo)) {
-      reavaliarPendencia(eu.empresa_id, antes.veiculo_id, { ator: eu, ip: ctx.ip })
-    }
+      // Fechada a ultima ocorrencia aberta, o veiculo sai de "com pendencia"
+      // sozinho — a pendencia era consequencia dela. Bloqueio e manutencao nao
+      // saem por aqui: liberar veiculo bloqueado continua sendo decisao
+      // explicita da Frota, com motivo (roadmap 9.3).
+      if (['resolvida', 'encerrada'].includes(novo)) {
+        reavaliarPendencia(eu.empresa_id, antes.veiculo_id, { ator: eu, ip: ctx.ip })
+      }
 
-    registrarEvento({
-      empresaId: eu.empresa_id, ator: eu, acao: `ocorrencia.${novo}`,
-      entidade: 'ocorrencia', entidadeId: antes.id,
-      antes: { status: antes.status }, depois: { status: novo, resolucao }, ip: ctx.ip,
+      registrarEvento({
+        empresaId: eu.empresa_id, ator: eu, acao: `ocorrencia.${novo}`,
+        entidade: 'ocorrencia', entidadeId: antes.id,
+        antes: { status: antes.status }, depois: { status: novo, resolucao }, ip: ctx.ip,
+      })
     })
     return { ocorrencia: buscarNaEmpresa(eu.empresa_id, antes.id) }
   })

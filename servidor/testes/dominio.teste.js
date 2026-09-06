@@ -6,12 +6,13 @@ import path from 'node:path'
 import os from 'node:os'
 import { execFileSync } from 'node:child_process'
 import { pathToFileURL } from 'node:url'
+import { DatabaseSync } from 'node:sqlite'
 
 // Banco proprio por execucao: o teste nunca toca no banco de desenvolvimento.
 const bancoTemp = path.join(os.tmpdir(), `mylog-teste-${Date.now()}.db`)
 process.env.MYLOG_BANCO = bancoTemp
 
-const { abrirBanco, executar, consultar, consultarUm, novoId, agora, fecharBanco } =
+const { abrirBanco, executar, consultar, consultarUm, novoId, agora, transacao, fecharBanco } =
   await import('../src/nucleo/banco.js')
 const { avaliarPreventiva, avaliarPreventivas, diasEntre } =
   await import('../src/nucleo/preventivas.js')
@@ -386,4 +387,55 @@ test('relogio: fuso invalido derruba a partida, nao a primeira consulta', () => 
       encoding: 'utf8', stdio: 'pipe',
     })
   }, /./)
+})
+
+// ---------------------------------------------- transacao das decisoes criticas
+
+// Aprovar uma reserva, liberar um veiculo bloqueado e encerrar uma ocorrencia
+// tem a mesma forma: LE o estado, decide, e entao GRAVA — a mudanca e o registro
+// dela na auditoria. Se as duas gravacoes nao forem um ato so, existe um estado
+// em que o carro foi entregue e nao ha linha nenhuma dizendo por quem.
+
+test('transacao: ou grava tudo, ou nao grava nada', () => {
+  const idA = novoId('empresa')
+  const idB = novoId('empresa')
+  assert.throws(() => transacao(() => {
+    executar('INSERT INTO empresas (id, nome, criado_em, atualizado_em) VALUES (?, ?, ?, ?)',
+      [idA, 'Meia', agora(), agora()])
+    executar('INSERT INTO empresas (id, nome, criado_em, atualizado_em) VALUES (?, ?, ?, ?)',
+      [idB, 'Gravada', agora(), agora()])
+    throw new Error('falha depois de gravar')
+  }))
+  assert.ok(!consultarUm('SELECT id FROM empresas WHERE id = ?', [idA]),
+    'a primeira gravacao tinha que ter voltado atras')
+  assert.ok(!consultarUm('SELECT id FROM empresas WHERE id = ?', [idB]))
+})
+
+test('transacao: com outro escritor na frente, falha ANTES de decidir qualquer coisa', () => {
+  // E' o que separa BEGIN de BEGIN IMMEDIATE. Com o BEGIN adiado, a trava so e'
+  // tomada na primeira gravacao: dois processos leem o mesmo estado, os dois
+  // concluem que podem aprovar, e o segundo so descobre o problema no fim —
+  // ja tendo decidido sobre dados velhos. Com IMMEDIATE ele nem comeca.
+  //
+  // Hoje isso nao acontece: o Node e' de uma linha so. Comeca a acontecer no
+  // dia em que houver mais de um processo — cluster, ou Cloud Functions.
+  const rival = new DatabaseSync(bancoTemp)
+  rival.exec('PRAGMA journal_mode = WAL')
+  rival.exec('BEGIN IMMEDIATE')
+  rival.prepare('INSERT INTO empresas (id, nome, criado_em, atualizado_em) VALUES (?, ?, ?, ?)')
+    .run(novoId('empresa'), 'Rival', agora(), agora())
+
+  let decidiu = false
+  try {
+    assert.throws(() => transacao(() => {
+      decidiu = true
+      executar('INSERT INTO empresas (id, nome, criado_em, atualizado_em) VALUES (?, ?, ?, ?)',
+        [novoId('empresa'), 'Tardia', agora(), agora()])
+    }), /./)
+    assert.equal(decidiu, false,
+      'com BEGIN adiado o corpo rodaria e so falharia no commit, ja tendo decidido')
+  } finally {
+    rival.exec('ROLLBACK')
+    rival.close()
+  }
 })

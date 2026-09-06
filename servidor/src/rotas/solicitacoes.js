@@ -260,21 +260,27 @@ export function registrarRotasSolicitacoes(rotas) {
         `Este veiculo nao atende a categoria pedida (${antes.categoria_nome}). Explique o porque para liberar assim mesmo.`)
     }
 
+    // A atribuicao e o registro dela sao um ato so. Fora da transacao, uma
+    // falha ao gravar a auditoria deixaria o carro entregue sem rastro — e
+    // rastro de quem entregou qual carro a quem e' o motivo de a auditoria
+    // existir.
     const ts = agora()
-    executar(
-      `UPDATE solicitacoes SET status = 'aprovada', veiculo_id = ?, motivo_categoria = ?,
-              aprovada_por = ?, aprovada_em = ?, atualizado_em = ?
-        WHERE id = ? AND empresa_id = ?`,
-      [veiculo.id, daCategoria ? null : motivoCategoria, eu.id, ts, ts, antes.id, eu.empresa_id])
-    registrarEvento({
-      empresaId: eu.empresa_id, ator: eu, alvoId: antes.solicitante_id, acao: 'solicitacao.aprovada',
-      entidade: 'solicitacao', entidadeId: antes.id,
-      depois: {
-        numero: antes.numero, placa: veiculo.placa, modelo: veiculo.modelo,
-        categoria_pedida: antes.categoria_nome,
-        fora_da_categoria: !daCategoria, motivo_categoria: daCategoria ? null : motivoCategoria,
-      },
-      ip: ctx.ip,
+    transacao(() => {
+      executar(
+        `UPDATE solicitacoes SET status = 'aprovada', veiculo_id = ?, motivo_categoria = ?,
+                aprovada_por = ?, aprovada_em = ?, atualizado_em = ?
+          WHERE id = ? AND empresa_id = ?`,
+        [veiculo.id, daCategoria ? null : motivoCategoria, eu.id, ts, ts, antes.id, eu.empresa_id])
+      registrarEvento({
+        empresaId: eu.empresa_id, ator: eu, alvoId: antes.solicitante_id, acao: 'solicitacao.aprovada',
+        entidade: 'solicitacao', entidadeId: antes.id,
+        depois: {
+          numero: antes.numero, placa: veiculo.placa, modelo: veiculo.modelo,
+          categoria_pedida: antes.categoria_nome,
+          fora_da_categoria: !daCategoria, motivo_categoria: daCategoria ? null : motivoCategoria,
+        },
+        ip: ctx.ip,
+      })
     })
     // Quem pediu precisa saber QUAL carro: e' o que ele vai procurar no patio.
     notificar({

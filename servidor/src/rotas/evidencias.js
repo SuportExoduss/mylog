@@ -9,7 +9,7 @@ import { erro } from '../nucleo/http.js'
 import { registrarEvento } from '../nucleo/auditoria.js'
 import { exigirAutenticado } from '../seguranca/sessao.js'
 import { ehFrota } from '../seguranca/nivel.js'
-import { caminhoDe, gravar, ler, tipoAceito, LIMITE_BYTES } from '../nucleo/storage.js'
+import { caminhoDe, gravar, ler, tipoRealDe, LIMITE_BYTES } from '../nucleo/storage.js'
 
 function inspecaoDoUsuario(empresaId, inspecaoId, usuario) {
   const inspecao = consultarUm(
@@ -29,18 +29,27 @@ export function registrarRotasEvidencias(rotas) {
     const inspecao = inspecaoDoUsuario(eu.empresa_id, ctx.params.id, eu)
 
     const perguntaId = String(ctx.corpo.pergunta_id || '').trim()
-    const mime = String(ctx.corpo.tipo_mime || '').toLowerCase()
     const base64 = String(ctx.corpo.conteudo || '')
 
     if (!perguntaId) throw erro.requisicao('Informe a pergunta da evidencia.')
-    if (!tipoAceito(mime)) throw erro.requisicao('Tipo de imagem nao aceito.')
     if (!base64) throw erro.requisicao('Conteudo da imagem ausente.')
 
-    let buffer
-    try { buffer = Buffer.from(base64, 'base64') } catch { throw erro.requisicao('Conteudo invalido.') }
+    // `Buffer.from(..., 'base64')` nunca levanta: descarta o que nao reconhece.
+    // Quem reprova conteudo invalido e' a assinatura do arquivo, logo abaixo.
+    const buffer = Buffer.from(base64, 'base64')
     if (!buffer.length) throw erro.requisicao('Conteudo vazio.')
     if (buffer.length > LIMITE_BYTES) {
       throw erro.requisicao(`Imagem acima do limite de ${Math.round(LIMITE_BYTES / 1048576)} MB.`)
+    }
+
+    // O tipo sai dos BYTES, nao do que o aparelho declarou. O declarado entra
+    // so no aviso, para o defeito do cliente aparecer em vez de virar um
+    // arquivo mentiroso no acervo de evidencias.
+    const mime = tipoRealDe(buffer)
+    if (!mime) {
+      const declarado = String(ctx.corpo.tipo_mime || 'nao informado').toLowerCase()
+      throw erro.requisicao(
+        `O arquivo enviado nao e' uma imagem JPEG, PNG ou WebP (declarado: ${declarado}).`)
     }
 
     // Idempotencia: reenvio da mesma foto (mesmo id do aparelho) nao duplica.

@@ -1479,11 +1479,14 @@ abertura ao fechamento.
 | Auditoria | Eventos aparecem e não são apagados |
 | **Isolamento** | **Leitura, escrita, lista, exportação e caixa de entrada, com identificador de outra empresa** |
 | Relógio | O dia da operação não muda com o fuso do servidor |
+| Upload | O tipo sai dos bytes; rótulo errado é corrigido, não-imagem é recusada |
+| Transação | Tudo ou nada, e a trava tomada na abertura |
+| Freio | Conta, troca de senha, e varredura por IP sem punir o escritório |
 | Performance | Painel com volume e sincronização concorrente |
 
 ### Onde a cobertura começa e onde termina
 
-São 222 testes em três camadas:
+São 227 testes em três camadas:
 
 | Camada | Arquivo | O que prova |
 |---|---|---|

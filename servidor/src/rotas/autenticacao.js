@@ -13,34 +13,12 @@ import {
   cabecalhoCookie, cabecalhoCookieVazio, exigirSessao,
 } from '../seguranca/sessao.js'
 import { perfilPublico } from '../seguranca/nivel.js'
+import { conferirFreio, contarFalha, contarAlvo, limparFreio, LIMITES } from '../seguranca/freio.js'
 
 const MOTIVO_STATUS = {
   bloqueado: 'Acesso revogado. Procure a equipe da frota.',
   suspenso: 'Acesso suspenso. Procure a equipe da frota.',
   desativado: 'Cadastro encerrado.',
-}
-
-// Freio simples de forca bruta, por email+ip, em memoria.
-const tentativas = new Map()
-const JANELA_MS = 15 * 60 * 1000
-const LIMITE = 8
-
-function conferirFreio(chave) {
-  const registro = tentativas.get(chave)
-  if (!registro) return
-  if (Date.now() - registro.desde > JANELA_MS) { tentativas.delete(chave); return }
-  if (registro.contagem >= LIMITE) {
-    throw erro.requisicao('Muitas tentativas. Aguarde alguns minutos e tente de novo.')
-  }
-}
-
-function contarFalha(chave) {
-  const registro = tentativas.get(chave)
-  if (!registro || Date.now() - registro.desde > JANELA_MS) {
-    tentativas.set(chave, { contagem: 1, desde: Date.now() })
-  } else {
-    registro.contagem += 1
-  }
 }
 
 function carregarComCargo(id) {
@@ -57,8 +35,14 @@ export function registrarRotasAutenticacao(rotas) {
     const origem = ctx.corpo.origem === 'app' ? 'app' : 'web'
     if (!email || !senha) throw erro.requisicao('Informe email e senha.')
 
-    const chaveFreio = `${email}|${ctx.ip}`
-    conferirFreio(chaveFreio)
+    // Duas contagens, dois ataques diferentes. A por email+ip pega quem
+    // martela a senha de UMA pessoa. A por ip conta EMAILS DISTINTOS que
+    // falharam ali, e pega quem espalha uma senha por muitas contas — que
+    // passaria folgado pela primeira, porque nunca repete o mesmo email.
+    const chaveFreio = `login|${email}|${ctx.ip}`
+    const chaveIp = `ip|${ctx.ip}`
+    conferirFreio(chaveIp, LIMITES.loginPorIp)
+    conferirFreio(chaveFreio, LIMITES.login)
 
     const usuario = consultarUm(
       `SELECT u.*, c.nome AS cargo_nome FROM usuarios u
@@ -68,6 +52,7 @@ export function registrarRotasAutenticacao(rotas) {
 
     if (!usuario || !senhaConfere) {
       contarFalha(chaveFreio)
+      contarAlvo(chaveIp, email)
       if (usuario) {
         registrarEvento({
           empresaId: usuario.empresa_id, alvoId: usuario.id, acao: 'login.falha',
@@ -76,6 +61,10 @@ export function registrarRotasAutenticacao(rotas) {
       }
       throw erro.autenticacao('Email ou senha invalidos.')
     }
+
+    // Acertou: a contagem dela zera. Sem isto, quem errou sete vezes e acertou
+    // na oitava ficaria a um erro do bloqueio pelos quinze minutos seguintes.
+    limparFreio(chaveFreio)
 
     // Bloqueado, suspenso e desativado nao entram de jeito nenhum.
     // Pendente entra — mas so alcanca a troca de senha.
@@ -90,7 +79,6 @@ export function registrarRotasAutenticacao(rotas) {
       throw recusa
     }
 
-    tentativas.delete(chaveFreio)
     const { token, expira } = criarSessao(usuario, origem)
     ctx.res.setHeader('set-cookie', cabecalhoCookie(token, expira))
     registrarEvento({
@@ -126,10 +114,21 @@ export function registrarRotasAutenticacao(rotas) {
     const atual = String(ctx.corpo.senha_atual || '')
     const nova = String(ctx.corpo.senha_nova || '')
 
+    // A troca pede a senha ATUAL, e nao tinha freio: quem pegasse uma sessao
+    // aberta poderia adivinhar a senha atual a vontade e assumir a conta.
+    const chaveFreio = `senha|${usuario.id}`
+    conferirFreio(chaveFreio, LIMITES.senha)
+
     const completo = carregarComCargo(usuario.id)
     if (!conferirSenha(atual, completo.senha_hash, completo.senha_salt)) {
+      contarFalha(chaveFreio)
+      registrarEvento({
+        empresaId: completo.empresa_id, alvoId: completo.id, acao: 'senha.atual_incorreta',
+        entidade: 'usuario', entidadeId: completo.id, ip: ctx.ip,
+      })
       throw erro.autenticacao('Senha atual incorreta.')
     }
+    limparFreio(chaveFreio)
     const problema = validarForcaSenha(nova)
     if (problema) throw erro.requisicao(problema)
     if (nova === atual) throw erro.requisicao('A nova senha precisa ser diferente da atual.')

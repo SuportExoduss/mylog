@@ -198,17 +198,52 @@ test('evidencia: a foto sobe e o reenvio da mesma foto nao duplica', async () =>
   assert.equal(lista.dados.evidencias.length, 1, 'reenvio nao pode criar segunda evidencia')
 })
 
-test('evidencia: tipo nao aceito, conteudo vazio e pergunta ausente sao recusados', async () => {
+// Um PDF e uma pagina com script, os dois se dizendo PNG. Antes eram aceitos:
+// a conferencia olhava so o rotulo que o cliente mandou.
+const PDF = 'JVBERi0xLjQKMSAwIG9iajw8L1R5cGUvQ2F0YWxvZz4+ZW5kb2JqCnRyYWlsZXI8PC9Sb290IDEgMCBSPj4='
+const PAGINA_COM_SCRIPT = 'PCFkb2N0eXBlIGh0bWw+PHNjcmlwdD5hbGVydChkb2N1bWVudC5jb29raWUpPC9zY3JpcHQ+eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eA=='
+
+test('evidencia: o que decide o tipo sao os bytes, nao o que o cliente declarou', async () => {
+  // Evidencia de checklist e' prova em acidente e em processo trabalhista. Um
+  // arquivo que nao e' imagem nenhuma nao pode entrar no acervo so porque o
+  // remetente disse que era.
   const { motorista, tarefa } = await prepararTarefa(veiculo2, 910)
   const inspecao = await enviarInspecao(motorista, tarefa, 'saida',
     { lataria: { desfecho: 'ok' }, pneus: { desfecho: 'ok' } })
 
-  const recusa = async (corpo) =>
-    (await chamar('POST', `/api/inspecoes/${inspecao}/evidencias`, { token: motorista, corpo })).status
+  const enviar = async (corpo) =>
+    chamar('POST', `/api/inspecoes/${inspecao}/evidencias`, { token: motorista, corpo })
 
-  assert.equal(await recusa({ cliente_id: 'a', pergunta_id: 'lataria', tipo_mime: 'application/pdf', conteudo: PNG }), 400)
-  assert.equal(await recusa({ cliente_id: 'b', pergunta_id: 'lataria', tipo_mime: 'image/png', conteudo: '' }), 400)
-  assert.equal(await recusa({ cliente_id: 'c', tipo_mime: 'image/png', conteudo: PNG }), 400)
+  // Nao e' imagem: barrado, mesmo jurando que e' PNG.
+  const comPdf = await enviar(
+    { cliente_id: 'pdf', pergunta_id: 'lataria', tipo_mime: 'image/png', conteudo: PDF })
+  assert.equal(comPdf.status, 400)
+  assert.match(comPdf.dados.mensagem, /nao e' uma imagem/i)
+
+  const comScript = await enviar(
+    { cliente_id: 'script', pergunta_id: 'lataria', tipo_mime: 'image/jpeg', conteudo: PAGINA_COM_SCRIPT })
+  assert.equal(comScript.status, 400)
+
+  // Imagem de verdade com rotulo errado passa, e o rotulo e' corrigido. Uma
+  // foto mal rotulada e' defeito de cliente, nao ataque — e recusa-la perderia
+  // a evidencia que o motorista ja tirou. O PWA manda 'image/jpeg' por padrao
+  // quando o blob sai sem tipo, entao isso acontece de verdade.
+  const rotuloErrado = await enviar(
+    { cliente_id: 'rotulo', pergunta_id: 'lataria', tipo_mime: 'application/pdf', conteudo: PNG })
+  assert.equal(rotuloErrado.status, 200, JSON.stringify(rotuloErrado.dados))
+  assert.equal(rotuloErrado.dados.evidencia.tipo_mime, 'image/png',
+    'o banco tem que guardar o que o arquivo E, nao o que disseram que ele era')
+
+  // E o `content-type` servido tambem sai dos bytes: e' o mesmo cabecalho que
+  // um dia vai sair de uma URL assinada, sem `nosniff` na frente.
+  const baixada = await bruto(`/api/evidencias/${rotuloErrado.dados.evidencia.id}`, motorista)
+  assert.equal(baixada.headers.get('content-type'), 'image/png')
+
+  // As recusas que ja existiam continuam de pe.
+  assert.equal((await enviar(
+    { cliente_id: 'vazio', pergunta_id: 'lataria', tipo_mime: 'image/png', conteudo: '' })).status, 400)
+  assert.equal((await enviar(
+    { cliente_id: 'sem_pergunta', tipo_mime: 'image/png', conteudo: PNG })).status, 400)
 })
 
 test('evidencia: a imagem nao e publica — passa por sessao e por tenant', async () => {

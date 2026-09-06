@@ -2172,3 +2172,114 @@ test('isolamento: notificacao de outra pessoa nao pode ser marcada como lida', a
   const depois = consultarUm('SELECT lida_em FROM notificacoes WHERE id = ?', [alvo.notificacao])
   assert.equal(depois.lida_em, null, '"marcar todas" atravessou a fronteira da empresa')
 })
+
+// ============================================== freio de tentativas repetidas
+
+const { zerarFreio, LIMITES } = await import('../src/seguranca/freio.js')
+
+test('freio: a troca de senha tem limite — sessao roubada nao adivinha a conta', async () => {
+  // A rota pede a senha ATUAL e nao tinha freio nenhum. Quem pegasse uma sessao
+  // aberta — celular esquecido destravado no patio — poderia chutar a senha
+  // atual a vontade ate assumir a conta de vez.
+  const frota = await entrar('frota.a@teste.local')
+  const criado = await chamar('POST', '/api/usuarios', {
+    token: frota,
+    corpo: {
+      nome: 'Alvo do Freio', cpf: '33344455508', email: 'freio.senha@teste.local',
+      telefone: '(31) 90000-0099', cargo_id: cgMotoristaA, acessa_painel: false,
+    },
+  })
+  assert.equal(criado.status, 200, JSON.stringify(criado.dados))
+  const vitima = await entrar('freio.senha@teste.local', criado.dados.senha_inicial)
+
+  try {
+    const chutar = (senha_atual) => chamar('POST', '/api/auth/senha',
+      { token: vitima, corpo: { senha_atual, senha_nova: 'SenhaNova#2026' } })
+
+    for (let i = 0; i < LIMITES.senha; i += 1) {
+      const r = await chutar(`chute-${i}`)
+      assert.equal(r.status, 401, `tentativa ${i + 1} devia ser recusada por senha errada`)
+    }
+
+    const barrada = await chutar('mais-um-chute')
+    assert.equal(barrada.status, 429, 'depois do limite, para de responder ao chute')
+    assert.equal(barrada.dados.erro, 'muitas_tentativas')
+    assert.match(barrada.dados.mensagem, /minuto/)
+
+    // A senha certa tambem para. E' o preco de travar a conta, e ele so e' pago
+    // por quem ja esta com uma sessao aberta na mao.
+    const comASenhaCerta = await chutar(criado.dados.senha_inicial)
+    assert.equal(comASenhaCerta.status, 429)
+
+    // Passada a janela, volta ao normal — o freio segura, nao mata a conta.
+    zerarFreio()
+    const depois = await chutar(criado.dados.senha_inicial)
+    assert.equal(depois.status, 200, JSON.stringify(depois.dados))
+  } finally {
+    zerarFreio()
+  }
+})
+
+test('freio: a segunda-feira de manha do escritorio nao parece um ataque', async () => {
+  // A frota inteira sai do mesmo IP. Algumas pessoas erram a propria senha
+  // algumas vezes cada — quatro pessoas, cinco erros: vinte falhas, mais que o
+  // limite por IP. Se ele contasse FALHAS, a operacao inteira travava as 7h.
+  // Contando EMAILS DISTINTOS, sao quatro, e nada acontece.
+  const atrapalhados = [
+    'motorista.a@teste.local', 'vendas.a@teste.local',
+    'mecanico.a@teste.local', 'pendente.a@teste.local',
+  ]
+  const ERROS_CADA = 5
+  assert.ok(atrapalhados.length * ERROS_CADA > LIMITES.loginPorIp,
+    'o cenario precisa passar do limite por IP em FALHAS, senao nao distingue as duas contagens')
+  assert.ok(ERROS_CADA < LIMITES.login, 'e ficar abaixo do limite por conta')
+
+  try {
+    for (const email of atrapalhados) {
+      for (let i = 0; i < ERROS_CADA; i += 1) {
+        const r = await chamar('POST', '/api/auth/login', { corpo: { email, senha: `errada-${i}` } })
+        assert.equal(r.status, 401, `${email} devia so falhar, ainda dentro do limite da conta`)
+      }
+    }
+
+    // O colega seguinte, no mesmo IP, entra normalmente.
+    const colega = await chamar('POST', '/api/auth/login',
+      { corpo: { email: 'frota.a@teste.local', senha: SENHA } })
+    assert.equal(colega.status, 200,
+      'vinte erros de quatro pessoas nao podem trancar a quinta')
+
+    // E quem errou tambem entra, assim que acertar.
+    const acertou = await chamar('POST', '/api/auth/login',
+      { corpo: { email: 'vendas.a@teste.local', senha: SENHA } })
+    assert.equal(acertou.status, 200)
+  } finally {
+    zerarFreio()
+  }
+})
+
+test('freio: varrer muitos emails do mesmo lugar e barrado', async () => {
+  // A assinatura da credencial vazada e' o contrario da anterior: uma senha so,
+  // espalhada por centenas de contas. Nunca repete email, entao o freio por
+  // conta nunca dispara — quem tem que ver isso e' a contagem por IP, e ela
+  // conta EMAILS DISTINTOS.
+  try {
+    for (let i = 0; i < LIMITES.loginPorIp; i += 1) {
+      const r = await chamar('POST', '/api/auth/login',
+        { corpo: { email: `varredura-${i}@teste.local`, senha: 'senha123' } })
+      assert.equal(r.status, 401, `o email ${i} devia so falhar, ainda dentro do limite`)
+    }
+
+    // Email novo, primeira tentativa dele: barrado pelo IP, nao pela conta.
+    const barrado = await chamar('POST', '/api/auth/login',
+      { corpo: { email: 'varredura-nova@teste.local', senha: 'senha123' } })
+    assert.equal(barrado.status, 429)
+
+    // E o freio por IP nao deixa nem quem sabe a senha entrar daquele lugar
+    // enquanto a varredura estiver em curso.
+    const legitimo = await chamar('POST', '/api/auth/login',
+      { corpo: { email: 'frota.a@teste.local', senha: SENHA } })
+    assert.equal(legitimo.status, 429)
+  } finally {
+    zerarFreio()
+  }
+})

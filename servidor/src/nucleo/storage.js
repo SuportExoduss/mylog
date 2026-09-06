@@ -12,15 +12,43 @@ import path from 'node:path'
 import crypto from 'node:crypto'
 import { config } from './config.js'
 
-const TIPOS_ACEITOS = new Set(['image/jpeg', 'image/png', 'image/webp'])
 const EXTENSAO = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' }
+
+// Quem decide o tipo do arquivo sao os BYTES, nao o cliente.
+//
+// O `tipo_mime` chegava do aparelho e virava verdade: ia para o nome no disco,
+// para a coluna do banco e para o `content-type` da resposta. Evidencia de
+// checklist e' prova em acidente e em processo trabalhista — um arquivo que nao
+// e' imagem nenhuma nao pode entrar no acervo so porque o remetente disse que
+// era. O PWA ate ajuda a errar sem ma fe: quando o blob sai sem tipo, ele manda
+// 'image/jpeg' por padrao.
+//
+// Doze bytes bastam para os tres formatos aceitos.
+const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+
+const ASSINATURAS = [
+  { mime: 'image/jpeg', casa: (b) => b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff },
+  { mime: 'image/png', casa: (b) => b.subarray(0, 8).equals(PNG) },
+  { mime: 'image/webp',
+    casa: (b) => b.subarray(0, 4).toString('latin1') === 'RIFF'
+              && b.subarray(8, 12).toString('latin1') === 'WEBP' },
+]
+
+// O tipo que o conteudo realmente e', ou null se nao for imagem aceita.
+//
+// O byte vence a declaracao em vez de contradize-la em erro: uma foto de
+// verdade rotulada errado e' defeito de cliente, nao ataque, e recusa-la
+// perderia a evidencia que o motorista ja tirou. O que nao passa e' o que nao
+// e' imagem.
+export function tipoRealDe(buffer) {
+  if (!Buffer.isBuffer(buffer) || buffer.length < 12) return null
+  return ASSINATURAS.find((a) => a.casa(buffer))?.mime ?? null
+}
 
 // Abaixo do teto do corpo JSON: base64 cresce ~33%.
 export const LIMITE_BYTES = 4 * 1024 * 1024
 
-export function tipoAceito(mime) {
-  return TIPOS_ACEITOS.has(String(mime || '').toLowerCase())
-}
+
 
 // O caminho e' derivado, nunca recebido do cliente: id vindo do aparelho nao
 // pode escolher onde o arquivo vai parar.
