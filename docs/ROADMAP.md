@@ -1551,6 +1551,7 @@ abertura ao fechamento.
 | Vocabulário | Todo status do domínio tem rótulo e tom na tela |
 | Nível de acesso | Nenhuma tela do painel é oferecida a quem foi cadastrado como somente aplicativo |
 | Transições | O que a tela oferece é exatamente o que o servidor aceita |
+| Limite de lista | A consulta tem teto, a resposta o declara, e a tela avisa quando cortou |
 | **Contrato** | **Forma:** rota, corpo de envio e código de erro conferidos contra o servidor.
   **Significado:** o resultado que o app manda é ignorado, `momento` só aceita dois valores,
   o resumo tem os campos que a tela final lê |
@@ -1561,7 +1562,7 @@ abertura ao fechamento.
 
 ### Onde a cobertura começa e onde termina
 
-São 261 testes em três camadas:
+São 262 testes em três camadas:
 
 | Camada | Arquivo | O que prova |
 |---|---|---|

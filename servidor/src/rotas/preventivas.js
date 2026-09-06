@@ -12,6 +12,13 @@ import { exigirFrota } from '../seguranca/nivel.js'
 import { avaliarPreventiva, avaliarPreventivas, descreverFolga } from '../nucleo/preventivas.js'
 import { encerrarCiclo } from '../nucleo/ciclo_preventiva.js'
 
+// Teto da consulta. Uma frota de setenta carros passa de mil pedidos no
+// primeiro ano; sem teto, a tela baixa o historico inteiro e monta uma
+// tabela de milhares de linhas para alguem que queria ver os de hoje.
+// O mesmo formato de /api/execucoes: a resposta diz `total` e `limite`, e a
+// tela avisa quando cortou em vez de mentir que aquilo e tudo.
+const LIMITE_PAGINA = 500
+
 const MODOS = ['km', 'data']
 const DATA_ISO = /^\d{4}-\d{2}-\d{2}$/
 
@@ -97,9 +104,10 @@ export function registrarRotasPreventivas(rotas) {
     // Vencida primeiro: o painel e' fila de acao, nao ordem alfabetica.
     sql += ` ORDER BY CASE p.status
                WHEN 'vencida' THEN 0 WHEN 'muito_proxima' THEN 1 WHEN 'proxima' THEN 2
-               WHEN 'em_dia' THEN 3 ELSE 4 END, v.placa`
+               WHEN 'em_dia' THEN 3 ELSE 4 END, v.placa LIMIT ${LIMITE_PAGINA}`
 
-    return { preventivas: consultar(sql, params).map(enriquecer) }
+    const linhas = consultar(sql, params).map(enriquecer)
+    return { preventivas: linhas, total: linhas.length, limite: LIMITE_PAGINA }
   })
 
   // --------------------------------------------------------------- detalhe

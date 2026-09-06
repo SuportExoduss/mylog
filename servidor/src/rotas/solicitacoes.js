@@ -10,6 +10,13 @@ import { notificar, notificarFrota } from '../nucleo/notificacoes.js'
 import { exigirAutenticado } from '../seguranca/sessao.js'
 import { exigirFrota, ehFrota } from '../seguranca/nivel.js'
 
+// Teto da consulta. Uma frota de setenta carros passa de mil pedidos no
+// primeiro ano; sem teto, a tela baixa o historico inteiro e monta uma
+// tabela de milhares de linhas para alguem que queria ver os de hoje.
+// O mesmo formato de /api/execucoes: a resposta diz `total` e `limite`, e a
+// tela avisa quando cortou em vez de mentir que aquilo e tudo.
+const LIMITE_PAGINA = 500
+
 export const STATUS_SOLICITACAO = [
   'pendente', 'aprovada', 'recusada', 'em_uso',
   'devolvida', 'devolvida_com_atraso', 'cancelada',
@@ -93,9 +100,15 @@ export function registrarRotasSolicitacoes(rotas) {
     // Pendente de aprovacao primeiro; depois em uso; depois por janela.
     sql += ` ORDER BY CASE s.status
                WHEN 'pendente' THEN 0 WHEN 'em_uso' THEN 1 WHEN 'aprovada' THEN 2 ELSE 3 END,
-             s.janela_inicio`
+             s.janela_inicio LIMIT ${LIMITE_PAGINA}`
 
-    return { solicitacoes: consultar(sql, params).map(comAtraso), vejo_todas: vejoTudo }
+    const linhas = consultar(sql, params).map(comAtraso)
+    return {
+      solicitacoes: linhas,
+      total: linhas.length,
+      limite: LIMITE_PAGINA,
+      vejo_todas: vejoTudo,
+    }
   })
 
   // Veiculos livres numa janela. Quem consulta e' a FROTA, na hora de liberar:

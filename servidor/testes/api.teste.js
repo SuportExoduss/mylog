@@ -2585,3 +2585,26 @@ test('devolucao: a Frota registra quando o motorista nao pode', async () => {
   assert.equal(veiculo.dados.veiculo.status, 'disponivel')
 })
 
+
+test('limite: lista grande e cortada, e a resposta diz que cortou', async () => {
+  // Uma frota de setenta carros passa de mil pedidos no primeiro ano. Sem teto,
+  // a tela baixa o historico inteiro e monta uma tabela de milhares de linhas
+  // para alguem que queria ver os de hoje — e pior, sem dizer que aquilo nao e'
+  // tudo. Lista cortada em silencio faz quem olha concluir que viu o total.
+  const frota = await entrar('frota.a@teste.local')
+
+  for (const [nome, caminho, chave] of [
+    ['solicitacoes', '/api/solicitacoes?status=todas', 'solicitacoes'],
+    ['ocorrencias', '/api/ocorrencias?status=todas', 'ocorrencias'],
+    ['preventivas', '/api/preventivas?historico=1', 'preventivas'],
+  ]) {
+    const r = await chamar('GET', caminho, { token: frota })
+    assert.equal(r.status, 200, `${nome}: ${JSON.stringify(r.dados)}`)
+    assert.ok(Number.isInteger(r.dados.limite) && r.dados.limite > 0,
+      `${nome}: a resposta precisa dizer qual e o teto`)
+    assert.equal(r.dados.total, r.dados[chave].length,
+      `${nome}: total tem que ser o tamanho do que veio`)
+    assert.ok(r.dados[chave].length <= r.dados.limite,
+      `${nome}: veio mais linha que o teto declarado`)
+  }
+})

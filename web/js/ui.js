@@ -137,6 +137,17 @@ export const TOM_STATUS_PREVENTIVA = {
   vencida: 's-critico', realizada: 's-neutro',
 }
 
+// Aviso de lista cortada. O servidor devolve `total` e `limite`; quando batem,
+// a lista NAO e' tudo o que existe — e uma tela que nao diz isso mente por
+// omissao: quem olha conclui que aquilo e' o total.
+export function avisoDeCorte({ total, limite }, oQue, comoEstreitar) {
+  if (!limite || total < limite) return null
+  return elemento('div', { classe: 'aviso aviso--info' }, [
+    elemento('strong', { texto: `Mostrando ${total} ${oQue} — o limite da tela. ` }),
+    comoEstreitar,
+  ])
+}
+
 export function selo(texto, tom = 's-neutro') {
   return elemento('span', { classe: `selo ${tom}`, texto })
 }

@@ -2,7 +2,7 @@
 // Duas telas irmas: uma trata o que deu errado, a outra prova o que aconteceu.
 import { api } from './api.js'
 import {
-  elemento, cabecalhoTela, tabela, selo, vazio, abrirModal, notificar, dataCurta, menuAcoes,
+  elemento, cabecalhoTela, tabela, selo, vazio, avisoDeCorte, abrirModal, notificar, dataCurta, menuAcoes,
   ROTULO_STATUS_OCORRENCIA, TOM_STATUS_OCORRENCIA, ROTULO_PRIORIDADE, TOM_PRIORIDADE,
 } from './ui.js'
 
@@ -177,8 +177,11 @@ export async function telaOcorrencias(raiz, contexto) {
   const areaLista = elemento('div', {})
 
   async function recarregar() {
-    const { ocorrencias } = await api.ocorrencias(filtros)
-    areaLista.replaceChildren(desenhar(ocorrencias))
+    const r = await api.ocorrencias(filtros)
+    areaLista.replaceChildren(...[
+      avisoDeCorte(r, 'ocorrencias', 'Filtre por situacao ou prioridade para ver o resto.'),
+      desenhar(r.ocorrencias),
+    ].filter(Boolean))
   }
 
   function desenhar(ocorrencias) {

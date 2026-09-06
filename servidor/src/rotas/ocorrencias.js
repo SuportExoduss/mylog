@@ -13,6 +13,13 @@ import { exigirFrota } from '../seguranca/nivel.js'
 import { PRIORIDADES } from '../../../compartilhado/template.js'
 import { reavaliarPendencia } from './veiculos.js'
 
+// Teto da consulta. Uma frota de setenta carros passa de mil pedidos no
+// primeiro ano; sem teto, a tela baixa o historico inteiro e monta uma
+// tabela de milhares de linhas para alguem que queria ver os de hoje.
+// O mesmo formato de /api/execucoes: a resposta diz `total` e `limite`, e a
+// tela avisa quando cortou em vez de mentir que aquilo e tudo.
+const LIMITE_PAGINA = 500
+
 export const STATUS_OCORRENCIA = ['aberta', 'em_tratamento', 'resolvida', 'encerrada']
 
 const TRANSICOES = {
@@ -53,9 +60,10 @@ export function registrarRotasOcorrencias(rotas) {
     // com risco alto e' o que precisa de resposta.
     sql += ` ORDER BY CASE o.prioridade
                WHEN 'critica' THEN 0 WHEN 'alta' THEN 1 WHEN 'media' THEN 2 ELSE 3 END,
-             o.aberta_em`
+             o.aberta_em LIMIT ${LIMITE_PAGINA}`
 
-    return { ocorrencias: consultar(sql, params) }
+    const linhas = consultar(sql, params)
+    return { ocorrencias: linhas, total: linhas.length, limite: LIMITE_PAGINA }
   })
 
   rotas.get('/api/ocorrencias/:id', async (ctx) => {

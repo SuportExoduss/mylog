@@ -2,7 +2,7 @@
 // perguntas: o que esta vencido, e o que vence em breve.
 import { api } from './api.js'
 import {
-  elemento, cabecalhoTela, tabela, selo, vazio, abrirModal, notificar, numero, dataCurta, menuAcoes,
+  elemento, cabecalhoTela, tabela, selo, vazio, avisoDeCorte, abrirModal, notificar, numero, dataCurta, menuAcoes,
   ROTULO_STATUS_PREVENTIVA, TOM_STATUS_PREVENTIVA,
 } from './ui.js'
 
@@ -191,8 +191,11 @@ export async function telaPreventivas(raiz, contexto) {
   const areaLista = elemento('div', {})
 
   async function recarregar() {
-    const { preventivas } = await api.preventivas(filtros)
-    areaLista.replaceChildren(desenhar(preventivas))
+    const r = await api.preventivas(filtros)
+    areaLista.replaceChildren(...[
+      avisoDeCorte(r, 'preventivas', 'Filtre por situacao para ver o resto.'),
+      desenhar(r.preventivas),
+    ].filter(Boolean))
   }
 
   function desenhar(preventivas) {

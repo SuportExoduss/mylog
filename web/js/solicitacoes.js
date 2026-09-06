@@ -10,7 +10,7 @@
 // pe no patio sem saber o que pegar.
 import { api } from './api.js'
 import {
-  elemento, cabecalhoTela, tabela, selo, vazio, abrirModal, notificar, menuAcoes, dataHora,
+  elemento, cabecalhoTela, tabela, selo, vazio, avisoDeCorte, abrirModal, notificar, menuAcoes, dataHora,
   ROTULO_STATUS_SOLICITACAO, TOM_STATUS_SOLICITACAO,
 } from './ui.js'
 
@@ -262,8 +262,11 @@ export async function telaSolicitacoes(raiz, contexto) {
   const areaLista = elemento('div', {})
 
   async function recarregar() {
-    const { solicitacoes, vejo_todas } = await api.solicitacoes(filtros)
-    areaLista.replaceChildren(desenhar(solicitacoes, vejo_todas))
+    const r = await api.solicitacoes(filtros)
+    areaLista.replaceChildren(...[
+      avisoDeCorte(r, 'solicitacoes', 'Filtre por situacao para ver o resto.'),
+      desenhar(r.solicitacoes, r.vejo_todas),
+    ].filter(Boolean))
   }
 
   // Enquanto o pedido nao foi liberado, a coluna do veiculo mostra o que foi
