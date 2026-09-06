@@ -5,6 +5,7 @@ import { exigirAutenticado } from '../seguranca/sessao.js'
 import { exigirFrota } from '../seguranca/nivel.js'
 import { avaliarPreventivas } from '../nucleo/preventivas.js'
 import { quemNaoFez, venceu } from '../nucleo/cobranca.js'
+import { diaLocal } from '../nucleo/relogio.js'
 
 function contarPorChave(linhas) {
   const saida = {}
@@ -64,9 +65,7 @@ export function registrarRotasPainel(rotas) {
     // uma acusacao que o proprio sistema pode ter que retirar — bastaria o
     // checklist subir da fila offline dez minutos depois.
     const agoraLocal = new Date()
-    const p2 = (n) => String(n).padStart(2, '0')
-    const hojeLocal = `${agoraLocal.getFullYear()}-${p2(agoraLocal.getMonth() + 1)}-${p2(agoraLocal.getDate())}`
-    const cobranca = quemNaoFez(empresa, hojeLocal)
+    const cobranca = quemNaoFez(empresa, diaLocal(agoraLocal))
     // So cobra depois do prazo. Antes disso a pessoa nao esta devendo nada —
     // esta trabalhando.
     const vencidos = cobranca.faltantes.filter((f) => venceu(f, agoraLocal))

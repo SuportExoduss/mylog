@@ -10,15 +10,15 @@
 // quatro.
 import { consultar } from './banco.js'
 import { cargoLiberado, obrigatorioNoDia, classificarExecucao } from '../../../compartilhado/template.js'
+import { bordaDoDia, diaSemanaDe, minutosLocais } from './relogio.js'
 
-// Bordas do dia em hora LOCAL, convertidas para UTC. O banco guarda UTC, mas
+// Bordas do dia da OPERACAO, convertidas para UTC. O banco guarda UTC, mas
 // "o dia de ontem" e' o dia de quem pergunta (mesma razao do filtro em 11.9).
 function bordasDoDia(data) {
-  const [ano, mes, dia] = data.split('-').map(Number)
   return {
-    inicio: new Date(ano, mes - 1, dia, 0, 0, 0, 0).toISOString(),
-    fim: new Date(ano, mes - 1, dia, 23, 59, 59, 999).toISOString(),
-    objeto: new Date(ano, mes - 1, dia, 12, 0, 0),
+    inicio: bordaDoDia(data),
+    fim: bordaDoDia(data, true),
+    diaSemana: diaSemanaDe(data),
   }
 }
 
@@ -35,7 +35,7 @@ function modelosDoDia(empresaId, data) {
       cargos: JSON.parse(t.cargos_liberados),
       dias_semana: JSON.parse(t.dias_semana || '[]'),
     }))
-    .filter((t) => obrigatorioNoDia(t, data.objeto))
+    .filter((t) => obrigatorioNoDia(t, data.diaSemana))
 }
 
 // Quem e' cobrado: ativo, usa veiculo todos os dias, e tem cargo liberado em
@@ -95,5 +95,6 @@ export function quemNaoFez(empresaId, dataIso) {
 // tipo de alarme falso que faz a operacao parar de olhar o painel.
 export function venceu(faltante, agora = new Date()) {
   if (!faltante.horario_limite) return false
-  return classificarExecucao({ horario_limite: faltante.horario_limite }, agora) === 'atrasado'
+  return classificarExecucao(
+    { horario_limite: faltante.horario_limite }, minutosLocais(agora)) === 'atrasado'
 }

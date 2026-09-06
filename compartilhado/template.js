@@ -90,26 +90,32 @@ export function conferirPeriodicidade(modelo = {}) {
   return { valido: true }
 }
 
-// O modelo e' obrigatorio nesta data? Recebe a data pronta — nada de ler o
-// relogio aqui (ver cabecalho deste arquivo).
-export function obrigatorioNoDia(modelo = {}, data) {
+// O modelo e' obrigatorio neste dia da semana? Recebe o NUMERO do dia (0 =
+// domingo), ja resolvido por quem sabe qual e' o fuso da operacao.
+//
+// Recebia um `Date` antes. Parecia inofensivo, mas `data.getDay()` le o fuso do
+// processo: o mesmo instante era sexta no servidor em Sao Paulo e sabado no
+// servidor em UTC — e sabado nao cobra ninguem. O motor nao pode ter opiniao
+// sobre onde ele esta rodando.
+export function obrigatorioNoDia(modelo = {}, diaSemana) {
   const p = modelo.periodicidade || 'avulso'
   if (p === 'avulso') return false
   if (p === 'mensal' || p === 'semanal') return true   // a janela e' maior que o dia
-  return (modelo.dias_semana || []).includes(data.getDay())
+  return (modelo.dias_semana || []).includes(diaSemana)
 }
 
 // Classifica uma execucao que ACONTECEU. A falta de execucao e' outro assunto:
 // quem sabe que era esperado e nao veio e' quem tem a lista de quem devia
 // fazer, e isso vive no servidor.
-export function classificarExecucao(modelo = {}, finalizadaEm) {
+// Recebe MINUTOS desde a meia-noite da operacao, nao um `Date`: `getHours()`
+// respondia conforme o fuso do processo, e um checklist das 07h50 em Sao Paulo
+// virava 10h50 — atrasado — num servidor em UTC.
+export function classificarExecucao(modelo = {}, minutosDoDia) {
   const limite = modelo.horario_limite
   if (!limite || !HORARIO.test(String(limite))) return 'no_prazo'
-  const d = finalizadaEm instanceof Date ? finalizadaEm : new Date(finalizadaEm)
-  if (Number.isNaN(d.getTime())) return 'no_prazo'
+  if (!Number.isFinite(minutosDoDia)) return 'no_prazo'
   const [h, m] = String(limite).split(':').map(Number)
-  const minutosFeito = d.getHours() * 60 + d.getMinutes()
-  return minutosFeito <= h * 60 + m ? 'no_prazo' : 'atrasado'
+  return minutosDoDia <= h * 60 + m ? 'no_prazo' : 'atrasado'
 }
 
 export const ESTADOS_EXECUCAO = ['no_prazo', 'atrasado', 'nao_realizado']

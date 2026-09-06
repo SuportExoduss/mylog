@@ -5,6 +5,7 @@ uso operacional do PROLOG: a web e' o centro de supervisao e credenciais, o
 Android e' o posto de execucao de checklist.
 
 Especificacao-mestra: `MyLog_Roadmap_Completo.docx`.
+Arquitetura de destino: [`docs/ARQUITETURA.md`](docs/ARQUITETURA.md).
 Decisoes tecnicas e o porque de cada uma: [`docs/DECISOES.md`](docs/DECISOES.md).
 
 ## Duas frentes
@@ -26,20 +27,26 @@ npm run semear   # cria o banco de desenvolvimento com dados de exemplo
 npm start        # http://localhost:4000
 ```
 
-Credenciais da semente:
+Credenciais da semente — todas com a senha `mylog123`. Sao dados de
+desenvolvimento: a semente nao roda fora de `MYLOG_AMBIENTE=desenvolvimento`.
 
-| Papel | Email | Senha | Observacao |
+| Nivel | Email | Cargo | Observacao |
 |---|---|---|---|
-| Administrador | `adm@mylog.local` | `mylog123` | acesso total |
-| Supervisor | `supervisao@mylog.local` | `mylog123` | nao libera credencial |
-| Colaborador | `carlos@mylog.local` | `mylog123` | sem acesso ao painel |
-| Pendente | `rita@mylog.local` | `mylog123` | nao entra ate ser liberada |
-| Bloqueado | `bruno@mylog.local` | `mylog123` | acesso revogado |
+| Frota | `adm@mylog.local` | Equipe de frota | acessa o painel |
+| Frota | `marina@mylog.local` | Manutencao | acessa o painel |
+| Colaborador | `carlos@mylog.local` | Motorista | usa carro todo dia: checklist avulso |
+| Colaborador | `rita@mylog.local` | Vendas | pede carro: tem saida e retorno |
+| Colaborador | `joao@mylog.local` | Tecnico | pendente: cai na troca de senha |
+| Colaborador | `bruno@mylog.local` | Motorista | bloqueado: nao entra |
+
+Sao dois niveis de acesso, nao cinco papeis: Frota (`acessa_painel`) e
+Colaborador. **Cargo nao e' permissao** — ele decide quais modelos de checklist
+aparecem, e nada mais.
 
 Testes das regras de dominio:
 
 ```bash
-cd servidor && npm test
+cd servidor && npm run testar
 ```
 
 ## Estrutura
@@ -105,8 +112,11 @@ docs/
 
 ## Producao — pendente antes de qualquer piloto
 
-- [ ] Trocar SQLite por PostgreSQL (ver D2 em `docs/DECISOES.md`)
+- [ ] Subir a pilha de producao — Firebase Hosting, Authentication, Firestore,
+      Cloud Functions e Cloudflare R2 (ver `docs/ARQUITETURA.md`)
 - [ ] Definir `MYLOG_SEGREDO` e `MYLOG_AMBIENTE=producao` (o servidor recusa subir sem isso)
+- [ ] Conferir `MYLOG_FUSO` — o fuso da operacao, nao o da maquina. Padrao
+      `America/Sao_Paulo`; e' ele que decide onde termina o dia (D37)
 - [ ] HTTPS na frente (o cookie so ganha `Secure` fora de desenvolvimento)
 - [ ] Rotina de backup testada **com restauracao**, nao so com copia
 - [ ] Politica de retencao de fotos por empresa

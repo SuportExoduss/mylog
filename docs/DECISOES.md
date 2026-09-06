@@ -467,3 +467,34 @@ extensão que não exista responde **404 em texto puro**.
 **Consequência.** Erro de caminho passa a falhar alto e no lugar certo. E um
 manifesto ou uma imagem com nome errado deixa de virar uma página inteira
 guardada no cache do service worker.
+
+## D37 — O dia é da operação, não da máquina
+
+**Contexto.** "Hoje", "até as 08:30" e "o dia 03" eram respondidos pelo fuso do
+sistema operacional: `getDate()`, `getHours()`, `new Date(ano, mes, dia)`. Isso
+funciona por acidente enquanto o servidor roda na mesma cidade da frota. No dia
+em que ele subisse para uma nuvem em UTC — que é o destino aprovado — o filtro
+de período, o "hoje" do painel, o horário limite, a obrigação diária e a
+cobrança de quem não fez mudariam de resposta **todos juntos, em três horas, e
+sem nenhum erro**. Um checklist das 07h50 apareceria como 10h50, atrasado.
+
+**Decisão.** O fuso é da **operação** e entra por `MYLOG_FUSO`
+(padrão `America/Sao_Paulo`). Todo cálculo de dia e de hora passa por
+`nucleo/relogio.js`, que usa `Intl.DateTimeFormat` com `timeZone` — já dentro do
+Node, sem dependência, e conhecendo horário de verão. Nome de fuso inválido
+derruba a partida, não a primeira consulta.
+
+**Consequência no motor.** `obrigatorioNoDia` passou a receber o **número** do
+dia da semana e `classificarExecucao`, os **minutos** desde a meia-noite da
+operação. Recebiam `Date`, e um `Date` carrega junto o fuso de quem o
+construiu — o motor não pode ter opinião sobre onde está rodando. É a entrada
+explícita que a revisão de arquitetura exige do domínio.
+
+**Prova.** Um teste roda a mesma pergunta em processos filhos com `TZ` diferente
+e exige resposta idêntica; ele também afirma que o **jeito antigo diverge**,
+para não passar por vacuidade. A suíte inteira roda verde sob
+`America/Sao_Paulo`, `UTC` e `Asia/Tokyo`.
+
+**Fica em aberto:** o fuso é da instalação, não da empresa. Quando o SaaS
+multiempresa existir, ele passa a ser coluna de `empresas` — uma frota em
+Manaus e outra em São Paulo não fecham o dia na mesma hora.

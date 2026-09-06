@@ -10,6 +10,7 @@ import { erro } from '../nucleo/http.js'
 import { exigirAutenticado } from '../seguranca/sessao.js'
 import { exigirFrota, ehFrota } from '../seguranca/nivel.js'
 import { classificarExecucao, MOMENTOS } from '../../../compartilhado/template.js'
+import { bordaDoDia, diaLocal, minutosLocais, dataHoraLocal } from '../nucleo/relogio.js'
 import { quemNaoFez, venceu } from '../nucleo/cobranca.js'
 
 const LIMITE_PAGINA = 500
@@ -23,28 +24,15 @@ const LIMITE_PAGINA = 500
 // (UTC-3), montar a borda como "AAAA-MM-DDT00:00:00Z" jogaria tudo que foi
 // feito depois das 21h para o dia seguinte — tres horas de todo dia caindo no
 // balde errado, justamente o fim de turno.
-function bordaLocal(data, fimDoDia) {
-  const [ano, mes, dia] = data.split('-').map(Number)
-  return fimDoDia
-    ? new Date(ano, mes - 1, dia, 23, 59, 59, 999).toISOString()
-    : new Date(ano, mes - 1, dia, 0, 0, 0, 0).toISOString()
-}
-
-function hojeLocal() {
-  const d = new Date()
-  const p = (n) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
-}
-
 function faixaDoDia(de, ate) {
   const valida = (v) => /^\d{4}-\d{2}-\d{2}$/.test(String(v || ''))
-  const inicio = valida(de) ? de : hojeLocal()
+  const inicio = valida(de) ? de : diaLocal()
   const fim = valida(ate) ? ate : inicio
   if (fim < inicio) throw erro.requisicao('A data final e anterior a inicial.')
   return {
     de: inicio, ate: fim,
-    inicioIso: bordaLocal(inicio, false),
-    fimIso: bordaLocal(fim, true),
+    inicioIso: bordaDoDia(inicio),
+    fimIso: bordaDoDia(fim, true),
   }
 }
 
@@ -138,7 +126,9 @@ function montarLinha(i, conta) {
     // "no prazo" ou "atrasado". "nao realizado" e' outra pergunta: fala de
     // execucao que NAO existe, e por isso nao pode sair de uma lista do que
     // foi feito.
-    prazo: i.finalizada_em ? classificarExecucao(i, i.finalizada_em) : 'no_prazo',
+    prazo: i.finalizada_em
+      ? classificarExecucao(i, minutosLocais(new Date(i.finalizada_em)))
+      : 'no_prazo',
     total_perguntas: c.perguntas,
     total_problemas: c.problemas,
     // O PROLOG chama de "itens nao se aplica", mas o numero e' sempre
@@ -204,12 +194,12 @@ function campo(valor) {
   return /[";\r\n]/.test(texto) ? `"${texto.replace(/"/g, '""')}"` : texto
 }
 
+// A planilha e' conferida por quem esteve no patio: a hora tem que ser a que
+// aparecia no relogio dele, nao a do processo que gerou o arquivo.
 function dataBr(iso) {
   if (!iso) return ''
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return ''
-  const p = (n) => String(n).padStart(2, '0')
-  return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`
+  const texto = dataHoraLocal(iso)
+  return texto === '—' ? '' : texto
 }
 
 export function gerarCsv(empresaNome, execucoes) {
@@ -273,7 +263,7 @@ export function registrarRotasExecucoes(rotas) {
       // "Vencido" so vale se o dia ja passou ou o prazo de hoje ja bateu.
       faltantes: r.faltantes.map((f) => ({
         ...f,
-        vencido: faixa.de < hojeLocal() ? true : venceu(f, agora),
+        vencido: faixa.de < diaLocal(agora) ? true : venceu(f, agora),
       })),
     }
   })

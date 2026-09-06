@@ -4,6 +4,8 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
+import { execFileSync } from 'node:child_process'
+import { pathToFileURL } from 'node:url'
 
 // Banco proprio por execucao: o teste nunca toca no banco de desenvolvimento.
 const bancoTemp = path.join(os.tmpdir(), `mylog-teste-${Date.now()}.db`)
@@ -308,4 +310,80 @@ test('sino: todo destino gravado pelo servidor e uma tela que existe no painel',
 
   const orfaos = [...destinos].filter((d) => !telas.has(d))
   assert.deepEqual(orfaos, [], `destino sem tela correspondente: ${orfaos.join(', ')}`)
+})
+
+// ------------------------------------------- o dia e' da operacao, nao da maquina
+
+// O criterio: rodar a MESMA pergunta em processos com fusos diferentes e obter
+// a MESMA resposta. Nada disso pode ser verificado dentro de um unico processo
+// — o fuso e' escolhido antes do Node subir —, entao o teste abre filhos.
+//
+// Antes deste modulo, "hoje", o horario limite, a obrigacao diaria, o filtro de
+// periodo e a cobranca de quem nao fez liam o fuso do sistema operacional.
+// Funciona por acidente enquanto o servidor roda na mesma cidade da frota, e
+// desloca tudo em tres horas no dia em que ele subir para uma nuvem em UTC.
+const URL_RELOGIO = pathToFileURL(
+  path.join(import.meta.dirname, '..', 'src', 'nucleo', 'relogio.js')).href
+
+const SONDA = `
+  const r = await import(${JSON.stringify(URL_RELOGIO)})
+  const instante = new Date('2026-09-04T02:30:00.000Z')
+  console.log(JSON.stringify({
+    borda:   r.bordaDoDia('2026-09-03'),
+    fim:     r.bordaDoDia('2026-09-03', true),
+    dia:     r.diaLocal(instante),
+    minutos: r.minutosLocais(instante),
+    semana:  r.diaSemanaDe('2026-09-03'),
+    texto:   r.dataHoraLocal(instante.toISOString()),
+    // Referencia: o jeito antigo, que dependia do fuso do processo.
+    ingenuo: new Date(2026, 8, 3).toISOString(),
+  }))
+`
+
+function sondar(fuso) {
+  const saida = execFileSync(process.execPath, ['--input-type=module', '-e', SONDA], {
+    env: { ...process.env, TZ: fuso, MYLOG_FUSO: 'America/Sao_Paulo' },
+    encoding: 'utf8',
+  })
+  return JSON.parse(saida)
+}
+
+test('relogio: o dia da operacao nao muda com o fuso do servidor', () => {
+  const saoPaulo = sondar('America/Sao_Paulo')
+  const utc = sondar('UTC')
+  const toquio = sondar('Asia/Tokyo')
+
+  // A prova de que o teste nao e' vazio: pelo caminho antigo, as tres maquinas
+  // respondiam coisas diferentes. Se esta linha ficar verde com todos iguais,
+  // o experimento nao esta medindo nada.
+  assert.notEqual(saoPaulo.ingenuo, utc.ingenuo,
+    'o jeito antigo TEM que divergir, senao este teste nao prova nada')
+  assert.notEqual(utc.ingenuo, toquio.ingenuo)
+
+  for (const chave of ['borda', 'fim', 'dia', 'minutos', 'semana', 'texto']) {
+    assert.equal(utc[chave], saoPaulo[chave], `${chave} mudou num servidor em UTC`)
+    assert.equal(toquio[chave], saoPaulo[chave], `${chave} mudou num servidor em Toquio`)
+  }
+})
+
+test('relogio: as bordas do dia sao meia-noite e 23:59 no patio', () => {
+  const r = sondar('UTC')
+  // 03/09/2026 em Sao Paulo (UTC-3) comeca as 03:00Z e termina as 02:59:59Z do dia 04.
+  assert.equal(r.borda, '2026-09-03T03:00:00.000Z')
+  assert.equal(r.fim, '2026-09-04T02:59:59.999Z')
+  // 02:30Z do dia 04 ainda e' 23:30 do dia 03 no patio — o fim de turno nao
+  // pode cair no balde do dia seguinte.
+  assert.equal(r.dia, '2026-09-03')
+  assert.equal(r.minutos, 23 * 60 + 30)
+  assert.equal(r.texto, '03/09/2026 23:30')
+  assert.equal(r.semana, 4, '03/09/2026 e quinta')
+})
+
+test('relogio: fuso invalido derruba a partida, nao a primeira consulta', () => {
+  assert.throws(() => {
+    execFileSync(process.execPath, ['--input-type=module', '-e', SONDA], {
+      env: { ...process.env, MYLOG_FUSO: 'Marte/Olympus' },
+      encoding: 'utf8', stdio: 'pipe',
+    })
+  }, /./)
 })

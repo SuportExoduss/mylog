@@ -10,6 +10,7 @@ import { erro } from '../nucleo/http.js'
 import { exigirAutenticado } from '../seguranca/sessao.js'
 import { exigirFrota } from '../seguranca/nivel.js'
 import { avaliarPreventivas } from '../nucleo/preventivas.js'
+import { dataHoraLocal } from '../nucleo/relogio.js'
 import { avaliarResposta } from '../../../compartilhado/template.js'
 
 // -------------------------------------------------------------- utilitarios
@@ -19,9 +20,9 @@ const ESCAPES = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&
 // por motorista, e um "<" solto quebraria a pagina.
 const e = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ESCAPES[c])
 
-const dataHora = (iso) => (iso
-  ? new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
-  : '—')
+// `toLocaleString` sem `timeZone` usa o fuso do processo. O dossie e' impresso
+// e assinado: a hora nele tem que ser a do patio.
+const dataHora = (iso) => dataHoraLocal(iso)
 
 // Data pura (AAAA-MM-DD), sem hora. Montada em UTC de proposito: a preventiva
 // vence num DIA, e converter para o fuso local jogaria o dia 01 para o 31 do

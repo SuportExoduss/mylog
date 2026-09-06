@@ -235,10 +235,10 @@ async function entrar(email, senha = SENHA) {
 const daquiAHoras = (h) => new Date(Date.now() + h * 3600000).toISOString()
 
 // AAAA-MM-DD no fuso de quem roda o teste — a mesma conta que o servidor faz.
-function diaLocal(d = new Date()) {
-  const p = (n) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
-}
+// O mesmo "hoje" que o servidor usa. Se o teste calculasse o dia pelo fuso do
+// processo e o servidor pelo fuso da operacao, os dois discordariam por tres
+// horas todo dia — e o teste acusaria o servidor por um erro dele proprio.
+const { diaLocal } = await import('../src/nucleo/relogio.js')
 
 // Pedir carro passou a ser: escolher CATEGORIA. Liberar passou a ser: escolher
 // a PLACA. Os testes falam a mesma lingua do fluxo (roadmap 10.4).

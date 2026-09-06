@@ -1,5 +1,9 @@
 # MYLOG — ROADMAP MESTRE
 
+> **Arquitetura de destino:** [`ARQUITETURA.md`](ARQUITETURA.md). Este roadmap
+> descreve o produto e o andamento; a pilha de produção e a ordem das fases
+> estão lá.
+
 **Plataforma de checklist, ocorrências, solicitação de veículo e manutenção preventiva para frotas corporativas**
 
 Versão 3.0 — 03 de setembro de 2026
@@ -1278,8 +1282,33 @@ Valem para todas as telas de lista:
 | F7 — Piloto | Rodar em paralelo com o PROLOG | pendente — depende da empresa |
 | F8 — Migração | Migrar cadastros e histórico útil | pendente — depende da F0 |
 | F9 — Substituição | Homologar e retirar o PROLOG | pendente |
+| **A0 — Servidor no ar** | Firebase Hosting + Auth + Firestore + Functions + R2 | pendente — bloqueia a A1 |
 | **A1 — App Android nativo** | Aplicativo em Android Studio, publicado na Play Store | pendente — contrato em `docs/API.md` |
 | F10 — Evolução | OCR, detecção visual, analytics | futuro |
+
+### A ordem entre a web, o servidor e o APK
+
+A sequência não é preferência, é dependência. Cada etapa só existe depois da
+anterior:
+
+1. **Web 100% na máquina de desenvolvimento** — é onde estamos. O painel é o
+   produto de administração e supervisão, e ele fecha sozinho: não depende de
+   aplicativo nenhum.
+2. **A0 — servidor no ar, com HTTPS e domínio.** Um app instalado num celular
+   não enxerga `localhost`, e o Android bloqueia tráfego sem TLS por padrão.
+   Sem esta etapa não existe teste de APK — existe emulador falando com a
+   máquina do desenvolvedor, que não prova nada sobre rede de campo.
+   A pilha está fechada em [`ARQUITETURA.md`](ARQUITETURA.md): Firebase
+   Hosting, Authentication, Firestore, Cloud Functions e Cloudflare R2.
+3. **A1 — o APK.** Escrito do zero em Android Studio, contra o contrato de
+   [`docs/API.md`](API.md). O primeiro teste real é o que o servidor local
+   nunca vai poder responder: se a foto sobe de dentro do galpão, com o sinal
+   que existe lá.
+
+**O storage é a peça mais solta da corrente.** Trocar disco local por R2 é a
+implementação de três funções em `storage.js`, invisível para o aplicativo —
+nada no contrato muda. Faz parte da A0 por decisão de arquitetura, mas é a
+única parte dela que poderia acontecer antes ou depois sem quebrar nada.
 
 ### Sobre o aplicativo Android
 

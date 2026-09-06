@@ -417,17 +417,18 @@ test('ritmo: dia util obrigatorio nao alcanca o fim de semana', () => {
   // O relatorio real do PROLOG (roadmap 24.1) tem 62 execucoes no sabado e 13
   // no domingo, contra ~170 nos dias uteis. Cobrar fim de semana criaria ~90
   // faltas falsas por mes.
+  //
+  // O motor recebe o NUMERO do dia. Recebia um `Date` antes, e `getDay()` lia o
+  // fuso do processo: o mesmo instante era sexta em Sao Paulo e sabado em UTC.
   const diaUtil = { periodicidade: 'diario', dias_semana: [1, 2, 3, 4, 5] }
-  const sexta = new Date(2026, 8, 4)     // 04/09/2026
-  const sabado = new Date(2026, 8, 5)
-  const domingo = new Date(2026, 8, 6)
-  assert.equal(obrigatorioNoDia(diaUtil, sexta), true)
-  assert.equal(obrigatorioNoDia(diaUtil, sabado), false)
-  assert.equal(obrigatorioNoDia(diaUtil, domingo), false)
+  const SEXTA = 5, SABADO = 6, DOMINGO = 0
+  assert.equal(obrigatorioNoDia(diaUtil, SEXTA), true)
+  assert.equal(obrigatorioNoDia(diaUtil, SABADO), false)
+  assert.equal(obrigatorioNoDia(diaUtil, DOMINGO), false)
 })
 
 test('ritmo: avulso nunca e obrigatorio; semanal e mensal valem o periodo todo', () => {
-  const domingo = new Date(2026, 8, 6)
+  const domingo = 0
   assert.equal(obrigatorioNoDia({ periodicidade: 'avulso' }, domingo), false)
   assert.equal(obrigatorioNoDia({ periodicidade: 'semanal', dia_semana: 3 }, domingo), true)
   assert.equal(obrigatorioNoDia({ periodicidade: 'mensal' }, domingo), true)
@@ -435,17 +436,21 @@ test('ritmo: avulso nunca e obrigatorio; semanal e mensal valem o periodo todo',
 
 test('ritmo: o horario limite classifica, nao impede', () => {
   const modelo = { horario_limite: '08:30' }
-  assert.equal(classificarExecucao(modelo, new Date(2026, 8, 4, 7, 12)), 'no_prazo')
-  assert.equal(classificarExecucao(modelo, new Date(2026, 8, 4, 8, 30)), 'no_prazo')
-  assert.equal(classificarExecucao(modelo, new Date(2026, 8, 4, 8, 31)), 'atrasado')
-  assert.equal(classificarExecucao(modelo, new Date(2026, 8, 4, 17, 0)), 'atrasado')
+  // Minutos desde a meia-noite da operacao — nao um `Date`, que traria junto o
+  // fuso de quem o construiu.
+  const hm = (h, m) => h * 60 + m
+  assert.equal(classificarExecucao(modelo, hm(7, 12)), 'no_prazo')
+  assert.equal(classificarExecucao(modelo, hm(8, 30)), 'no_prazo')
+  assert.equal(classificarExecucao(modelo, hm(8, 31)), 'atrasado')
+  assert.equal(classificarExecucao(modelo, hm(17, 0)), 'atrasado')
 })
 
 test('ritmo: sem horario limite, nada e atrasado', () => {
-  assert.equal(classificarExecucao({}, new Date(2026, 8, 4, 23, 59)), 'no_prazo')
-  assert.equal(classificarExecucao({ horario_limite: null }, new Date()), 'no_prazo')
+  assert.equal(classificarExecucao({}, 23 * 60 + 59), 'no_prazo')
+  assert.equal(classificarExecucao({ horario_limite: null }, 600), 'no_prazo')
   // Data ilegivel nao pode virar "atrasado" por acidente.
-  assert.equal(classificarExecucao({ horario_limite: '08:00' }, 'nao e data'), 'no_prazo')
+  assert.equal(classificarExecucao({ horario_limite: '08:00' }, 'nao e numero'), 'no_prazo')
+  assert.equal(classificarExecucao({ horario_limite: '08:00' }, NaN), 'no_prazo')
 })
 
 // -------------------------------------------- checklist de preventiva

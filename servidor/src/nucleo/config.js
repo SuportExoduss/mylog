@@ -17,6 +17,10 @@ export const config = {
   // Storage local de evidencias no piloto; S3/R2 depois. Nunca dentro do banco.
   storageCaminho: process.env.MYLOG_STORAGE || path.join(RAIZ_SERVIDOR, 'dados', 'evidencias'),
 
+  // Fuso da OPERACAO, nao da maquina. E' ele que decide onde termina o dia,
+  // e o servidor pode acabar rodando em outro continente (ver nucleo/relogio.js).
+  fuso: process.env.MYLOG_FUSO || 'America/Sao_Paulo',
+
   webCaminho: path.join(RAIZ_PROJETO, 'web'),
   appCaminho: path.join(RAIZ_PROJETO, 'app'),
   compartilhadoCaminho: path.join(RAIZ_PROJETO, 'compartilhado'),
