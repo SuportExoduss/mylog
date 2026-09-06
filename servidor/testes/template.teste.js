@@ -9,7 +9,7 @@ const {
   cargoLiberado, perguntaPorId, opcaoPorId, descreverPendencia,
   conferirPeriodicidade, obrigatorioNoDia, classificarExecucao, PERIODICIDADES,
   avaliarManutencao, conferirProximaPreventiva, FINALIDADES,
-  PRIORIDADES, MODOS_FOTO, MOMENTOS, TIPOS_VEICULO, MOTIVOS_PENDENCIA,
+  PRIORIDADES, MODOS_FOTO, MOMENTOS, TIPOS_VEICULO, MOTIVOS_PENDENCIA, DIAS_SEMANA,
 } = await import('../../compartilhado/template.js')
 
 const ESTRUTURA = {
@@ -570,4 +570,18 @@ test('preventiva: todo motivo novo de pendencia tem frase propria', () => {
     const frase = descreverPendencia({ motivo, titulo: 'Pinca de freio' })
     assert.ok(frase && !frase.startsWith('Pendencia em:'), `motivo sem frase: ${motivo}`)
   }
+})
+
+test('ritmo: DIAS_SEMANA e indexado pelo numero do dia, e a tela depende disso', () => {
+  // A tela de modelos escrevia esta lista a mao. Passou a ler daqui — entao a
+  // ORDEM virou contrato: trocar um nome de lugar faria o checklist aparecer
+  // no dia errado, na tela e no servidor, sem erro nenhum.
+  assert.deepEqual(DIAS_SEMANA, ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sab'])
+  assert.equal(DIAS_SEMANA.length, 7)
+
+  // Mesma base do getDay() do JavaScript: 0 e' domingo.
+  const domingo = new Date(Date.UTC(2026, 8, 6))   // 06/09/2026
+  assert.equal(DIAS_SEMANA[domingo.getUTCDay()], 'dom')
+  const quinta = new Date(Date.UTC(2026, 8, 3))
+  assert.equal(DIAS_SEMANA[quinta.getUTCDay()], 'qui')
 })

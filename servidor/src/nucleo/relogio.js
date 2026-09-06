@@ -57,8 +57,6 @@ function deslocamento(instante) {
 
 // ------------------------------------------------------------- leitura
 
-export const fusoDaOperacao = FUSO
-
 export function partesLocais(instante = new Date()) {
   const c = camposDoFuso(instante)
   return {

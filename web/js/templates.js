@@ -2,6 +2,7 @@
 // Toda pergunta e' uma verificacao visual: foto + OK/Ocorrencia. Nao ha tipo
 // de resposta nem item condicional.
 import { api } from './api.js'
+import { DIAS_SEMANA } from '../../compartilhado/template.js'
 import {
   elemento, cabecalhoTela, tabela, selo, vazio, abrirModal, notificar, menuAcoes, dataCurta,
   ROTULO_TIPO_VEICULO, ROTULO_PRIORIDADE, TOM_PRIORIDADE,
@@ -63,10 +64,10 @@ async function novoChecklist(contexto) {
     { valor: 'mensal', rotulo: 'Mensal' },
   ].map((o) => elemento('option', { value: o.valor, texto: o.rotulo })))
 
-  const DIAS = [
-    { n: 1, nome: 'seg' }, { n: 2, nome: 'ter' }, { n: 3, nome: 'qua' },
-    { n: 4, nome: 'qui' }, { n: 5, nome: 'sex' }, { n: 6, nome: 'sab' }, { n: 0, nome: 'dom' },
-  ]
+  // Os nomes e a numeracao vem do motor, nao daqui. Escritos a mao, a tela e o
+  // servidor podiam discordar de qual numero e' segunda — e o checklist
+  // apareceria no dia errado sem ninguem ver erro nenhum.
+  const DIAS = [1, 2, 3, 4, 5, 6, 0].map((n) => ({ n, nome: DIAS_SEMANA[n] }))
   // Segunda a sexta ja marcados: e' o ritmo real da operacao — o relatorio do
   // PROLOG tem ~170 checklists por dia util contra 62 no sabado e 13 no
   // domingo. O padrao certo poupa o erro mais provavel.

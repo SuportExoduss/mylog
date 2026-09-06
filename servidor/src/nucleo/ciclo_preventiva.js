@@ -4,7 +4,7 @@
 // "Concluir e agendar proxima" no painel, e o checklist de preventiva
 // finalizado no aparelho. Se cada porta tivesse a sua copia, um dia elas
 // divergiriam — e a divergencia aqui e' uma frota sem agenda de manutencao.
-import { consultarUm, executar, novoId, agora } from './banco.js'
+import { executar, novoId, agora } from './banco.js'
 
 // Fecha o ciclo atual e abre o proximo, num ato so. Recebe o alvo ja validado.
 // NAO abre transacao: quem chama decide o escopo, porque o checklist grava a
@@ -47,11 +47,3 @@ export function encerrarCiclo({
   return { idProxima }
 }
 
-export function preventivaDoVeiculo(empresaId, veiculoId) {
-  return consultarUm(
-    `SELECT p.*, v.km_atual, v.placa FROM preventivas p
-       JOIN veiculos v ON v.id = p.veiculo_id
-      WHERE p.empresa_id = ? AND p.veiculo_id = ? AND p.status <> 'realizada'
-      ORDER BY p.criado_em LIMIT 1`,
-    [empresaId, veiculoId])
-}

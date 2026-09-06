@@ -1487,7 +1487,7 @@ abertura ao fechamento.
 
 ### Onde a cobertura começa e onde termina
 
-São 232 testes em três camadas:
+São 233 testes em três camadas:
 
 | Camada | Arquivo | O que prova |
 |---|---|---|

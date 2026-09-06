@@ -60,12 +60,9 @@ export function marca({ grande = false } = {}) {
 
 const CHAVE_TEMA = 'mylog.tema'
 
-export function aplicarTemaGuardado() {
-  try {
-    const guardado = localStorage.getItem(CHAVE_TEMA)
-    if (guardado) document.documentElement.dataset.tema = guardado
-  } catch { /* navegador sem storage: segue a preferencia do sistema */ }
-}
+// Quem aplica o tema guardado e' /js/tema-inicial.js, carregado no <head>:
+// tem que rodar ANTES da primeira pintura, e um modulo importado por app.js
+// roda depois. Aqui fica so a troca, que e' acao de quem ja esta na tela.
 
 export function alternarTema() {
   const raiz = document.documentElement
