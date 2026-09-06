@@ -15,6 +15,16 @@ import { quemNaoFez, venceu } from '../nucleo/cobranca.js'
 
 const LIMITE_PAGINA = 500
 
+// A PLANILHA tem teto proprio, e muito maior.
+//
+// O teto da tela existe porque o navegador monta uma linha de DOM por
+// registro; um arquivo nao paga esse preco. Com o mesmo teto dos 500, uma
+// exportacao de tres dias uteis ja vinha cortada — o relatorio do PROLOG tem
+// ~170 checklists por dia — e o arquivo nao dizia nada. Planilha e' o que se
+// leva para reuniao: cortada em silencio, ela nao atrasa uma decisao, ela a
+// enverga.
+const LIMITE_PLANILHA = 50_000
+
 // Datas chegam como AAAA-MM-DD (a tela usa <input type="date">). O dia inteiro
 // vai da meia-noite ate 23:59:59.999 — comparar com "<= data" perderia tudo
 // que foi feito depois da meia-noite do proprio dia.
@@ -144,7 +154,7 @@ function montarLinha(i, conta) {
   }
 }
 
-function consultarExecucoes(eu, query) {
+function consultarExecucoes(eu, query, limite = LIMITE_PAGINA) {
   const faixa = faixaDoDia(query.get('de'), query.get('ate'))
   const cargoId = query.get('cargo_id') || null
   const momento = query.get('momento')
@@ -161,7 +171,7 @@ function consultarExecucoes(eu, query) {
   if (momento && MOMENTOS.includes(momento)) { sql += ' AND i.momento = ?'; params.push(momento) }
   if (veiculoId) { sql += ' AND i.veiculo_id = ?'; params.push(veiculoId) }
   if (templateId) { sql += ' AND t.id = ?'; params.push(templateId) }
-  sql += ` ORDER BY i.iniciada_em DESC LIMIT ${LIMITE_PAGINA}`
+  sql += ` ORDER BY i.iniciada_em DESC LIMIT ${limite}`
 
   const brutas = consultar(sql, params)
   const conta = contagens(eu.empresa_id, brutas.map((i) => i.id))
@@ -202,7 +212,7 @@ function dataBr(iso) {
   return texto === '—' ? '' : texto
 }
 
-export function gerarCsv(empresaNome, execucoes) {
+export function gerarCsv(empresaNome, execucoes, cortada = false) {
   const linhas = [COLUNAS.join(';')]
   for (const e of execucoes) {
     linhas.push([
@@ -235,6 +245,14 @@ export function gerarCsv(empresaNome, execucoes) {
   // \r\n porque e' o que o Excel espera, e ﻿ (BOM) para ele reconhecer
   // UTF-8. Escrito como escape de proposito: o BOM literal e' invisivel no
   // editor e some sem aviso em qualquer copia de arquivo desatenta.
+  // Se cortou, o arquivo DIZ. Uma planilha que mente sobre o proprio tamanho
+  // e' pior que uma que nao existe: ninguem confere o que parece completo.
+  if (cortada) {
+    linhas.push('')
+    linhas.push(campo(
+      `AVISO: exportacao interrompida em ${execucoes.length} linhas, que e o limite. `
+      + 'Ha mais checklists no periodo escolhido. Estreite o periodo e exporte por partes.'))
+  }
   return '\uFEFF' + linhas.join('\r\n') + '\r\n'
 }
 
@@ -272,9 +290,9 @@ export function registrarRotasExecucoes(rotas) {
   // visto, nao a base inteira.
   rotas.get('/api/execucoes.csv', async (ctx) => {
     const eu = exigirFrota(exigirAutenticado(ctx))
-    const { faixa, execucoes } = consultarExecucoes(eu, ctx.query)
+    const { faixa, execucoes } = consultarExecucoes(eu, ctx.query, LIMITE_PLANILHA)
     const empresa = consultarUm('SELECT nome FROM empresas WHERE id = ?', [eu.empresa_id])
-    const csv = gerarCsv(empresa?.nome || '', execucoes)
+    const csv = gerarCsv(empresa?.nome || '', execucoes, execucoes.length >= LIMITE_PLANILHA)
 
     const nome = `checklists_${faixa.de}_a_${faixa.ate}.csv`
     ctx.res.writeHead(200, {

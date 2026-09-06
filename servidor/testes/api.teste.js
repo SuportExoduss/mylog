@@ -10,7 +10,7 @@ const bancoTemp = path.join(os.tmpdir(), `mylog-api-${Date.now()}.db`)
 process.env.MYLOG_BANCO = bancoTemp
 process.env.MYLOG_PORTA = '0'   // porta livre escolhida pelo sistema
 
-const { abrirBanco, executar, consultarUm, novoId, agora, fecharBanco } =
+const { abrirBanco, executar, consultarUm, novoId, agora, transacao, fecharBanco } =
   await import('../src/nucleo/banco.js')
 const { gerarHashSenha } = await import('../src/seguranca/senha.js')
 
@@ -2607,4 +2607,76 @@ test('limite: lista grande e cortada, e a resposta diz que cortou', async () => 
     assert.ok(r.dados[chave].length <= r.dados.limite,
       `${nome}: veio mais linha que o teto declarado`)
   }
+})
+
+test('planilha: exportacao nao pode vir cortada em silencio', async () => {
+  // A planilha e' o que se leva para reuniao. Com o mesmo teto da tela — 500 —
+  // uma exportacao de tres dias uteis ja vinha cortada, porque o relatorio do
+  // PROLOG tem ~170 checklists por dia util. E o arquivo nao dizia nada: quem
+  // abrisse concluiria que aquilo era o periodo inteiro.
+  const frota = await entrar('frota.a@teste.local')
+  const r = await chamar('GET', '/api/execucoes.csv?de=2020-01-01&ate=2030-01-01',
+    { token: frota })
+  assert.equal(r.status, 200)
+  const texto = String(r.dados)
+
+  // O teto da planilha e' proprio, e muito maior que o da tela: um arquivo nao
+  // paga o preco de montar DOM.
+  const { gerarCsv } = await import('../src/rotas/execucoes.js')
+  const cortado = gerarCsv('Empresa', [{ placa: 'AAA1A11' }], true)
+  assert.match(cortado, /AVISO: exportacao interrompida/,
+    'cortou e nao avisou: a planilha estaria mentindo sobre o proprio tamanho')
+  assert.match(cortado, /Estreite o periodo/, 'avisar sem dizer o que fazer nao ajuda')
+
+  const inteiro = gerarCsv('Empresa', [{ placa: 'AAA1A11' }], false)
+  assert.ok(!/AVISO/.test(inteiro), 'sem corte, nenhum aviso — senao ele vira ruido')
+
+  // E a exportacao normal, que cabe, nao traz aviso nenhum.
+  assert.ok(!/AVISO: exportacao interrompida/.test(texto))
+})
+
+test('planilha: o teto dela e proprio, e nao o da tela', async () => {
+  // Este e o teste que importa, e a primeira versao dele nao existia: eu havia
+  // testado so o AVISO, isoladamente, e ele continuava verde com a rota presa
+  // no teto de 500. Provar o mecanismo nao e' provar que ele foi usado.
+  //
+  // Um periodo de 2019 que nenhum outro teste toca: 600 execucoes ali dentro,
+  // acima do teto da tela e abaixo do da planilha.
+  const frota = await entrar('frota.a@teste.local')
+  const modelo = consultarUm(
+    `SELECT id FROM templates WHERE empresa_id = ? AND codigo = 'compacto' LIMIT 1`,
+    [empresaA]).id
+
+  transacao(() => {
+    for (let i = 0; i < 600; i += 1) {
+      const quando = `2019-03-${String((i % 28) + 1).padStart(2, '0')}T12:00:00.000Z`
+      executar(
+        `INSERT INTO inspecoes (id, empresa_id, veiculo_id, usuario_id, template_id,
+                                momento, status, resultado, iniciada_em, finalizada_em, criado_em)
+         VALUES (?, ?, ?, ?, ?, 'saida', 'finalizada', 'aprovado', ?, ?, ?)`,
+        [novoId('inspecao'), empresaA, veiculoA4, frotaA, modelo, quando, quando, quando])
+    }
+  })
+
+  const periodo = 'de=2019-03-01&ate=2019-03-31'
+
+  // A TELA corta em 500, e diz que cortou.
+  const naTela = await chamar('GET', `/api/execucoes?${periodo}`, { token: frota })
+  assert.equal(naTela.dados.execucoes.length, naTela.dados.limite,
+    'a tela tinha que ter batido no proprio teto neste periodo')
+  assert.ok(naTela.dados.limite < 600)
+
+  // A PLANILHA leva as 600. Um arquivo nao paga o preco de montar DOM.
+  // `chamar` faz JSON.parse e devolve {} num CSV: aqui e' preciso o texto.
+  const csv = await (await fetch(`${base}/api/execucoes.csv?${periodo}`, {
+    headers: { authorization: `Bearer ${frota}` },
+  })).text()
+  // Sem escape de nova linha no meio de um script gerado: monta a quebra
+  // por codigo e evita que ela vire quebra de verdade no arquivo de teste.
+  const FIM_DE_LINHA = String.fromCharCode(13, 10)
+  const linhas = csv.split(FIM_DE_LINHA).filter((l) => l.includes('2019'))
+  assert.equal(linhas.length, 600,
+    `a planilha veio com ${linhas.length} de 600 — esta presa no teto da tela`)
+  assert.ok(!/AVISO: exportacao interrompida/.test(csv),
+    'cabe no teto da planilha: nao ha o que avisar')
 })
