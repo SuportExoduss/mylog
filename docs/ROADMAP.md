@@ -1573,7 +1573,10 @@ exercitava o caminho errado e passaria de qualquer jeito.
 - qualquer coisa que dependa de geometria (o menu que abre para cima perto do
   rodapé) — sem layout, `getBoundingClientRect` devolve zeros;
 - CSS: contraste, tema claro/escuro, quebra de página na impressão;
-- **o service worker**, e com ele todo o modo offline do app de campo.
+- **o service worker**, e com ele todo o modo offline do app de campo;
+- **o histórico do navegador** — `pushState`, `popstate`, o botão Voltar. Fazer
+  o DOM de teste fingir ser um navegador só para isso contradiria a D35, que
+  existe justamente para o arcabouço parar onde a interface para.
 
 > Sobre o service worker: o navegador embutido usado nos testes recusa
 > qualquer registro — um SW de uma linha falha com a mesma mensagem que o
@@ -1589,7 +1592,10 @@ mudança:
 1. criar usuário → ler a senha inicial → entrar com ela → trocar a senha;
 2. solicitar veículo → aprovar → checklist de saída → devolução → retorno;
 3. tratar uma ocorrência até `encerrada` e conferir o estado do veículo;
-4. abrir os três relatórios.
+4. abrir os três relatórios;
+5. navegar por três telas, apertar **Voltar** duas vezes e confirmar que cada
+   uma reaparece — e que um modal aberto fecha junto, em vez de ficar boiando
+   sobre outro assunto.
 
 ---
 

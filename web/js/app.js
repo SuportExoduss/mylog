@@ -116,15 +116,36 @@ function telaPadrao() {
   return contexto.ehFrota ? 'painel' : 'solicitacoes'
 }
 
-async function navegar(chave, parametros = {}) {
+// `voltando` distingue a navegacao que a pessoa pediu da que o navegador
+// desfez: a primeira empilha, a segunda nao — senao o botao Voltar criaria
+// entradas novas e nunca sairia do lugar.
+async function navegar(chave, parametros = {}, { voltando = false } = {}) {
   const visiveis = telasVisiveis()
   const tela = visiveis.find((t) => t.chave === chave)
     || visiveis.find((t) => t.chave === telaPadrao())
     || visiveis[0]
   if (!tela) return
+
+  // Trocar de tela fecha o que estiver aberto por cima dela. Sem isto, voltar
+  // com um modal aberto trocaria a tela por baixo e deixaria o modal boiando
+  // sobre outro assunto.
+  limpar(document.getElementById('area-modal'))
+
+  const mesmaTela = estado.telaAtual === tela.chave
   estado.telaAtual = tela.chave
   estado.parametros = parametros
-  history.replaceState(null, '', `#${tela.chave}`)
+
+  // Era sempre `replaceState`, e por isso o painel nao tinha historico: tres
+  // telas navegadas e `history.length` continuava igual. O botao Voltar —
+  // reflexo de quem passa o dia numa aba — jogava a pessoa para fora do
+  // aplicativo. Reentrar na MESMA tela continua substituindo, senao mudar um
+  // filtro encheria a pilha de entradas iguais.
+  const entrada = { chave: tela.chave, parametros }
+  if (voltando || mesmaTela) {
+    history.replaceState(entrada, '', `#${tela.chave}`)
+  } else {
+    history.pushState(entrada, '', `#${tela.chave}`)
+  }
   desenharNavegacao()
 
   const conteudo = document.getElementById('conteudo')
@@ -140,6 +161,15 @@ async function navegar(chave, parametros = {}) {
     conteudo.append(elemento('div', { classe: 'aviso aviso--erro', texto: falha.message }))
   }
 }
+
+// Voltar e Avancar do navegador. So valem com sessao aberta: fora dela a pilha
+// e' do navegador, e mexer nela seria prender a pessoa na tela de login.
+addEventListener('popstate', (evento) => {
+  if (!estado.usuario) return
+  const alvo = evento.state || {}
+  navegar(alvo.chave || location.hash.slice(1) || telaPadrao(), alvo.parametros || {},
+    { voltando: true })
+})
 
 // ---------------------------------------------------------------- sessao
 
