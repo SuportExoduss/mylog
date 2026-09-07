@@ -11,6 +11,7 @@ import { exigirAutenticado } from '../seguranca/sessao.js'
 import { exigirFrota } from '../seguranca/nivel.js'
 import { avaliarPreventiva, avaliarPreventivas, descreverFolga } from '../nucleo/preventivas.js'
 import { encerrarCiclo } from '../nucleo/ciclo_preventiva.js'
+import { notificarFrota } from '../nucleo/notificacoes.js'
 
 // Teto da consulta. Uma frota de setenta carros passa de mil pedidos no
 // primeiro ano; sem teto, a tela baixa o historico inteiro e monta uma
@@ -253,6 +254,19 @@ export function registrarRotasPreventivas(rotas) {
       }).idProxima
     })
     avaliarPreventivas(eu.empresa_id)
+
+    // A outra porta avisa, e esta tem que avisar igual.
+    //
+    // O retorno do checklist manda "Preventiva de PLACA concluida por FULANO"
+    // para a equipe da Frota, menos para quem fez. Aqui nao mandava nada: o
+    // resto da equipe nao ficava sabendo que o carro voltou da oficina nem que
+    // ja existe um proximo alvo. Numa equipe de duas pessoas isso basta para as
+    // duas agendarem a mesma revisao.
+    notificarFrota({
+      empresaId: eu.empresa_id, tipo: 'preventiva',
+      texto: `Preventiva de ${atual.placa} concluida por ${eu.nome}: ${servico}`,
+      destino: 'preventivas', entidadeId: atual.id, exceto: eu.id,
+    })
 
     registrarEvento({
       empresaId: eu.empresa_id, ator: eu, acao: 'preventiva.concluida',

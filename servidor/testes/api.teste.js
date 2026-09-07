@@ -1931,6 +1931,53 @@ test('dossie de preventiva: colaborador nao abre, e outra empresa nem enxerga', 
   assert.equal(deOutraEmpresa.status, 404)
 })
 
+test('empresa suspensa: ninguem entra, e quem ja estava dentro cai na hora', async () => {
+  // `empresas.status` existe no esquema desde o primeiro dia, com o vocabulario
+  // escrito ao lado: `ativa | suspensa`. Era gravado na criacao e nunca lido —
+  // nenhuma linha do servidor perguntava o status da empresa. Suspender uma
+  // empresa no banco nao fazia absolutamente nada.
+  //
+  // Isso nao e' campo sobrando: e' a unica alavanca que existe para cortar o
+  // acesso de um cliente inteiro — contrato encerrado, inadimplencia, incidente.
+  // E ela estava desligada do sistema.
+  //
+  // A regra segue a que ja vale para a pessoa (`usuarios.status`): revalidada a
+  // cada requisicao, e nao so no login. Suspender derruba quem esta dentro.
+  const empresaC = novoId('empresa')
+  criarEmpresa(empresaC, 'Empresa Suspensa')
+  const cargoC = criarCargo(empresaC, 'Frota C')
+  criarUsuario(empresaC, 'Frota C', '39053344705', 'frota.c@teste.local', cargoC, true)
+
+  const entrada = await chamar('POST', '/api/auth/login',
+    { corpo: { email: 'frota.c@teste.local', senha: SENHA } })
+  assert.equal(entrada.status, 200, 'controle: com a empresa ativa, entra')
+  const token = entrada.dados.token
+  assert.equal((await chamar('GET', '/api/painel', { token })).status, 200)
+
+  executar("UPDATE empresas SET status = 'suspensa' WHERE id = ?", [empresaC])
+
+  // A sessao que ja existia para de valer — como acontece ao bloquear a pessoa.
+  const depois = await chamar('GET', '/api/painel', { token })
+  assert.equal(depois.status, 401, 'sessao de empresa suspensa nao pode continuar valendo')
+
+  // E nao da para entrar de novo.
+  const denovo = await chamar('POST', '/api/auth/login',
+    { corpo: { email: 'frota.c@teste.local', senha: SENHA } })
+  assert.equal(denovo.status, 403, JSON.stringify(denovo.dados))
+  assert.equal(denovo.dados.erro, 'empresa_suspensa')
+
+  // A recusa nao vaza se a senha estava certa ou errada para quem chuta.
+  const chute = await chamar('POST', '/api/auth/login',
+    { corpo: { email: 'frota.c@teste.local', senha: 'errada' } })
+  assert.equal(chute.status, 401, 'senha errada continua sendo 401, antes de qualquer outra coisa')
+
+  // Reativada, tudo volta: a suspensao e' estado, nao punicao permanente.
+  executar("UPDATE empresas SET status = 'ativa' WHERE id = ?", [empresaC])
+  const volta = await chamar('POST', '/api/auth/login',
+    { corpo: { email: 'frota.c@teste.local', senha: SENHA } })
+  assert.equal(volta.status, 200, 'reativada, a empresa volta a funcionar')
+})
+
 // ------------------------------------------- criterio: notificacoes
 
 const naoLidas = async (token) =>
@@ -1954,6 +2001,44 @@ test('notificacao: pedido novo avisa a frota, e nao avisa quem pediu', async () 
   assert.equal(nova.destino, 'solicitacoes')
   assert.equal(nova.entidade_id, pedido.dados.solicitacao.id)
   assert.equal(nova.lida_em, null)
+})
+
+test('notificacao: preventiva concluida pelo painel avisa a frota, como a do aplicativo', async () => {
+  // Duas portas fecham o ciclo de uma preventiva: o retorno do checklist, no
+  // aplicativo, e o botao "concluir" do painel. O proprio comentario da rota
+  // diz "duas portas, um ato so" — mas so a do aplicativo avisava. Pela do
+  // painel, o resto da equipe da Frota nao ficava sabendo que o carro voltou da
+  // oficina nem que ja existe um proximo alvo agendado. Numa equipe de duas
+  // pessoas isso e' o suficiente para duas agendarem a mesma revisao.
+  const frota = await entrar('frota.a@teste.local')
+  const mecanico = await entrar('mecanico.a@teste.local')
+
+  const veiculo = criarVeiculo(empresaA, 'AAA9N99', 'compacto_leve', 30000)
+  const preventiva = criarPreventivaComModelo(empresaA, veiculo, modeloPreventivaA)
+
+  const antesMecanico = await naoLidas(mecanico)
+  const antesFrota = await naoLidas(frota)
+
+  const r = await chamar('POST', `/api/preventivas/${preventiva}/concluir`, {
+    token: frota,
+    corpo: {
+      km_realizado: 30100, servico: 'Troca de oleo e filtros.',
+      proximo_modo: 'km', proximo_km: 40100,
+    },
+  })
+  assert.equal(r.status, 200, JSON.stringify(r.dados))
+
+  assert.equal(await naoLidas(mecanico), antesMecanico + 1,
+    'o resto da frota tem que saber que a preventiva foi concluida')
+  assert.equal(await naoLidas(frota), antesFrota,
+    'quem concluiu nao recebe aviso da propria acao')
+
+  const caixa = await chamar('GET', '/api/notificacoes', { token: mecanico })
+  const aviso = caixa.dados.notificacoes[0]
+  assert.match(aviso.texto, /AAA9N99/, 'o aviso tem que dizer de qual carro')
+  assert.match(aviso.texto, /Frota A/, 'e quem concluiu')
+  assert.equal(aviso.destino, 'preventivas')
+  assert.equal(aviso.entidade_id, preventiva)
 })
 
 test('notificacao: ninguem e avisado da propria acao', async () => {

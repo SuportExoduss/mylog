@@ -488,6 +488,8 @@ Checklist de outra pessoa na mesma empresa dá **403**; de outra empresa dá
 | 401 | `nao_autenticado` | Token vencido ou revogado → tela de login |
 | 403 | `sem_permissao` | Cargo ou nível não alcança |
 | 403 | `troca_de_senha_obrigatoria` | Tela de troca de senha |
+| 403 | `credencial_<status>` | A conta está `bloqueado`, `suspenso` ou `desativado` |
+| 403 | `empresa_suspensa` | A **empresa inteira** está suspensa — sair da sessão, e não tentar de novo em seguida |
 | 404 | `nao_encontrado` | Registro não existe **nesta empresa** |
 | 409 | `conflito` | Estado mudou no servidor → recarregar e mostrar `mensagem` |
 | 429 | `muitas_tentativas` | Freio de tentativas. A `mensagem` diz em quantos minutos volta — **não** tente de novo em seguida |

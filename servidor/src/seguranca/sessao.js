@@ -31,9 +31,11 @@ export function usuarioDaSessao(token) {
     `SELECT s.id AS sessao_id, s.expira_em, s.revogado_em, s.origem,
             u.id, u.empresa_id, u.nome, u.email, u.cpf, u.telefone,
             u.cargo_id, u.acessa_painel, u.usa_veiculo_diario, u.status,
-            u.deve_trocar_senha, c.nome AS cargo_nome
+            u.deve_trocar_senha, c.nome AS cargo_nome,
+            e.status AS empresa_status
        FROM sessoes s
        JOIN usuarios u ON u.id = s.usuario_id
+       JOIN empresas e ON e.id = u.empresa_id
        LEFT JOIN cargos c ON c.id = u.cargo_id
       WHERE s.token_hash = ?`,
     [hashDoToken(token)],
@@ -44,7 +46,17 @@ export function usuarioDaSessao(token) {
   // "pendente" ainda nao trocou a senha inicial: a sessao vale, mas so para a
   // troca de senha. Quem barra as demais rotas e' exigirSenhaTrocada().
   if (linha.status !== 'ativo' && linha.status !== 'pendente') return null
-  return linha
+  // A empresa tambem tem status, com o vocabulario escrito no esquema desde o
+  // primeiro dia: `ativa | suspensa`. Ele era gravado na criacao e nunca lido —
+  // suspender uma empresa no banco nao fazia absolutamente nada. E' a unica
+  // alavanca que existe para cortar o acesso de um cliente inteiro (contrato
+  // encerrado, inadimplencia, incidente), e estava desligada do sistema.
+  //
+  // Revalidada aqui, e nao so no login, pelo mesmo motivo que o status da
+  // pessoa: suspender tem que derrubar quem ja esta dentro, na hora.
+  if (linha.empresa_status !== 'ativa') return null
+  const { empresa_status: _empresaStatus, ...usuario } = linha
+  return usuario
 }
 
 export function revogarSessao(token) {

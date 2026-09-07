@@ -890,3 +890,35 @@ Onde a regra mora:
 
 O portão é o **agendamento** e a **oferta**, não a execução. Na hora de executar,
 a decisão já foi tomada — e desfazê-la ali é tirar o chão de quem já começou.
+
+---
+
+## D51 — Vocabulário no esquema é promessa, não decoração
+
+`empresas.status` existe desde a primeira versão do esquema, com o vocabulário
+escrito no comentário ao lado: `ativa | suspensa`. Era gravado na criação e
+**nunca lido**. Nenhuma linha do servidor perguntava o status da empresa, então
+suspender uma empresa no banco não fazia absolutamente nada — a pessoa entrava,
+via a frota, preenchia checklist.
+
+Não é campo sobrando. É a única alavanca que existe para cortar o acesso de um
+cliente inteiro: contrato encerrado, inadimplência, incidente de segurança. E
+estava desligada do sistema.
+
+**A regra é a mesma que já vale para a pessoa.** `usuarios.status` é revalidado
+a cada requisição, não só no login — o comentário do `usuarioDaSessao` diz
+"bloquear um usuário derruba o acesso na hora, sem esperar expirar". A empresa
+ganha o mesmo tratamento, um `JOIN` acima: suspender derruba quem já está
+dentro.
+
+**A ordem no login importa.** A conferência da empresa vem *depois* da senha.
+Quem chuta uma senha recebe 401 e não descobre nada sobre a situação comercial
+do cliente; só quem provou ser dono da conta recebe o 403 `empresa_suspensa`,
+com uma mensagem que diz o que fazer.
+
+**A lição, que vale além deste campo.** Um comentário de esquema que enumera
+valores (`ativa | suspensa`, `km | data`, `rascunho | publicado | arquivado`)
+está afirmando que o sistema distingue esses valores. Quando nenhuma linha lê a
+coluna, o comentário vira ficção documentada — e ficção documentada é pior que
+silêncio, porque alguém vai confiar nela. Toda enumeração no esquema precisa de
+pelo menos um leitor, ou de uma nota dizendo que ainda não tem.

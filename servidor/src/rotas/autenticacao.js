@@ -79,6 +79,22 @@ export function registrarRotasAutenticacao(rotas) {
       throw recusa
     }
 
+    // A empresa inteira pode estar suspensa. Vem DEPOIS da conferencia de
+    // senha de proposito: quem chuta uma senha recebe 401 sem descobrir nada
+    // sobre a situacao comercial do cliente.
+    const empresa = consultarUm('SELECT status FROM empresas WHERE id = ?', [usuario.empresa_id])
+    if (empresa?.status !== 'ativa') {
+      registrarEvento({
+        empresaId: usuario.empresa_id, alvoId: usuario.id, acao: 'login.empresa_suspensa',
+        entidade: 'usuario', entidadeId: usuario.id,
+        depois: { empresa_status: empresa?.status ?? 'inexistente' }, ip: ctx.ip,
+      })
+      const recusa = erro.permissao(
+        'O acesso desta empresa esta suspenso. Procure o responsavel pelo contrato.')
+      recusa.codigo = 'empresa_suspensa'
+      throw recusa
+    }
+
     const { token, expira } = criarSessao(usuario, origem)
     ctx.res.setHeader('set-cookie', cabecalhoCookie(token, expira))
     registrarEvento({
