@@ -1550,6 +1550,8 @@ abertura ao fechamento.
 | Painel | O alerta vai ao destino do servidor; o selo abre a lista filtrada |
 | Vocabulário | Todo status do domínio tem rótulo e tom na tela |
 | Nível de acesso | Nenhuma tela do painel é oferecida a quem foi cadastrado como somente aplicativo |
+| Saída | Carro bloqueado ou em manutenção não sai do pátio — mas vai para a oficina pela preventiva |
+| Origem da requisição | Cabeçalho forjado não cria balde novo no freio de login |
 | Transições | O que a tela oferece é exatamente o que o servidor aceita |
 | Limite de lista | A consulta tem teto, a resposta o declara, e a tela avisa quando cortou |
 | Planilha | Teto próprio, muito maior que o da tela — e o arquivo avisa se ainda assim cortou |
@@ -1566,7 +1568,7 @@ abertura ao fechamento.
 
 ### Onde a cobertura começa e onde termina
 
-São 276 testes em três camadas:
+São 280 testes em três camadas:
 
 | Camada | Arquivo | O que prova |
 |---|---|---|

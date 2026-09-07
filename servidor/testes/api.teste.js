@@ -110,6 +110,9 @@ const veiculoNotificacao = criarVeiculo(empresaA, 'AAA5A55')
 // nao da para os dois dividirem a placa.
 const veiculoContrato = criarVeiculo(empresaA, 'AAA6A66')
 const veiculoContrato2 = criarVeiculo(empresaA, 'AAA7A77')
+// Mesma razao, para o teste da saida: ele BLOQUEIA e depois LIBERA o carro de
+// proposito, entao nao pode dividir placa com quem depende de estado estavel.
+const veiculoSaida = criarVeiculo(empresaA, 'AAA8A88')
 
 // Categoria de uso: e' o que o colaborador pede (roadmap 10.3). A placa so
 // aparece na liberacao, escolhida pela Frota.
@@ -195,7 +198,7 @@ const mecanicoA = criarUsuario(empresaA, 'Mecanico A', '11122233396', 'mecanico.
 const modeloPreventivaA = criarModeloPreventiva(empresaA, 'preventiva-teste', [cgMecanicoA])
 
 const catA = criarCategoria(empresaA, 'Comercial A',
-  [veiculoA, veiculoA2, veiculoA4, veiculoContrato, veiculoContrato2])
+  [veiculoA, veiculoA2, veiculoA4, veiculoContrato, veiculoContrato2, veiculoSaida])
 const catVazia = criarCategoria(empresaA, 'Sem carro nenhum', [])
 criarCategoria(empresaB, 'Comercial B', [veiculoB])
 
@@ -2956,5 +2959,163 @@ test('painel: o card de hoje conta o dia da operacao, nao o dia em UTC', async (
   // contra o defeito — e nao uma coincidencia de calendario.
   if (separaOsDias) {
     assert.notEqual(noite.toISOString().slice(0, 10), hoje)
+  }
+})
+
+test('saida: reserva aprovada nao tira do patio um carro bloqueado depois', async () => {
+  // A conferencia da placa acontece na APROVACAO. O bloqueio quase sempre nasce
+  // DEPOIS dela: vem de outro checklist, pelo `agrava()`, ou da propria Frota,
+  // de madrugada. Nada revalidava na saida.
+  //
+  // O estrago: reserva aprovada ontem, carro bloqueado as 3h por pneu liso
+  // critico, e a pessoa faz a saida hoje de manha, o pedido vira `em_uso` e ela
+  // dirige o veiculo que a frota tinha tirado de circulacao. Sem erro, sem
+  // aviso, sem nada na tela do aparelho.
+  const frota = await entrar('frota.a@teste.local')
+  const motorista = await entrar('motorista.a@teste.local')
+  const solicitacao = await reservar(frota, motorista, veiculoSaida, 1200)
+  const app = await chamar('GET', '/api/app/inicio', { token: motorista })
+  const tarefa = app.dados.tarefas.find((t) => t.solicitacao_id === solicitacao)
+  assert.ok(tarefa, 'a reserva precisa aparecer como tarefa')
+
+  // A Frota bloqueia DEPOIS da aprovacao.
+  const bloqueio = await chamar('POST', `/api/veiculos/${veiculoSaida}/status`, {
+    token: frota, corpo: { status: 'bloqueado', motivo: 'Pneu liso critico no retorno da noite.' },
+  })
+  assert.equal(bloqueio.status, 200)
+
+  const saida = await chamar('POST', '/api/inspecoes', {
+    token: motorista,
+    corpo: {
+      cliente_uuid: 'uuid-saida-carro-bloqueado', solicitacao_id: solicitacao,
+      template_id: tarefa.template_id, momento: 'saida',
+      respostas: { lataria: { desfecho: 'ok' }, pneus: { desfecho: 'ok' } },
+    },
+  })
+  assert.equal(saida.status, 409, JSON.stringify(saida.dados))
+  assert.match(saida.dados.mensagem, /bloqueado/i)
+  assert.match(saida.dados.mensagem, /pneu liso/i, 'o motivo do bloqueio tem que vir junto')
+
+  // E o pedido continua aprovado — nao virou `em_uso`.
+  const depois = await chamar('GET', `/api/solicitacoes/${solicitacao}`, { token: frota })
+  assert.equal(depois.dados.solicitacao.status, 'aprovada')
+
+  // Liberado com motivo, a saida volta a passar: a guarda e' sobre o estado do
+  // carro, nao sobre a reserva.
+  await chamar('POST', `/api/veiculos/${veiculoSaida}/status`, {
+    token: frota, corpo: { status: 'disponivel', motivo: 'Pneu trocado; laudo anexado.' },
+  })
+  const segunda = await chamar('POST', '/api/inspecoes', {
+    token: motorista,
+    corpo: {
+      cliente_uuid: 'uuid-saida-depois-de-liberar', solicitacao_id: solicitacao,
+      template_id: tarefa.template_id, momento: 'saida',
+      respostas: { lataria: { desfecho: 'ok' }, pneus: { desfecho: 'ok' } },
+    },
+  })
+  assert.equal(segunda.status, 200, JSON.stringify(segunda.dados))
+})
+
+test('saida: a preventiva LEVA o carro bloqueado para a oficina', async () => {
+  // A guarda acima nao pode valer para preventiva: carro bloqueado indo para a
+  // oficina e' o caso normal dela. Barrar isso deixaria o veiculo preso —
+  // bloqueado por uma ocorrencia, e sem poder executar a manutencao que a
+  // resolve.
+  const frota = await entrar('frota.a@teste.local')
+  const mecanico = await entrar('mecanico.a@teste.local')
+
+  await chamar('POST', `/api/veiculos/${veiculoA4}/status`, {
+    token: frota, corpo: { status: 'bloqueado', motivo: 'Freio com folga; vai para a oficina.' },
+  })
+
+  const app = await chamar('GET', '/api/app/inicio', { token: mecanico })
+  const prev = app.dados.preventivas.find((p) => p.veiculo.id === veiculoA4)
+  if (!prev) return   // sem preventiva agendada neste carro agora: nada a provar
+
+  const r = await chamar('POST', '/api/inspecoes', {
+    token: mecanico,
+    corpo: {
+      cliente_uuid: 'uuid-preventiva-carro-bloqueado', preventiva_id: prev.preventiva_id,
+      template_id: prev.template_id, momento: 'saida',
+      respostas: { pinca: { desfecho: 'ok', fotos: 1 } },
+    },
+  })
+  assert.notEqual(r.status, 409,
+    'preventiva em carro bloqueado tem que passar: e para isso que ela existe')
+})
+
+test('freio: cabecalho forjado nao cria balde novo a cada tentativa', async () => {
+  // `x-forwarded-for` e' escrito pelo cliente. Como ele era a chave do freio —
+  // `login|email|ip` e `ip|ip` — bastava incrementar um IP a cada tentativa para
+  // que nenhuma caisse no mesmo balde: as tres frentes do freio caiam juntas com
+  // um cabecalho de uma linha, e a conta da Frota podia ser martelada a noite
+  // inteira sem nunca ver um 429.
+  //
+  // Sem proxy declarado, o cabecalho e' ignorado por inteiro.
+  zerarFreio()
+  try {
+    const chutar = (n) => fetch(`${base}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-forwarded-for': `10.9.9.${n}` },
+      body: JSON.stringify({ email: 'frota.a@teste.local', senha: `chute-${n}` }),
+    })
+
+    for (let i = 0; i < LIMITES.login; i += 1) {
+      const r = await chutar(i)
+      assert.equal(r.status, 401, `tentativa ${i + 1} devia ser so senha errada`)
+    }
+
+    const barrada = await chutar(999)
+    assert.equal(barrada.status, 429,
+      'IP forjado diferente a cada tentativa nao pode escapar do freio')
+
+    // E a senha certa tambem para: o freio e' da conta, e ele pegou.
+    const comSenhaCerta = await fetch(`${base}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-forwarded-for': '10.9.9.1234' },
+      body: JSON.stringify({ email: 'frota.a@teste.local', senha: SENHA }),
+    })
+    assert.equal(comSenhaCerta.status, 429)
+  } finally {
+    zerarFreio()
+  }
+})
+
+test('freio: atras de proxy declarado, o endereco vem da direita', async () => {
+  // Com proxy na frente, o proxy ACRESCENTA ao fim da lista o endereco que ele
+  // mesmo enxergou. O que o cliente forjou fica a esquerda e nao alcanca a
+  // posicao que conta.
+  const { ipDe } = await import('../src/nucleo/http.js')
+  const { config } = await import('../src/nucleo/config.js')
+
+  const req = (xff) => ({ headers: xff ? { 'x-forwarded-for': xff } : {}, socket: { remoteAddress: '127.0.0.1' } })
+  const original = config.proxiesConfiaveis
+  try {
+    config.proxiesConfiaveis = 0
+    assert.equal(ipDe(req('1.2.3.4')), '127.0.0.1', 'sem proxy, o cabecalho e ignorado')
+
+    config.proxiesConfiaveis = 1
+    // O cliente forjou "1.2.3.4"; o proxy acrescentou o endereco real dele.
+    assert.equal(ipDe(req('1.2.3.4, 200.1.1.1')), '200.1.1.1')
+    // Uma entrada so, com um proxy na frente, e' o caso NORMAL: o cliente nao
+    // mandou cabecalho nenhum e o proxy acrescentou o que enxergou. Essa entrada
+    // e' observacao do proxy, nao invencao do cliente.
+    assert.equal(ipDe(req('200.1.1.1')), '200.1.1.1')
+
+    // Sem cabecalho nenhum, o socket e' a resposta honesta.
+    assert.equal(ipDe(req('')), '127.0.0.1')
+
+    // Com DOIS proxies, a cadeia legitima tem duas entradas: o primeiro proxy
+    // acrescenta o endereco do cliente, o segundo acrescenta o do primeiro. O
+    // socket e' o segundo proxy, e nao entra no cabecalho.
+    config.proxiesConfiaveis = 2
+    assert.equal(ipDe(req('200.1.1.1, 10.0.0.1')), '200.1.1.1', 'cadeia legitima')
+
+    // Se o cliente forjar uma entrada, a cadeia fica com TRES — e a posicao que
+    // conta continua sendo a mesma distancia do fim. O forjado fica de fora.
+    assert.equal(ipDe(req('9.9.9.9, 200.1.1.1, 10.0.0.1')), '200.1.1.1',
+      'o que o cliente inventou nao alcanca a posicao que conta')
+  } finally {
+    config.proxiesConfiaveis = original
   }
 })

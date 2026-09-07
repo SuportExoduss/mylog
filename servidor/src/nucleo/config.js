@@ -17,6 +17,17 @@ export const config = {
   // Storage local de evidencias no piloto; S3/R2 depois. Nunca dentro do banco.
   storageCaminho: process.env.MYLOG_STORAGE || path.join(RAIZ_SERVIDOR, 'dados', 'evidencias'),
 
+  // Quantos proxies reversos ficam NA FRENTE do servidor.
+  //
+  // Zero por padrao, e o padrao importa: com zero, `x-forwarded-for` e' ignorado
+  // por inteiro e o IP vem do socket. Confiar nesse cabecalho sem proxy na
+  // frente e' confiar num campo que o proprio cliente escreve — ver D49.
+  //
+  // Atras de um proxy (Firebase Hosting, nginx, Cloudflare), coloque 1: o
+  // endereco real passa a ser o penultimo da lista, que foi o proxy quem
+  // acrescentou e o cliente nao alcanca.
+  proxiesConfiaveis: Math.max(0, Number(process.env.MYLOG_PROXIES_CONFIAVEIS || 0)),
+
   // Fuso da OPERACAO, nao da maquina. E' ele que decide onde termina o dia,
   // e o servidor pode acabar rodando em outro continente (ver nucleo/relogio.js).
   fuso: process.env.MYLOG_FUSO || 'America/Sao_Paulo',

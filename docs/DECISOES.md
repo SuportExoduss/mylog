@@ -793,3 +793,33 @@ vetor clássico de poluição de protótipo quando o corpo é espalhado adiante.
 > varredura precisa de **cobaia**. A primeira versão editava o próprio usuário
 > administrador da fixture, e `acessa_painel: null` vira 0 — o varredor demitiu
 > o administrador, e os testes seguintes passaram a levar 403.
+
+## D49 — `x-forwarded-for` só vale quando existe proxy declarado
+
+**Contexto.** `ipDe()` devolvia sempre o primeiro valor de `x-forwarded-for` — um
+cabeçalho que **qualquer cliente escreve** — e só caía no socket quando ele
+faltava. Esse valor é a chave das duas frentes do freio de login
+(`login|email|ip` e `ip|ip`).
+
+**O estrago.** Bastava mandar um IP diferente a cada tentativa para que **toda
+tentativa caísse num balde novo**: as três frentes do freio caíam juntas com um
+cabeçalho de uma linha, e a conta da Frota — que abre o painel inteiro, cadastra
+usuário e redefine senha alheia — podia ser martelada a noite toda sem nunca ver
+um 429. De quebra, os 43 pontos que gravam `ctx.ip` na auditoria passavam a
+registrar um endereço inventado pelo próprio atacante: o incidente ficava sem
+origem investigável.
+
+**Decisão.** `MYLOG_PROXIES_CONFIAVEIS`, **zero por padrão**. Com zero, o
+cabeçalho é ignorado por inteiro e o endereço vem do socket. Com N ≥ 1, lê-se da
+**direita**: cada proxy acrescenta ao fim da lista o endereço que ele mesmo
+enxergou, então o que o cliente forjou fica à esquerda e não alcança a posição
+que conta — o cliente está em `comprimento − N`.
+
+**Zero como padrão é a decisão, não um detalhe.** Um servidor que confia no
+cabeçalho sem proxy na frente está confiando no atacante. Quem põe proxy sabe
+que pôs; quem não põe não deveria pagar por isso.
+
+**Na etapa 2 isto vira configuração obrigatória de implantação.** Atrás do
+Firebase Hosting haverá pelo menos um salto, e o valor errado quebra o freio nos
+dois sentidos — grande demais devolve o endereço do próprio proxy para todo
+mundo (um balde só para a frota inteira), pequeno demais devolve o forjado.

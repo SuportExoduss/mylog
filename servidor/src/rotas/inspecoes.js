@@ -285,9 +285,28 @@ export function registrarRotasInspecoes(rotas) {
       veiculo = consultarUm('SELECT * FROM veiculos WHERE id = ? AND empresa_id = ?',
         [String(ctx.corpo.veiculo_id || ''), eu.empresa_id])
       if (!veiculo) throw erro.naoEncontrado('Escolha o veiculo do checklist.')
-      if (veiculo.status === 'bloqueado') {
-        throw erro.conflito(`Veiculo bloqueado: ${veiculo.motivo_status || 'liberacao pendente da frota'}.`)
-      }
+    }
+
+    // O CARRO PODE SAIR?
+    //
+    // Ficava so no ramo avulso, e so contra 'bloqueado'. Quem tinha reserva
+    // aprovada passava direto: a conferencia da placa acontece na APROVACAO
+    // (solicitacoes.js), e o bloqueio quase sempre nasce depois dela — vem de
+    // outro checklist, pelo `agrava()`, ou da propria Frota, de madrugada.
+    // Resultado: reserva aprovada ontem, carro bloqueado as 3h por pneu liso
+    // critico, e a pessoa fazendo a saida hoje de manha sem nada avisar.
+    //
+    // Vale so na SAIDA, e so fora da preventiva:
+    //   - o RETORNO de um carro bloqueado durante o uso e' obrigatorio; barra-lo
+    //     deixaria o pedido preso em `em_uso` para sempre;
+    //   - a PREVENTIVA leva o carro para a oficina, e carro bloqueado indo para
+    //     a oficina e' o caso normal dela, nao a excecao.
+    //
+    // `com_pendencia` continua saindo: e' aviso, nao impedimento (D33).
+    const IMPEDEM_SAIR = { bloqueado: 'bloqueado', manutencao: 'em manutencao' }
+    if (!preventiva && momento === 'saida' && veiculo && IMPEDEM_SAIR[veiculo.status]) {
+      throw erro.conflito(
+        `Veiculo ${IMPEDEM_SAIR[veiculo.status]}: ${veiculo.motivo_status || 'liberacao pendente da frota'}.`)
     }
 
     const modeloLinha = consultarUm('SELECT * FROM templates WHERE id = ? AND empresa_id = ?',

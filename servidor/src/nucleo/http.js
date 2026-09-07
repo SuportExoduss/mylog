@@ -1,5 +1,6 @@
 // Roteador minimo sobre node:http. Sem dependencias externas.
 import { StringDecoder } from 'node:string_decoder'
+import { config } from './config.js'
 
 export class ErroHttp extends Error {
   constructor(status, codigo, mensagem) {
@@ -156,8 +157,33 @@ export function lerCookies(req) {
   return saida
 }
 
+// De onde a requisicao veio — e QUEM tem o direito de dizer isso.
+//
+// Antes daqui saia sempre o primeiro valor de `x-forwarded-for`, um cabecalho
+// que qualquer cliente escreve. Como ele e' a chave do freio de login
+// (`login|email|ip` e `ip|ip`), bastava mandar um IP diferente a cada tentativa
+// para que toda tentativa caisse num balde novo: as tres frentes do freio caiam
+// juntas com um cabecalho de uma linha. E os 43 pontos que gravam `ctx.ip` na
+// auditoria passavam a registrar um endereco inventado pelo proprio atacante,
+// deixando o incidente sem origem investigavel.
+//
+// Agora o cabecalho so vale quando a configuracao DIZ que ha proxy na frente, e
+// mesmo entao le-se da direita: o proxy ACRESCENTA o endereco que ele mesmo
+// enxergou ao fim da lista, entao o que o cliente forjou fica a esquerda e nao
+// alcanca a posicao que conta.
 export function ipDe(req) {
-  return (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket.remoteAddress || ''
+  const doSocket = req.socket?.remoteAddress || ''
+  const confiaveis = config.proxiesConfiaveis
+  if (!confiaveis) return doSocket
+
+  const cadeia = String(req.headers['x-forwarded-for'] || '')
+    .split(',').map((p) => p.trim()).filter(Boolean)
+  if (!cadeia.length) return doSocket
+
+  // Com N proxies confiaveis, o cliente esta N posicoes antes do fim. Se a
+  // cadeia veio mais curta que o esperado, o socket e' a resposta honesta.
+  const posicao = cadeia.length - confiaveis
+  return posicao >= 0 ? (cadeia[posicao] ?? doSocket) : doSocket
 }
 
 // -------------------------------------------------------------- roteador

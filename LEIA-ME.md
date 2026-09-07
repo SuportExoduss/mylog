@@ -127,5 +127,8 @@ docs/
 - [ ] Conferir `MYLOG_FUSO` — o fuso da operacao, nao o da maquina. Padrao
       `America/Sao_Paulo`; e' ele que decide onde termina o dia (D37)
 - [ ] HTTPS na frente (o cookie so ganha `Secure` fora de desenvolvimento)
+- [ ] Definir `MYLOG_PROXIES_CONFIAVEIS` com o numero de proxies na frente.
+      Zero (o padrao) ignora `x-forwarded-for`; atras de proxy, o valor errado
+      quebra o freio de login nos dois sentidos (D49)
 - [ ] Rotina de backup testada **com restauracao**, nao so com copia
 - [ ] Politica de retencao de fotos por empresa
