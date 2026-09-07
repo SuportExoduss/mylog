@@ -22,6 +22,7 @@ const { nivelDe, ehFrota, perfilPublico } = await import('../src/seguranca/nivel
 const { normalizarPlaca, placaValida, STATUS_VEICULO, TIPOS_VEICULO } =
   await import('../src/rotas/veiculos.js')
 const { gerarSenhaInicial, limparCpf, cpfValido } = await import('../src/rotas/usuarios.js')
+const { bordaDoDia, diaLocal } = await import('../src/nucleo/relogio.js')
 
 abrirBanco()
 
@@ -147,7 +148,18 @@ test('veiculo: status e tipos sao os do roadmap v3.0', () => {
 
 // ------------------------------------------------------------ preventivas
 
-const emDias = (n) => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10)
+// Uma data a n dias de hoje, contando dias da OPERACAO.
+//
+// Era `new Date(Date.now() + n * 86400000).toISOString().slice(0, 10)`: o dia em
+// UTC. Enquanto `diasEntre` tambem lia o hoje em UTC, os dois erravam juntos e o
+// teste logo abaixo — que se chama "nao escorrega por causa de fuso" — passava
+// com a conta torta. Arrumado o servidor, foi este lado que ficou errado, e a
+// varredura com MYLOG_FUSO no Pacifico apontou na hora.
+//
+// Ancora ao meio-dia UTC de proposito: somar n dias a partir dai nunca cai em
+// cima da virada, entao a conta nao escorrega por hora de verao.
+const emDias = (n) => new Date(new Date(`${diaLocal()}T12:00:00Z`).getTime() + n * 86400000)
+  .toISOString().slice(0, 10)
 
 test('preventiva por KM: em dia, proxima, muito proxima e vencida', () => {
   const base = { modo: 'km', proximo_km: 50000, alerta_antes_km: 1000 }
@@ -182,6 +194,33 @@ test('diasEntre nao escorrega por causa de fuso', () => {
   assert.equal(diasEntre(emDias(0)), 0)
   assert.equal(diasEntre(emDias(10)), 10)
   assert.equal(diasEntre(emDias(-10)), -10)
+})
+
+test('preventiva por data: o dia e o da operacao, nao o do UTC', () => {
+  // `emDias` acima monta a data em UTC, e `diasEntre` lia o "hoje" tambem em
+  // UTC — os dois erravam juntos, entao o teste ao lado passava com a conta
+  // torta. E' o mesmo furo que a D37 tirou do resto do servidor.
+  //
+  // No Brasil, das 21h a meia-noite o dia UTC ja e' o de amanha. A preventiva
+  // que vence AMANHA passava a ser lida como vencendo hoje: virava "vencida"
+  // tres horas antes, toda noite, e voltava sozinha para "muito proxima" a
+  // meia-noite. Alerta de manutencao que pisca nao e' alerta.
+  //
+  // O instante e' montado a partir da borda do dia da operacao, e nao com um
+  // deslocamento fixo: assim o teste vale em qualquer MYLOG_FUSO.
+  const DIA = '2026-09-02'
+  const AMANHA = '2026-09-03'
+  const quaseMeiaNoite = new Date(new Date(bordaDoDia(DIA)).getTime() + 23.5 * 3600 * 1000)
+
+  assert.equal(diaLocal(quaseMeiaNoite), DIA,
+    'controle: o instante escolhido ainda e hoje na operacao')
+
+  assert.equal(diasEntre(AMANHA, quaseMeiaNoite), 1, 'amanha ainda falta um dia')
+  assert.equal(diasEntre(DIA, quaseMeiaNoite), 0)
+  assert.equal(
+    avaliarPreventiva({ modo: 'data', alerta_antes_dias: 7, proxima_data: AMANHA }, 0, quaseMeiaNoite).status,
+    'muito_proxima',
+    'as 23h30 a preventiva de amanha nao pode estar vencida')
 })
 
 // ------------------------------------------------------- isolamento tenant

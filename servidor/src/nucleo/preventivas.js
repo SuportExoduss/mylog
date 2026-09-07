@@ -2,6 +2,7 @@
 // Regras deterministicas e explicaveis: dado o mesmo veiculo e a mesma data,
 // o resultado e' sempre o mesmo, e a UI consegue dizer POR QUE esta amarelo.
 import { consultar, executar, agora } from './banco.js'
+import { diaLocal } from './relogio.js'
 
 export const STATUS_PREVENTIVA = ['em_dia', 'proxima', 'muito_proxima', 'vencida', 'realizada']
 
@@ -11,9 +12,22 @@ const DIA_MS = 24 * 3600 * 1000
 // "proxima"       = dentro de tres vezes essa janela — tempo de se organizar.
 const FATOR_ATENCAO = 3
 
+// Quantos dias faltam — contados em dias da OPERACAO.
+//
+// O "hoje" saia de `referencia.toISOString().slice(0, 10)`, que e' o dia em UTC.
+// No Brasil, das 21h a meia-noite o dia UTC ja e' o de amanha: a preventiva que
+// vence amanha era lida como vencendo hoje e virava "vencida" tres horas antes,
+// toda noite, voltando sozinha para "muito proxima" a meia-noite. Alerta de
+// manutencao que pisca deixa de ser alerta.
+//
+// E' o mesmo furo que a D37 tirou do resto do servidor; este ficou porque a
+// data alvo tambem era comparada em UTC, e os dois lados erravam juntos.
+//
+// Os dois lados sao DATAS, nao instantes: `T00:00:00Z` dos dois serve so para
+// virar numero e subtrair. Quem escolhe qual e' o dia de hoje e' `diaLocal`.
 export function diasEntre(dataAlvoISO, referencia = new Date()) {
   const alvo = new Date(`${String(dataAlvoISO).slice(0, 10)}T00:00:00Z`).getTime()
-  const hoje = new Date(`${referencia.toISOString().slice(0, 10)}T00:00:00Z`).getTime()
+  const hoje = new Date(`${diaLocal(referencia)}T00:00:00Z`).getTime()
   return Math.round((alvo - hoje) / DIA_MS)
 }
 
