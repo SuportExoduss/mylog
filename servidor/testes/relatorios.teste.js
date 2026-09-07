@@ -398,7 +398,11 @@ async function umaInspecaoQualquer() {
 test('cabecalhos: a politica de conteudo vale para TUDO que sai do servidor', async () => {
   // Nao adianta blindar a API e deixar o HTML do painel, o CSS e a imagem de
   // fora: e' justamente no documento que o script injetado rodaria.
-  const motorista = await entrar('motorista@rel.local')
+  // A fixture cria 'motorista.a@rel.local'. Com o email errado, `entrar`
+  // devolvia undefined e a linha "rota de API" media os cabecalhos de um 401 —
+  // que tambem os tem. O teste passava sem nunca olhar uma resposta autenticada.
+  const motorista = await entrar('motorista.a@rel.local')
+  assert.ok(motorista, 'sem token, a linha da rota de API mede um 401 e nao prova nada')
   const caminhos = [
     ['pagina do painel', '/', undefined],
     ['modulo do painel', '/js/app.js', undefined],

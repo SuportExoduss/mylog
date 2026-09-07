@@ -381,12 +381,35 @@ test('relogio: as bordas do dia sao meia-noite e 23:59 no patio', () => {
 })
 
 test('relogio: fuso invalido derruba a partida, nao a primeira consulta', () => {
-  assert.throws(() => {
-    execFileSync(process.execPath, ['--input-type=module', '-e', SONDA], {
-      env: { ...process.env, MYLOG_FUSO: 'Marte/Olympus' },
-      encoding: 'utf8', stdio: 'pipe',
-    })
-  }, /./)
+  // `assert.throws(..., /./)` aceitava QUALQUER erro: um erro de digitacao na
+  // sonda, um modulo que sumiu, qualquer coisa que fizesse o filho morrer
+  // deixava o teste verde. Ele precisa exigir o erro CERTO, e a mensagem certa
+  // — nome de fuso errado e' erro de implantacao, e a frase e' o que diz a quem
+  // subiu o servidor o que fazer.
+  let saida = ''
+  assert.throws(
+    () => {
+      execFileSync(process.execPath, ['--input-type=module', '-e', SONDA], {
+        env: { ...process.env, MYLOG_FUSO: 'Marte/Olympus' },
+        encoding: 'utf8', stdio: 'pipe',
+      })
+    },
+    (falha) => {
+      saida = `${falha.stderr || ''}${falha.stdout || ''}${falha.message || ''}`
+      assert.match(saida, /MYLOG_FUSO invalido/,
+        `o filho morreu por outro motivo:\n${saida.slice(0, 400)}`)
+      assert.match(saida, /Marte\/Olympus/, 'a mensagem tem que citar o valor recusado')
+      assert.match(saida, /America\/Sao_Paulo/, 'e dar um exemplo do que se espera')
+      return true
+    },
+  )
+
+  // E o controle: com um fuso VALIDO a mesma sonda sobe. Sem isto, o teste
+  // passaria mesmo se a sonda estivesse quebrada por completo.
+  const boa = execFileSync(process.execPath, ['--input-type=module', '-e', SONDA], {
+    env: { ...process.env, MYLOG_FUSO: 'America/Sao_Paulo' }, encoding: 'utf8',
+  })
+  assert.match(boa, /"dia":/, 'a sonda tem que funcionar com fuso valido')
 })
 
 // ---------------------------------------------- transacao das decisoes criticas

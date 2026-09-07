@@ -1847,17 +1847,53 @@ test('cobranca: fim de semana nao cobra ninguem', async () => {
   }
 })
 
-test('cobranca: quem fez sai da lista', async () => {
+test('cobranca: quem fez sai da lista, e quem nao fez continua nela', async () => {
+  // Duas coisas que faltavam.
+  //
+  // A primeira: o teste pedia a lista de HOJE. Sabado e domingo a rota devolve
+  // `exigido: false` e `faltantes: []` — e a asercao "fulano nao esta na lista"
+  // fica verdadeira sem exercitar nada. Dois dias em sete, ele nao provava.
+  // Agora usa uma quinta-feira fixa, que os modelos diarios da fixture cobram.
+  //
+  // A segunda, que vale nos sete dias: nao havia CONTROLE POSITIVO. Sem alguem
+  // que precise aparecer na lista, o teste passaria com a cobranca inteira
+  // quebrada — bastaria `faltantes` vir sempre vazio.
   const frota = await entrar('frota.a@teste.local')
   const diarista = await entrar('diarista@teste.local', 'diarista2026')
+  // Uma QUARTA que nenhum outro teste consulta. A primeira versao usava a
+  // quinta-feira 03/09 e derrubou o vizinho: ao tirar o diarista dos faltantes
+  // daquele dia, o teste "um checklist por pessoa" perdeu justamente a pessoa
+  // com mais de um modelo. Fixture compartilhada exige dia proprio.
+  const QUARTA = '2026-09-02'
 
-  const hoje = diaLocal()
-  const antes = await chamar('GET', `/api/execucoes/faltando?dia=${hoje}`, { token: frota })
-  // O teste do checklist avulso ja fez um checklist hoje com este usuario.
   const eu = (await chamar('GET', '/api/auth/eu', { token: diarista })).dados.usuario
-  const faltando = antes.dados.faltantes.map((f) => f.usuario_id)
-  assert.ok(!faltando.includes(eu.id),
-    'quem ja mandou o checklist de hoje nao pode aparecer como faltante')
+
+  // Antes: ninguem fez nada naquele dia, e o diarista TEM que estar cobrado.
+  const antes = await chamar('GET', `/api/execucoes/faltando?dia=${QUARTA}`, { token: frota })
+  assert.equal(antes.status, 200)
+  assert.equal(antes.dados.exigido, true, 'quarta-feira cobra: os modelos diarios valem de seg a sex')
+  assert.ok(antes.dados.faltantes.some((f) => f.usuario_id === eu.id),
+    'controle positivo: quem nao fez PRECISA aparecer, senao o teste seguinte nao prova nada')
+
+  // Um checklist de saida daquele dia, no nome dele.
+  const quando = naHoraDaOperacao(QUARTA, 7, 30).toISOString()
+  const modelo = consultarUm(
+    `SELECT id FROM templates WHERE empresa_id = ? AND periodicidade = 'diario' LIMIT 1`,
+    [empresaA]).id
+  executar(
+    `INSERT INTO inspecoes (id, empresa_id, veiculo_id, usuario_id, template_id,
+                            momento, status, resultado, iniciada_em, finalizada_em, criado_em)
+     VALUES (?, ?, ?, ?, ?, 'saida', 'finalizada', 'aprovado', ?, ?, ?)`,
+    [novoId('inspecao'), empresaA, veiculoA4, eu.id, modelo, quando, quando, quando])
+
+  // Depois: ele sai da lista, e a lista NAO fica vazia — os outros continuam.
+  const depois = await chamar('GET', `/api/execucoes/faltando?dia=${QUARTA}`, { token: frota })
+  assert.ok(!depois.dados.faltantes.some((f) => f.usuario_id === eu.id),
+    'quem mandou o checklist do dia nao pode aparecer como faltante')
+  assert.equal(depois.dados.cobrados, antes.dados.cobrados,
+    'fazer o checklist tira da lista de faltantes, nao da lista de cobrados')
+  assert.equal(depois.dados.faltantes.length, antes.dados.faltantes.length - 1,
+    'so ele saiu: se a lista esvaziou, o filtro esta pegando gente demais')
 })
 
 test('cobranca: um checklist por pessoa, nao um por modelo', async () => {

@@ -1,7 +1,7 @@
 // Motor de checklist (Roadmap v3.0, secao 11).
 // Esta logica e' reexecutada offline pelo aplicativo, entao um erro aqui
 // aparece no campo, sem rede e sem quem consertar.
-import test from 'node:test'
+import test, { mock } from 'node:test'
 import assert from 'node:assert/strict'
 
 const {
@@ -318,11 +318,32 @@ test('inspecao: a maior prioridade manda no resumo', () => {
 })
 
 test('inspecao: o julgamento nao depende do relogio', () => {
-  // Se dependesse, o mesmo checklist daria resultado diferente no patio as 6h
-  // e no servidor as 14h.
-  const a = avaliarInspecao(ESTRUTURA, TUDO_OK, {})
-  const b = avaliarInspecao(ESTRUTURA, TUDO_OK, {})
-  assert.deepEqual(a, b)
+  // Se dependesse, o mesmo checklist daria resultado diferente no patio as 6h e
+  // no servidor as 14h — e o motor e' a UNICA fonte do julgamento, importada
+  // pelo servidor e servida ao navegador.
+  //
+  // A versao anterior deste teste chamava a mesma funcao pura duas vezes
+  // seguidas e comparava. Isso nao prova nada: as duas chamadas caem no mesmo
+  // milissegundo, entao ela passaria intacta mesmo se o motor lesse o relogio.
+  //
+  // Agora o relogio ANDA entre as duas chamadas — oito horas, uma virada de dia
+  // e uma de ano.
+  mock.timers.enable({ apis: ['Date'] })
+  try {
+    mock.timers.setTime(Date.UTC(2026, 8, 3, 6, 0, 0))
+    const deManha = avaliarInspecao(ESTRUTURA, TUDO_OK, {})
+
+    mock.timers.setTime(Date.UTC(2026, 8, 3, 14, 0, 0))
+    const aTarde = avaliarInspecao(ESTRUTURA, TUDO_OK, {})
+
+    mock.timers.setTime(Date.UTC(2027, 0, 1, 23, 59, 59))
+    const noAnoSeguinte = avaliarInspecao(ESTRUTURA, TUDO_OK, {})
+
+    assert.deepEqual(aTarde, deManha, 'oito horas depois, o mesmo checklist')
+    assert.deepEqual(noAnoSeguinte, deManha, 'no ano seguinte, o mesmo checklist')
+  } finally {
+    mock.timers.reset()
+  }
 })
 
 // -------------------------------------------------- frases de pendencia
