@@ -105,6 +105,18 @@ export function registrarRotasInspecoes(rotas) {
       // template dentro do laco — uma consulta por preventiva, quase sempre
       // pelo MESMO modelo, ja que uma frota costuma ter um checklist de
       // preventiva e nao quarenta.
+      //
+      // Sem `t.status = 'publicado'`, de proposito. A preventiva aponta para a
+      // LINHA de uma versao, e publicar a versao 2 arquiva a 1: com o filtro
+      // aqui, uma edicao de rotina do checklist apagava da tela do mecanico a
+      // preventiva vencida do carro. Sem aviso e sem log — o carro seguia
+      // vencido, so ninguem mais era chamado para leva-lo.
+      //
+      // Quem garante que o modelo era valido e' o AGENDAMENTO: preventivas.js
+      // recusa modelo em rascunho na hora de criar. Depois disso a versao esta
+      // congelada por contrato — a saida e o retorno tem que ser o mesmo
+      // checklist, ou o dossie compara perguntas diferentes. `finalidade`
+      // continua no filtro: e' tipo, nao ciclo de vida.
       `SELECT p.*, v.placa, v.marca, v.modelo, v.tipo, v.km_atual,
               t.id AS t_id, t.codigo AS t_codigo, t.nome AS t_nome, t.versao AS t_versao,
               t.finalidade AS t_finalidade, t.exige_assinatura AS t_assinatura,
@@ -115,7 +127,7 @@ export function registrarRotasInspecoes(rotas) {
          JOIN veiculos v ON v.id = p.veiculo_id
          JOIN templates t ON t.id = p.template_id
         WHERE p.empresa_id = ? AND p.status <> 'realizada'
-          AND t.status = 'publicado' AND t.finalidade = 'preventiva'
+          AND t.finalidade = 'preventiva'
         ORDER BY CASE p.status WHEN 'vencida' THEN 0 ELSE 1 END, p.atualizado_em`,
       [eu.empresa_id])
 
@@ -331,6 +343,21 @@ export function registrarRotasInspecoes(rotas) {
     const modeloLinha = consultarUm('SELECT * FROM templates WHERE id = ? AND empresa_id = ?',
       [String(ctx.corpo.template_id || ''), eu.empresa_id])
     if (!modeloLinha) throw erro.naoEncontrado('Checklist nao encontrado.')
+
+    // RASCUNHO nao vira inspecao. Os tres caminhos de leitura ja filtram
+    // `status = 'publicado'`, entao o aplicativo nunca recebe um id de rascunho
+    // — mas o envio nao conferia nada, e a diferenca importa: `conferirEstrutura`
+    // so roda na PUBLICACAO. Um rascunho pode ter pergunta sem opcao de
+    // problema, opcao sem desfecho, estrutura pela metade. Julgar por cima
+    // disso e' pior do que recusar.
+    //
+    // ARQUIVADO passa, e tem que passar. E' a versao anterior de um checklist
+    // que ganhou versao nova, e ela e' legitima em dois casos reais: a fila
+    // offline que saiu de manha com a versao 1 e sobe a tarde, e a preventiva
+    // agendada, que roda ate o fim na versao com que foi agendada.
+    if (modeloLinha.status === 'rascunho') {
+      throw erro.conflito('Este checklist ainda e rascunho. Publique antes de usar.')
+    }
 
     const estrutura = JSON.parse(modeloLinha.estrutura)
     const cargos = JSON.parse(modeloLinha.cargos_liberados)

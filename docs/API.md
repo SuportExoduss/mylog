@@ -281,6 +281,12 @@ duplicar:
 Isso é o que permite a fila offline reenviar sem medo. A resposta pode ter se
 perdido no caminho; a inspeção, não.
 
+### O `template_id` pode ser de uma versão arquivada
+
+Pode, e precisa poder: é a versão que o aparelho baixou antes de ficar sem
+sinal. Só `rascunho` é recusado (`409`) — um rascunho nunca passou pela
+conferência de estrutura, que só roda na publicação. Ver D50.
+
 O atalho é **por autor**. O mesmo `cliente_uuid` vindo de outra conta da mesma
 empresa responde `409 conflito` — não é reenvio, é colisão de id, e o aplicativo
 precisa gerar outro. (Devolver a inspeção passaria por cima da regra que as duas

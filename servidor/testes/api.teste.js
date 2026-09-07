@@ -1466,6 +1466,97 @@ test('preventiva: so o cargo liberado ve a preventiva no aplicativo', async () =
     'cargo nao liberado nao ve o modelo, nem sendo da frota')
 })
 
+test('preventiva: publicar uma versao nova do modelo nao apaga a preventiva vencida', async () => {
+  // `/api/app/inicio` monta a lista de preventivas com
+  //   JOIN templates t ON t.id = p.template_id ... AND t.status = 'publicado'
+  // Publicar a versao 2 arquiva a versao 1 (templates.js). Como a preventiva
+  // aponta para a LINHA da versao 1, o JOIN passa a nao casar e a preventiva
+  // some da tela do mecanico — sem aviso, sem log, sem virar outra coisa. O
+  // carro continua vencido; so ninguem mais e' chamado para leva-lo.
+  //
+  // Uma edicao de checklist e' rotina da Frota. Ela nao pode desmarcar
+  // manutencao.
+  const veiculo = criarVeiculo(empresaA, 'AAA9V99')
+  const modelo = criarModeloPreventiva(empresaA, 'preventiva-versionada', [cgMecanicoA])
+  const preventiva = criarPreventivaComModelo(empresaA, veiculo, modelo)
+
+  const mecanico = await entrar('mecanico.a@teste.local')
+  const frota = await entrar('frota.a@teste.local')
+
+  const antes = await chamar('GET', '/api/app/inicio', { token: mecanico })
+  assert.ok(antes.dados.preventivas.some((p) => p.preventiva_id === preventiva),
+    'controle: antes da nova versao a preventiva aparece')
+
+  // A Frota edita o checklist — rascunho da versao 2 e publicacao.
+  const versao = await chamar('POST', `/api/templates/${modelo}/versao`, { token: frota })
+  assert.equal(versao.status, 200, JSON.stringify(versao.dados))
+  const publicada = await chamar('POST', `/api/templates/${versao.dados.template.id}/publicar`,
+    { token: frota })
+  assert.equal(publicada.status, 200, JSON.stringify(publicada.dados))
+
+  const arquivada = await chamar('GET', `/api/templates/${modelo}`, { token: frota })
+  assert.equal(arquivada.dados.template.status, 'arquivado', 'a versao 1 saiu de cena')
+
+  const depois = await chamar('GET', '/api/app/inicio', { token: mecanico })
+  const ainda = depois.dados.preventivas.find((p) => p.preventiva_id === preventiva)
+  assert.ok(ainda, 'a preventiva vencida nao pode sumir porque o modelo ganhou versao')
+
+  // E ela continua sendo executada na versao que foi agendada: a saida e o
+  // retorno precisam ser o MESMO checklist, ou a comparacao antes/depois do
+  // dossie compara perguntas diferentes.
+  assert.equal(ainda.template_id, modelo,
+    'a preventiva agendada roda a versao com que foi agendada')
+})
+
+test('checklist: rascunho nao vira inspecao, mas versao arquivada sim', async () => {
+  // Os dois lados da mesma regra.
+  //
+  // O rascunho nunca passou por `conferirEstrutura` — isso so acontece na
+  // publicacao. Pode estar pela metade, e julgar por cima de uma estrutura pela
+  // metade e' pior do que recusar.
+  //
+  // A versao arquivada, ao contrario, passou: e' a versao 1 de um checklist que
+  // ganhou a versao 2. Quem encheu o checklist de manha, sem sinal, tem que
+  // conseguir subir a tarde — e a preventiva agendada roda ate o fim na versao
+  // com que foi agendada.
+  //
+  // Modelo e carro proprios: publicar versao mexe no ciclo de vida do codigo
+  // inteiro, e emprestar o modelo de outro teste bagunca o vizinho.
+  const frota = await entrar('frota.a@teste.local')
+  const veiculo = criarVeiculo(empresaA, 'AAA9R99')
+  const modelo = criarDiario(empresaA, 'rascunho-vs-arquivada', 'compacto_leve')
+
+  const rascunho = await chamar('POST', `/api/templates/${modelo}/versao`, { token: frota })
+  assert.equal(rascunho.status, 200, JSON.stringify(rascunho.dados))
+  assert.equal(rascunho.dados.template.status, 'rascunho')
+
+  const corpoBase = {
+    veiculo_id: veiculo, momento: 'saida', km_informado: 10100,
+    respostas: { lataria: { desfecho: 'ok' }, pneus: { desfecho: 'ok' } },
+  }
+
+  const comRascunho = await chamar('POST', '/api/inspecoes', {
+    token: frota,
+    corpo: { ...corpoBase, cliente_uuid: 'uuid-rascunho-0001', template_id: rascunho.dados.template.id },
+  })
+  assert.equal(comRascunho.status, 409, JSON.stringify(comRascunho.dados))
+  assert.match(comRascunho.dados.mensagem, /rascunho/i)
+
+  // Publica a 2 — a 1 vira arquivada.
+  const pub = await chamar('POST', `/api/templates/${rascunho.dados.template.id}/publicar`,
+    { token: frota })
+  assert.equal(pub.status, 200, JSON.stringify(pub.dados))
+  const antiga = await chamar('GET', `/api/templates/${modelo}`, { token: frota })
+  assert.equal(antiga.dados.template.status, 'arquivado', 'controle: a versao 1 saiu de cena')
+
+  const comArquivada = await chamar('POST', '/api/inspecoes', {
+    token: frota,
+    corpo: { ...corpoBase, cliente_uuid: 'uuid-arquivada-0001', template_id: modelo },
+  })
+  assert.equal(comArquivada.status, 200,
+    `a fila offline sobe na versao com que saiu: ${JSON.stringify(comArquivada.dados)}`)
+})
+
 test('preventiva: a saida e um checklist normal e abre ocorrencia', async () => {
   // Roadmap 14.2: a saida registra o estado da peca ANTES do servico.
   const mecanico = await entrar('mecanico.a@teste.local')

@@ -823,3 +823,46 @@ que pôs; quem não põe não deveria pagar por isso.
 Firebase Hosting haverá pelo menos um salto, e o valor errado quebra o freio nos
 dois sentidos — grande demais devolve o endereço do próprio proxy para todo
 mundo (um balde só para a frota inteira), pequeno demais devolve o forjado.
+
+---
+
+## D50 — A versão arquivada continua valendo; o rascunho nunca valeu
+
+Um checklist tem três estados: `rascunho`, `publicado`, `arquivado`. Publicar a
+versão 2 arquiva a 1, na mesma transação. A pergunta que faltava responder era
+o que acontece com quem já estava segurando a versão 1.
+
+**Arquivada vale.** Dois casos reais, e nenhum deles é excepcional:
+
+- A **fila offline**. O colaborador preenche o checklist às 7h, sem sinal, com a
+  versão que baixou. A Frota publica a versão 2 às 10h. Às 14h o aparelho sobe a
+  fila. Recusar aqui seria perder o checklist de um dia inteiro de operação por
+  causa de uma edição feita no escritório.
+- A **preventiva agendada**. Ela aponta para a *linha* de uma versão, e a saída
+  e o retorno precisam ser o mesmo checklist — o dossiê põe antes e depois lado
+  a lado, e comparar perguntas diferentes não compara nada.
+
+Este segundo caso era um defeito de verdade, não uma hipótese: a consulta de
+`/api/app/inicio` filtrava `t.status = 'publicado'` no `JOIN`, então publicar uma
+versão nova **apagava da tela do mecânico a preventiva vencida do carro**. Sem
+aviso, sem log, sem virar outra coisa. O carro seguia vencido; só ninguém mais
+era chamado para levá-lo. Uma edição de checklist é rotina da Frota, e rotina da
+Frota não pode desmarcar manutenção.
+
+**Rascunho não vale.** Não por simetria, por um motivo próprio:
+`conferirEstrutura` só roda na **publicação**. Um rascunho pode ter pergunta sem
+opção de problema, opção sem desfecho, estrutura pela metade. Julgar por cima
+disso é pior do que recusar — e o aplicativo nunca recebe um id de rascunho,
+porque os três caminhos de leitura filtram `publicado`. Quem manda um rascunho
+está montando a requisição à mão.
+
+Onde a regra mora:
+
+| Momento | Quem decide | Estado exigido |
+|---|---|---|
+| Agendar preventiva | `preventivas.js` | `publicado` |
+| Oferecer no app | `/api/app/inicio` | `publicado` |
+| Executar (`POST /api/inspecoes`) | `inspecoes.js` | qualquer um menos `rascunho` |
+
+O portão é o **agendamento** e a **oferta**, não a execução. Na hora de executar,
+a decisão já foi tomada — e desfazê-la ali é tirar o chão de quem já começou.
