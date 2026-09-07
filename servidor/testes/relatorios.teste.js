@@ -13,7 +13,7 @@ process.env.MYLOG_BANCO = path.join(raizTemp, 'mylog.db')
 process.env.MYLOG_STORAGE = path.join(raizTemp, 'evidencias')
 process.env.MYLOG_PORTA = '0'
 
-const { abrirBanco, executar, novoId, agora, fecharBanco } = await import('../src/nucleo/banco.js')
+const { abrirBanco, executar, consultarUm, novoId, agora, fecharBanco } = await import('../src/nucleo/banco.js')
 const { gerarHashSenha } = await import('../src/seguranca/senha.js')
 
 abrirBanco()
@@ -483,4 +483,124 @@ test('rastro: toda resposta leva um numero proprio', async () => {
   const outra = await bruto('/api/auth/eu')
   assert.notEqual(outra.headers.get('x-requisicao-id'), id,
     'o numero e de UMA requisicao; repetido, nao localiza nada')
+})
+
+// ============================ relatorio com registro incompleto
+
+// Um relatorio e' documento: alguem imprime, assina e arquiva. Ele nao pode
+// quebrar porque o registro esta pela metade — e registro pela metade acontece
+// o tempo todo: checklist sem resposta nenhuma, preventiva que ainda nao teve
+// retorno, pedido recusado antes de ganhar placa, veiculo que nunca rodou.
+//
+// O que se exige aqui e' modesto e vale muito: responder 200 e nao vazar
+// "undefined" nem "[object Object]" para dentro da folha.
+
+// A fixture cria os usuarios sem guardar o id; busca pelo email, que e estavel.
+const quemExecuta = () =>
+  consultarUm('SELECT id FROM usuarios WHERE email = ?', ['motorista.a@rel.local']).id
+
+async function abrirRelatorio(caminho, token) {
+  const r = await bruto(caminho, token)
+  const html = await r.text()
+  return { status: r.status, html }
+}
+
+function conferirFolha(nome, { status, html }) {
+  assert.equal(status, 200, `${nome}: nao abriu`)
+  assert.ok(!/undefined/.test(html), `${nome}: a folha tem "undefined" impresso`)
+  assert.ok(!/\[object Object\]/.test(html), `${nome}: a folha tem "[object Object]"`)
+  assert.ok(!/\bNaN\b/.test(html), `${nome}: a folha tem "NaN"`)
+  assert.match(html, /<\/html>/, `${nome}: a folha veio truncada`)
+}
+
+test('relatorio: inspecao SEM resposta nenhuma ainda vira folha', async () => {
+  // Acontece: o servidor grava a inspecao e as respostas em transacoes que a
+  // fila offline pode entregar pela metade, e um modelo recem-publicado pode
+  // ter zero perguntas.
+  const frota = await entrar('frota.a@rel.local')
+  const ts = agora()
+  const id = novoId('inspecao')
+  const modelo = consultarUm(
+    'SELECT id FROM templates WHERE empresa_id = ? LIMIT 1', [empresaA]).id
+  executar(
+    `INSERT INTO inspecoes (id, empresa_id, veiculo_id, usuario_id, template_id,
+                            momento, status, resultado, iniciada_em, finalizada_em, criado_em)
+     VALUES (?, ?, ?, ?, ?, 'saida', 'finalizada', 'aprovado', ?, ?, ?)`,
+    [id, empresaA, veiculo1, quemExecuta(), modelo, ts, ts, ts])
+
+  conferirFolha('inspecao vazia', await abrirRelatorio(`/relatorio/inspecao/${id}`, frota))
+})
+
+test('relatorio: inspecao sem KM, sem assinatura e sem numero', async () => {
+  // Campos opcionais em branco sao o caso comum de um checklist avulso antigo.
+  const frota = await entrar('frota.a@rel.local')
+  const ts = agora()
+  const id = novoId('inspecao')
+  const modelo = consultarUm(
+    'SELECT id FROM templates WHERE empresa_id = ? LIMIT 1', [empresaA]).id
+  executar(
+    `INSERT INTO inspecoes (id, empresa_id, veiculo_id, usuario_id, template_id,
+                            momento, status, iniciada_em, criado_em)
+     VALUES (?, ?, ?, ?, ?, 'retorno', 'finalizada', ?, ?)`,
+    [id, empresaA, veiculo1, quemExecuta(), modelo, ts, ts])
+
+  conferirFolha('inspecao sem opcionais', await abrirRelatorio(`/relatorio/inspecao/${id}`, frota))
+})
+
+test('relatorio: pedido recusado, que nunca ganhou placa', async () => {
+  // A solicitacao nasce SEM veiculo — quem pede escolhe uma categoria. Um
+  // pedido recusado morre assim, e o documento dele precisa existir.
+  const frota = await entrar('frota.a@rel.local')
+  const motorista = await entrar('motorista.a@rel.local')
+  const pedido = await chamar('POST', '/api/solicitacoes', {
+    token: motorista,
+    corpo: {
+      categoria_id: categoriaA,
+      janela_inicio: daquiAHoras(700), janela_fim: daquiAHoras(704),
+      motivo: 'Pedido que sera recusado, para o relatorio sem placa.',
+    },
+  })
+  const id = pedido.dados.solicitacao.id
+  await chamar('POST', `/api/solicitacoes/${id}/recusar`,
+    { token: frota, corpo: { motivo: 'Sem carro livre nessa janela.' } })
+
+  conferirFolha('pedido sem placa', await abrirRelatorio(`/relatorio/solicitacao/${id}`, frota))
+})
+
+test('relatorio: preventiva agendada que ainda nao teve saida', async () => {
+  // O dossie antes/depois so tem sentido depois do retorno. Antes disso ele
+  // ainda precisa abrir — e' por ele que a Frota confere o que foi agendado.
+  const frota = await entrar('frota.a@rel.local')
+  const ts = agora()
+  const id = novoId('preventiva')
+  executar(
+    `INSERT INTO preventivas (id, empresa_id, veiculo_id, modo, proximo_km,
+                              status, criado_em, atualizado_em)
+     VALUES (?, ?, ?, 'km', 999999, 'em_dia', ?, ?)`,
+    [id, empresaA, veiculo1, ts, ts])
+
+  conferirFolha('preventiva sem saida', await abrirRelatorio(`/relatorio/preventiva/${id}`, frota))
+})
+
+test('relatorio: nome com aspas e sinal nao escapa da folha', async () => {
+  // Texto do banco entra no HTML. Um motivo com aspas ou com < > nao pode
+  // quebrar a folha nem virar marcacao.
+  const frota = await entrar('frota.a@rel.local')
+  const motorista = await entrar('motorista.a@rel.local')
+  const veneno = 'Reuniao <script>alert("x")</script> com "aspas" & sinal';
+  const pedido = await chamar('POST', '/api/solicitacoes', {
+    token: motorista,
+    corpo: {
+      categoria_id: categoriaA,
+      janela_inicio: daquiAHoras(710), janela_fim: daquiAHoras(714),
+      motivo: veneno,
+    },
+  })
+  const id = pedido.dados.solicitacao.id
+
+  const folha = await abrirRelatorio(`/relatorio/solicitacao/${id}`, frota)
+  conferirFolha('motivo com sinal', folha)
+  assert.ok(!folha.html.includes('<script>alert'),
+    'o texto do banco virou marcacao dentro da folha')
+  assert.match(folha.html, /&lt;script&gt;/, 'o texto tem que aparecer, escapado')
 })
