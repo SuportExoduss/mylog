@@ -281,6 +281,11 @@ duplicar:
 Isso é o que permite a fila offline reenviar sem medo. A resposta pode ter se
 perdido no caminho; a inspeção, não.
 
+O atalho é **por autor**. O mesmo `cliente_uuid` vindo de outra conta da mesma
+empresa responde `409 conflito` — não é reenvio, é colisão de id, e o aplicativo
+precisa gerar outro. (Devolver a inspeção passaria por cima da regra que as duas
+rotas de leitura aplicam: colaborador só enxerga as inspeções que ele mesmo fez.)
+
 ### `fotos` é uma contagem, não os arquivos
 
 O campo `fotos` de cada resposta é **quantas fotos existem**, um número. As

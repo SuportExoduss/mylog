@@ -687,6 +687,49 @@ test('checklist: reenvio da fila offline nao duplica', async () => {
   assert.equal(segundo.dados.inspecao.id, primeiro.dados.inspecao.id)
 })
 
+test('checklist: o atalho de reenvio nao entrega a inspecao de outra pessoa', async () => {
+  // O atalho de idempotencia le a inspecao por (empresa, cliente_uuid) e a
+  // devolve inteira. As DUAS rotas de leitura filtram por autor — colaborador
+  // so ve as suas. Este terceiro caminho nao filtrava: quem apresentasse o uuid
+  // de um colega recebia a inspecao dele, com KM, assinatura e desfechos.
+  const vendas = await entrar('vendas.a@teste.local')
+  const colega = await entrar('motorista.a@teste.local')
+
+  const app = await chamar('GET', '/api/app/inicio', { token: vendas })
+  const tarefa = app.dados.tarefas.find((t) => t.momento === 'saida') || app.dados.tarefas[0]
+  assert.ok(tarefa, 'a vendedora precisa de alguma tarefa para gerar a inspecao')
+
+  const UUID = 'uuid-atalho-de-outro-0001'
+  const minha = await chamar('POST', '/api/inspecoes', {
+    token: vendas,
+    corpo: {
+      cliente_uuid: UUID,
+      solicitacao_id: tarefa.solicitacao_id,
+      preventiva_id: tarefa.preventiva_id,
+      veiculo_id: tarefa.veiculo?.id,
+      template_id: tarefa.template_id,
+      momento: tarefa.momento,
+      respostas: { lataria: { desfecho: 'ok' }, pneus: { desfecho: 'ok' } },
+    },
+  })
+  assert.equal(minha.status, 200, JSON.stringify(minha.dados))
+
+  // O colega reenvia o MESMO uuid. Basta o uuid: o atalho responde antes de
+  // qualquer outra validacao do corpo — era exatamente o que o tornava barato.
+  const dele = await chamar('POST', '/api/inspecoes', {
+    token: colega, corpo: { cliente_uuid: UUID },
+  })
+  assert.equal(dele.status, 409, 'uuid de outra pessoa e colisao de id, nao reenvio')
+  assert.equal(dele.dados.inspecao, undefined, 'e a inspecao alheia nao pode vir junto')
+
+  // Controle: para a dona do uuid, o reenvio continua sendo reenvio.
+  const denovo = await chamar('POST', '/api/inspecoes', {
+    token: vendas, corpo: { cliente_uuid: UUID },
+  })
+  assert.equal(denovo.dados.repetida, true)
+  assert.equal(denovo.dados.inspecao.id, minha.dados.inspecao.id)
+})
+
 test('checklist: o servidor recusa inspecao incompleta', async () => {
   const frota = await entrar('frota.a@teste.local')
   const motorista = await entrar('motorista.a@teste.local')

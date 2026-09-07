@@ -219,7 +219,26 @@ export function registrarRotasInspecoes(rotas) {
     const jaExiste = consultarUm(
       'SELECT * FROM inspecoes WHERE empresa_id = ? AND cliente_uuid = ?',
       [eu.empresa_id, clienteUuid])
-    if (jaExiste) return { inspecao: jaExiste, repetida: true }
+    if (jaExiste) {
+      // Idempotencia e' por AUTOR, e nao so por empresa.
+      //
+      // As duas rotas de leitura aplicam a mesma regra — colaborador so enxerga
+      // as inspecoes que ele mesmo fez (`i.usuario_id = ?` na lista, e o 403 no
+      // /:id). Este atalho devolvia `SELECT *` da inspecao inteira sem passar
+      // por ela: quem apresentasse o uuid de outra pessoa recebia a inspecao
+      // dela como se fosse a sua. Mesma informacao, duas portas, uma sem
+      // tranca.
+      //
+      // E, mesmo sem a questao de leitura, o reenvio de OUTRA pessoa nunca e'
+      // "a sua ja chegou". E' colisao de id: o indice unico
+      // (empresa_id, cliente_uuid) recusaria o INSERT de qualquer jeito, e o
+      // aplicativo precisa saber disso para gerar um uuid novo em vez de achar
+      // que enviou.
+      if (jaExiste.usuario_id !== eu.id) {
+        throw erro.conflito('cliente_uuid ja usado por outra inspecao: gere um id novo.')
+      }
+      return { inspecao: jaExiste, repetida: true }
+    }
 
     const momento = String(ctx.corpo.momento || 'saida')
     if (!MOMENTOS.includes(momento)) throw erro.requisicao('Momento invalido: use saida ou retorno.')
