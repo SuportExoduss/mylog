@@ -4,9 +4,18 @@ Plataforma de checklist, tickets e manutencao preventiva de frota. Substitui o
 uso operacional do PROLOG: a web e' o centro de supervisao e credenciais, o
 Android e' o posto de execucao de checklist.
 
-Especificacao-mestra: `MyLog_Roadmap_Completo.docx`.
-Arquitetura de destino: [`docs/ARQUITETURA.md`](docs/ARQUITETURA.md).
-Decisoes tecnicas e o porque de cada uma: [`docs/DECISOES.md`](docs/DECISOES.md).
+Os documentos, em ordem de autoridade — nao existe arquitetura paralela:
+
+| | O que responde |
+|---|---|
+| [`docs/ARQUITETURA.md`](docs/ARQUITETURA.md) | Para onde o sistema vai, e em que ordem |
+| [`docs/ROADMAP.md`](docs/ROADMAP.md) | O produto, as regras e em que ponto do caminho estamos |
+| [`docs/DECISOES.md`](docs/DECISOES.md) | Por que cada escolha foi feita, e o que ela custou |
+| [`docs/API.md`](docs/API.md) | O contrato com os clientes — e' o que o app Android consome |
+| [`docs/DESIGN.md`](docs/DESIGN.md) | Principios de interface |
+
+`docs/historico/` guarda instantaneos com a data no nome. Sao leitura, nunca
+fonte: quem procura o que vale hoje procura na tabela acima.
 
 ## Duas frentes
 

@@ -125,7 +125,7 @@ colorido. Quem nao distingue verde de vermelho le "Vencida" do mesmo jeito.
 trabalho, navegar por Tab era invisivel — e o checklist e' preenchido por gente
 com pressa, as vezes de luva.
 
-**Alvos de toque.** Botao com 34px de altura minima, `--botao--mini` com 28px.
+**Alvos de toque.** Botao com 34px de altura minima, `.botao--mini` com 28px.
 
 ## Regras de uso
 

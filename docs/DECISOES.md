@@ -244,6 +244,16 @@ da para ver exatamente qual frase do produto mudou, e quando.
 **Como atualizar:** editar `docs/ROADMAP.md`, regerar o `.docx` e copiar para
 onde o time le. A v2.0 original esta preservada em `docs/historico/`.
 
+> **Emenda de 06/09/2026.** O `.docx` **não é gerado** — não existe gerador, e
+> ele era uma cópia feita à mão. Enquanto o Markdown mudava todo dia, ele
+> envelhecia em silêncio ao lado dele, com nome de documento oficial: três dias
+> e dezenas de decisões atrás.
+>
+> Cópia estagnada com nome de fonte é pior que cópia nenhuma, porque quem abrir
+> a que está ali não tem como saber que está lendo o passado. Ele foi para
+> `docs/historico/`, com a **data no nome**. Instantâneo para leitura é
+> legítimo; instantâneo disfarçado de fonte, não.
+
 ## D21 — Dois niveis de acesso, nao cinco papeis
 
 **Escolha:** `acessa_painel` booleano. Frota entra no painel e faz tudo;

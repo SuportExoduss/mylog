@@ -667,3 +667,47 @@ test('transicoes: o que a tela oferece e exatamente o que o servidor aceita', ()
       `${nome}: a tela e o servidor discordam sobre quais transicoes existem`)
   }
 })
+
+// ------------------------- a hierarquia documental existe e nao mente
+
+// A regra e' "nao existe arquitetura paralela": cinco documentos, cada um com
+// uma pergunta. O LEIA-ME e' a porta do repositorio — ele ja apontou uma
+// "especificacao-mestra" que era uma copia .docx feita a mao, estagnada tres
+// dias atras enquanto o Markdown mudava todo dia.
+test('documentos: o LEIA-ME aponta os cinco, e nenhum deles falta', () => {
+  const raiz = path.join(import.meta.dirname, '..', '..')
+  const leiaMe = fs.readFileSync(path.join(raiz, 'LEIA-ME.md'), 'utf8')
+
+  for (const doc of ['ARQUITETURA', 'ROADMAP', 'DECISOES', 'API', 'DESIGN']) {
+    assert.ok(fs.existsSync(path.join(raiz, 'docs', `${doc}.md`)), `docs/${doc}.md nao existe`)
+    assert.ok(leiaMe.includes(`docs/${doc}.md`), `o LEIA-ME nao aponta docs/${doc}.md`)
+  }
+
+  // Instantaneo com nome de fonte e' pior que instantaneo nenhum: quem abrir
+  // nao tem como saber que esta lendo o passado.
+  const soltos = fs.readdirSync(path.join(raiz, 'docs'))
+    .filter((f) => f.endsWith('.docx'))
+  assert.deepEqual(soltos, [],
+    `copia .docx solta em docs/, competindo com o Markdown: ${soltos.join(', ')}`)
+})
+
+// Toda referencia a codigo dentro do DESIGN.md existe de verdade. Documento de
+// interface envelhece calado: a classe e renomeada, e o texto continua
+// descrevendo um nome que ninguem mais usa.
+test('documentos: o DESIGN.md nao cita classe, token nem funcao que nao existe', () => {
+  const raiz = path.join(import.meta.dirname, '..', '..')
+  const design = fs.readFileSync(path.join(raiz, 'docs', 'DESIGN.md'), 'utf8')
+  const codigo = ['web/css/estilo.css', 'web/js/ui.js', 'web/index.html']
+    .map((f) => fs.readFileSync(path.join(raiz, f), 'utf8')).join('\n')
+
+  const ausentes = []
+  for (const m of design.matchAll(/`([^`]+)`/g)) {
+    const t = m[1]
+    if (/^(--[a-z0-9-]+|\.[a-z][a-z0-9-]*)$/.test(t)) {
+      if (!codigo.includes(t.replace(/^\./, ''))) ausentes.push(t)
+    } else if (/^[a-zA-Z]+\(\)$/.test(t)) {
+      if (!codigo.includes(`${t.slice(0, -2)}(`)) ausentes.push(t)
+    }
+  }
+  assert.deepEqual(ausentes, [], `o DESIGN.md cita o que nao existe: ${ausentes.join(', ')}`)
+})

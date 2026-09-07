@@ -1555,6 +1555,7 @@ abertura ao fechamento.
 | Planilha | Teto próprio, muito maior que o da tela — e o arquivo avisa se ainda assim cortou |
 | Entrada malformada | Nenhuma rota responde 500: nem com lixo puro, nem com um campo envenenado |
 | Relatório incompleto | Registro pela metade vira folha, sem `undefined`, `NaN` nem marcação vazada |
+| Documentos | Os cinco existem, o LEIA-ME aponta todos, e o DESIGN não cita o que não existe |
 | **Contrato** | **Forma:** rota, corpo de envio e código de erro conferidos contra o servidor.
   **Significado:** o resultado que o app manda é ignorado, `momento` só aceita dois valores,
   o resumo tem os campos que a tela final lê |
@@ -1565,7 +1566,7 @@ abertura ao fechamento.
 
 ### Onde a cobertura começa e onde termina
 
-São 273 testes em três camadas:
+São 275 testes em três camadas:
 
 | Camada | Arquivo | O que prova |
 |---|---|---|
