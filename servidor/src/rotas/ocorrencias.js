@@ -11,7 +11,7 @@ import { notificar } from '../nucleo/notificacoes.js'
 import { exigirAutenticado } from '../seguranca/sessao.js'
 import { exigirFrota } from '../seguranca/nivel.js'
 import { PRIORIDADES } from '../../../compartilhado/template.js'
-import { reavaliarPendencia } from './veiculos.js'
+import { reavaliarPendencia, reaplicarPendencia } from './veiculos.js'
 
 // Teto da consulta. Uma frota de setenta carros passa de mil pedidos no
 // primeiro ano; sem teto, a tela baixa o historico inteiro e monta uma
@@ -119,6 +119,18 @@ export function registrarRotasOcorrencias(rotas) {
       // explicita da Frota, com motivo (roadmap 9.3).
       if (['resolvida', 'encerrada'].includes(novo)) {
         reavaliarPendencia(eu.empresa_id, antes.veiculo_id, { ator: eu, ip: ctx.ip })
+      }
+
+      // E o caminho de volta. Reabrir uma ocorrencia resolvida devolve a
+      // pendencia ao carro — ele nao pode ter ocorrencia aberta e cara de
+      // disponivel, ou some do filtro do painel e volta a ser oferecido na
+      // liberacao. So sobe o degrau: bloqueio e manutencao ficam onde estao.
+      if (['aberta', 'em_tratamento'].includes(novo)
+        && ['resolvida', 'encerrada'].includes(antes.status)) {
+        reaplicarPendencia(eu.empresa_id, antes.veiculo_id, {
+          ator: eu, ip: ctx.ip,
+          motivo: `Ocorrencia reaberta: ${String(antes.descricao || '').slice(0, 80)}`,
+        })
       }
 
       registrarEvento({

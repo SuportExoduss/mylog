@@ -1045,6 +1045,111 @@ test('estado: fechada a ultima ocorrencia, a pendencia sai sozinha', async () =>
     'sem ocorrencia aberta, a pendencia deixa de existir')
 })
 
+test('estado: reaberta a ocorrencia, a pendencia volta', async () => {
+  // O contrario do teste acima, e a metade que faltava. "Com pendencia" e'
+  // consequencia de ocorrencia aberta: resolver a ultima devolve o carro para
+  // disponivel — e reabrir, porque a solucao nao pegou, tem que trazer a
+  // pendencia de volta. Sem isso o carro fica com ocorrencia aberta e cara de
+  // disponivel: some do filtro do painel e volta a ser oferecido na liberacao.
+  //
+  // A transicao existe e esta comentada no proprio codigo como "reabrir se a
+  // solucao nao pegou" (resolvida -> em_tratamento). So o efeito sobre o
+  // veiculo nao vinha junto.
+  const frota = await entrar('frota.a@teste.local')
+  const motorista = await entrar('motorista.a@teste.local')
+  const veiculo = criarVeiculo(empresaA, 'AAA9P99')
+  const solicitacao = await reservar(frota, motorista, veiculo, 900)
+
+  const app = await chamar('GET', '/api/app/inicio', { token: motorista })
+  const tarefa = app.dados.tarefas.find((t) => t.solicitacao_id === solicitacao)
+  assert.ok(tarefa, 'a reserva precisa virar tarefa de saida')
+
+  await chamar('POST', '/api/inspecoes', {
+    token: motorista,
+    corpo: {
+      cliente_uuid: 'uuid-reabrir-0001', solicitacao_id: solicitacao,
+      template_id: tarefa.template_id, momento: 'saida',
+      respostas: {
+        lataria: { desfecho: 'ocorrencia', opcao_id: 'risco', fotos: 1 },
+        pneus: { desfecho: 'ok', fotos: 1 },
+      },
+    },
+  })
+
+  await chamar('POST', `/api/veiculos/${veiculo}/status`, {
+    token: frota, corpo: { status: 'com_pendencia', motivo: 'Aguardando funilaria.' },
+  })
+
+  const fila = await chamar('GET', `/api/ocorrencias?veiculo_id=${veiculo}`, { token: frota })
+  assert.equal(fila.dados.ocorrencias.length, 1, 'uma ocorrencia, para o teste ficar legivel')
+  const ocorrencia = fila.dados.ocorrencias[0].id
+
+  await chamar('POST', `/api/ocorrencias/${ocorrencia}/status`,
+    { token: frota, corpo: { status: 'em_tratamento' } })
+  await chamar('POST', `/api/ocorrencias/${ocorrencia}/status`,
+    { token: frota, corpo: { status: 'resolvida', resolucao: 'Funilaria feita.' } })
+
+  let atual = await chamar('GET', `/api/veiculos/${veiculo}`, { token: frota })
+  assert.equal(atual.dados.veiculo.status, 'disponivel', 'controle: resolvida, o carro liberou')
+
+  // A solucao nao pegou.
+  const reaberta = await chamar('POST', `/api/ocorrencias/${ocorrencia}/status`,
+    { token: frota, corpo: { status: 'em_tratamento' } })
+  assert.equal(reaberta.status, 200, JSON.stringify(reaberta.dados))
+
+  atual = await chamar('GET', `/api/veiculos/${veiculo}`, { token: frota })
+  assert.equal(atual.dados.veiculo.status, 'com_pendencia',
+    'ocorrencia aberta e carro disponivel nao podem coexistir')
+  assert.match(atual.dados.veiculo.motivo_status || '', /ocorr/i,
+    'e o motivo tem que dizer de onde veio')
+})
+
+test('estado: reabrir ocorrencia nao rebaixa carro bloqueado', async () => {
+  // Pendencia e' o degrau mais baixo da escala de restricao. Bloqueio e
+  // manutencao sao decisao explicita da Frota, com motivo (roadmap 9.3): se a
+  // reabertura escrevesse "com_pendencia" por cima, uma ocorrencia reaberta
+  // soltaria um carro bloqueado — exatamente a porta dos fundos que `agrava()`
+  // existe para fechar.
+  const frota = await entrar('frota.a@teste.local')
+  const motorista = await entrar('motorista.a@teste.local')
+  const veiculo = criarVeiculo(empresaA, 'AAA9B99')
+  const solicitacao = await reservar(frota, motorista, veiculo, 910)
+
+  const app = await chamar('GET', '/api/app/inicio', { token: motorista })
+  const tarefa = app.dados.tarefas.find((t) => t.solicitacao_id === solicitacao)
+
+  await chamar('POST', '/api/inspecoes', {
+    token: motorista,
+    corpo: {
+      cliente_uuid: 'uuid-reabrir-0002', solicitacao_id: solicitacao,
+      template_id: tarefa.template_id, momento: 'saida',
+      respostas: {
+        lataria: { desfecho: 'ocorrencia', opcao_id: 'risco', fotos: 1 },
+        pneus: { desfecho: 'ok', fotos: 1 },
+      },
+    },
+  })
+
+  const fila = await chamar('GET', `/api/ocorrencias?veiculo_id=${veiculo}`, { token: frota })
+  const ocorrencia = fila.dados.ocorrencias[0].id
+  await chamar('POST', `/api/ocorrencias/${ocorrencia}/status`,
+    { token: frota, corpo: { status: 'em_tratamento' } })
+  await chamar('POST', `/api/ocorrencias/${ocorrencia}/status`,
+    { token: frota, corpo: { status: 'resolvida', resolucao: 'Feito.' } })
+
+  await chamar('POST', `/api/veiculos/${veiculo}/status`, {
+    token: frota, corpo: { status: 'bloqueado', motivo: 'Perda total, aguardando seguradora.' },
+  })
+
+  await chamar('POST', `/api/ocorrencias/${ocorrencia}/status`,
+    { token: frota, corpo: { status: 'em_tratamento' } })
+
+  const atual = await chamar('GET', `/api/veiculos/${veiculo}`, { token: frota })
+  assert.equal(atual.dados.veiculo.status, 'bloqueado', 'reabrir ocorrencia nao desbloqueia carro')
+  assert.match(atual.dados.veiculo.motivo_status, /seguradora/,
+    'e nao apaga o motivo que a Frota escreveu')
+})
+
 // ------------------------------------------- criterio: checklist avulso
 
 test('avulso: quem usa carro todos os dias faz checklist sem pedir veiculo', async () => {

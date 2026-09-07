@@ -65,6 +65,37 @@ export function registrarKm(veiculo, kmNovo, { motivo, ator, ip }) {
   return { ...veiculo, km_atual: km }
 }
 
+// A outra metade de `reavaliarPendencia`, logo abaixo.
+//
+// Resolver a ultima ocorrencia devolve o carro para "disponivel". Reabrir —
+// porque a solucao nao pegou, que e' o motivo pelo qual a transicao
+// `resolvida -> em_tratamento` existe — tem que trazer a pendencia de volta.
+// Sem isto o carro fica com ocorrencia aberta e cara de disponivel: some do
+// filtro do painel e volta a ser oferecido na liberacao.
+//
+// Passa por `agrava`, e nao por atribuicao direta: pendencia e' o degrau mais
+// baixo da escala. Um carro BLOQUEADO com ocorrencia reaberta continua
+// bloqueado, com o motivo que a Frota escreveu — escrever "com_pendencia" por
+// cima seria soltar carro bloqueado pela porta dos fundos, que e' justamente o
+// que `agrava` existe para fechar (roadmap 9.3 e 12.2).
+export function reaplicarPendencia(empresaId, veiculoId, { ator, ip, motivo } = {}) {
+  const veiculo = consultarUm('SELECT * FROM veiculos WHERE id = ? AND empresa_id = ?',
+    [veiculoId, empresaId])
+  if (!veiculo || !agrava(veiculo.status, 'com_pendencia')) return veiculo
+
+  executar(`UPDATE veiculos SET status = 'com_pendencia', motivo_status = ?, atualizado_em = ?
+             WHERE id = ? AND empresa_id = ?`,
+    [motivo || 'Ocorrencia reaberta no veiculo.', agora(), veiculoId, empresaId])
+  registrarEvento({
+    empresaId, ator, acao: 'veiculo.status.com_pendencia',
+    entidade: 'veiculo', entidadeId: veiculoId,
+    antes: { status: veiculo.status },
+    depois: { status: 'com_pendencia', motivo: motivo || 'Ocorrencia reaberta no veiculo.' },
+    ip,
+  })
+  return consultarUm('SELECT * FROM veiculos WHERE id = ?', [veiculoId])
+}
+
 // "Com pendencia" e' consequencia de ocorrencia aberta, nao carimbo vitalicio.
 // Fechada a ultima ocorrencia, o carro volta sozinho para disponivel. Sem isto
 // a frota inteira migra para "com pendencia" com o passar dos meses e o filtro
