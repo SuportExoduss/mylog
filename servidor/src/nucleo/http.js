@@ -37,8 +37,11 @@ export function lerCorpo(req) {
     req.on('end', () => {
       bruto += decoder.end()
       if (!bruto.trim()) return resolve({})
-      try { resolve(JSON.parse(bruto)) }
-      catch { reject(erro.requisicao('JSON invalido.')) }
+      let dados
+      try { dados = JSON.parse(bruto) }
+      catch { return reject(erro.requisicao('JSON invalido.')) }
+      try { conferirChaves(dados) } catch (falha) { return reject(falha) }
+      resolve(dados)
     })
     req.on('error', reject)
   })
@@ -94,6 +97,40 @@ export function aplicarSeguranca(res, { producao, https }) {
   // ele nao protege nada e ainda trava o desenvolvimento em localhost.
   if (producao && https) {
     res.setHeader('strict-transport-security', 'max-age=31536000; includeSubDomains')
+  }
+}
+
+// Tres nomes de campo que nao podem entrar pelo corpo.
+//
+// `toString` e `valueOf` quebram a COERCAO: `String({ toString: null })` levanta
+// TypeError, e o servidor coage texto em uns sessenta lugares. Um JSON com esse
+// campo virava 500 — resposta sem codigo, sem frase, e um rastro de excecao no
+// log. Achado por varredura de campo envenenado.
+//
+// `__proto__` e' outra coisa: nao quebra nada sozinho, mas e' o vetor classico
+// de poluicao de prototipo quando o corpo e' espalhado ou mesclado adiante.
+//
+// Recusar e' melhor que limpar: nenhum campo legitimo desta API tem esses
+// nomes, e uma requisicao que os traz esta enganada ou tentando alguma coisa.
+// Os ids de pergunta, que sao livres, nascem minusculos do gerador de slug —
+// nao colidem com `toString` nem `valueOf`.
+const CHAVES_PROIBIDAS = new Set(['__proto__', 'toString', 'valueOf'])
+const PROFUNDIDADE_MAXIMA = 12
+
+function conferirChaves(valor, profundidade = 0) {
+  if (!valor || typeof valor !== 'object') return
+  if (profundidade > PROFUNDIDADE_MAXIMA) {
+    throw erro.requisicao('Corpo aninhado demais.')
+  }
+  if (Array.isArray(valor)) {
+    for (const item of valor) conferirChaves(item, profundidade + 1)
+    return
+  }
+  for (const chave of Object.keys(valor)) {
+    if (CHAVES_PROIBIDAS.has(chave)) {
+      throw erro.requisicao(`Campo "${chave}" nao e aceito.`)
+    }
+    conferirChaves(valor[chave], profundidade + 1)
   }
 }
 

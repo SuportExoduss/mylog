@@ -2680,3 +2680,212 @@ test('planilha: o teto dela e proprio, e nao o da tela', async () => {
   assert.ok(!/AVISO: exportacao interrompida/.test(csv),
     'cabe no teto da planilha: nao ha o que avisar')
 })
+
+test('entrada malformada nunca vira 500', async () => {
+  // 500 e' defeito por definicao: o cliente nao recebe nada acionavel e o log
+  // leva um rastro de excecao. Toda falha esperada tem que ter codigo e frase.
+  //
+  // Isto e' uma varredura, nao um caso: o valor esta em cobrir muitas rotas com
+  // muitas formas de lixo de uma vez, porque o defeito que ela procura aparece
+  // em QUALQUER campo que alguem leia sem conferir o tipo.
+  const frota = await entrar('frota.a@teste.local')
+
+  const LIXO = [
+    {}, { respostas: 'texto' }, { respostas: [] }, { respostas: { a: null } },
+    { estrutura: 'nao e objeto' }, { estrutura: { perguntas: 'x' } },
+    { cargos_liberados: 'todos' }, { dias_semana: 'segunda' },
+    { km_informado: 'muito' }, { proxima_preventiva: 'sim' },
+    { janela_inicio: 'ontem', janela_fim: 'amanha' },
+    { veiculos: 'todos' }, { status: 12345 },
+    { nome: null, cpf: [], email: {} },
+    // Numeros e objetos onde o servidor espera texto: sao estes que
+    // revelam quem chama metodo de String sem conferir.
+    { tipo: 7 }, { tipo: {} }, { modelo: [] }, { placa: 99 }, { motivo: 0 },
+  ]
+  const ROTAS = [
+    '/api/inspecoes', '/api/solicitacoes', '/api/veiculos', '/api/usuarios',
+    '/api/templates', '/api/cargos', '/api/categorias', '/api/preventivas',
+    '/api/notificacoes/lidas',
+  ]
+  const CONSULTAS = [
+    '/api/execucoes?de=xx&ate=yy', '/api/execucoes?de=2026-13-45',
+    '/api/execucoes/faltando?dia=abacaxi', '/api/execucoes.csv?de=&ate=',
+    '/api/solicitacoes?status=inventado', '/api/ocorrencias?prioridade=urgentissima',
+    '/api/preventivas?historico=talvez', '/api/inspecoes?momento=voando',
+    '/api/templates?finalidade=outra',
+    '/api/solicitacoes/disponiveis?janela_inicio=x&janela_fim=y',
+  ]
+
+  const quebrados = []
+  for (const caminho of ROTAS) {
+    for (const corpo of LIXO) {
+      const r = await chamar('POST', caminho, { token: frota, corpo })
+      if (r.status >= 500) quebrados.push(`POST ${caminho} <- ${JSON.stringify(corpo)}`)
+    }
+  }
+  for (const caminho of CONSULTAS) {
+    const r = await chamar('GET', caminho, { token: frota })
+    if (r.status >= 500) quebrados.push(`GET ${caminho}`)
+  }
+
+  // As rotas PATCH tambem, e elas importam MAIS: leem varios campos opcionais,
+  // que e' exatamente onde a confusao de tipo mora. A primeira versao desta
+  // varredura so cobria POST, e por isso deixou passar um `ctx.corpo.tipo
+  // .toLowerCase()` injetado de proposito para conferi-la.
+  const modeloA = consultarUm(
+    `SELECT id FROM templates WHERE empresa_id = ? AND status = 'rascunho' LIMIT 1`,
+    [empresaA])?.id
+  const REMENDOS = [
+    `/api/veiculos/${veiculoA4}`,
+    `/api/usuarios/${frotaA}`,
+    ...(modeloA ? [`/api/templates/${modeloA}`] : []),
+  ]
+  for (const caminho of REMENDOS) {
+    for (const corpo of LIXO) {
+      const r = await chamar('PATCH', caminho, { token: frota, corpo })
+      if (r.status >= 500) quebrados.push(`PATCH ${caminho} <- ${JSON.stringify(corpo)}`)
+    }
+  }
+
+  // E corpo que nem e' JSON.
+  for (const caminho of ROTAS.slice(0, 4)) {
+    const resposta = await fetch(base + caminho, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${frota}` },
+      body: '{isto nao e json',
+    })
+    if (resposta.status >= 500) quebrados.push(`POST ${caminho} <- JSON quebrado`)
+  }
+
+  assert.deepEqual(quebrados, [], `respostas 500:\n  ${quebrados.join('\n  ')}`)
+})
+
+test('entrada quase valida com um campo envenenado nunca vira 500', async () => {
+  // A varredura de lixo puro acima tem um limite que so aparece quando se
+  // tenta conferi-la: um corpo vazio ou absurdo e' barrado pela PRIMEIRA
+  // validacao da rota e nunca alcanca o codigo mais fundo.
+  //
+  // Foi o que aconteceu ao injetar `ctx.corpo.tipo.toLowerCase()` em veiculos
+  // para testar a varredura: `{ tipo: 7 }` sem placa morria antes, no "informe
+  // a placa", e a injecao passava despercebida.
+  //
+  // Esta versao parte de um corpo VALIDO e envenena um campo por vez. E' assim
+  // que se alcanca a linha que le um numero como se fosse texto.
+  const frota = await entrar('frota.a@teste.local')
+
+  const VENENOS = [7, {}, [], null, true, -1, '', ' '.repeat(300), { toString: null }]
+
+  // Alvo DESCARTAVEL para os PATCH: a primeira versao envenenava o proprio
+  // frotaA da fixture, e `acessa_painel: null` vira 0 — o varredor demitia o
+  // administrador e os testes seguintes levavam 403. Varredura precisa de
+  // cobaia, nao de quem os vizinhos dependem.
+  const cobaia = (await chamar('POST', '/api/usuarios', {
+    token: frota,
+    corpo: {
+      nome: 'Cobaia da Varredura', cpf: '55566677568', email: 'cobaia@teste.local',
+      telefone: '(31) 90000-7777', cargo_id: cgMotoristaA, acessa_painel: false,
+    },
+  })).dados.usuario.id
+
+  const bases = [
+    ['POST', '/api/veiculos', {
+      placa: 'ZZZ7Z77', modelo: 'Teste', tipo: 'compacto_leve', ano: 2020, km_atual: 100,
+    }],
+    ['PATCH', `/api/veiculos/${veiculoA4}`, {
+      modelo: 'Teste', marca: 'Marca', tipo: 'compacto_leve', ano: 2020,
+    }],
+    ['POST', '/api/cargos', { nome: 'Cargo de teste' }],
+    ['POST', '/api/categorias', { nome: 'Categoria de teste', assentos: 4, carroceria: 'compacto' }],
+    ['PATCH', `/api/usuarios/${cobaia}`, {
+      nome: 'Nome', telefone: '(31) 90000-0000', cargo_id: cgMotoristaA,
+      acessa_painel: false, usa_veiculo_diario: false,
+    }],
+    ['POST', '/api/templates', {
+      codigo: 'fuzz-teste', nome: 'Modelo de teste', tipo_veiculo: 'compacto_leve',
+      cargos_liberados: ['*'], periodicidade: 'avulso', exige_assinatura: false,
+    }],
+  ]
+
+  const quebrados = []
+  for (const [metodo, caminho, base] of bases) {
+    for (const campo of Object.keys(base)) {
+      for (const veneno of VENENOS) {
+        // Placa unica a cada tentativa: senao a segunda cai em conflito antes
+        // de chegar onde interessa.
+        const corpo = { ...base, [campo]: veneno }
+        if (corpo.placa && campo !== 'placa') {
+          corpo.placa = `ZZ${Math.random().toString(36).slice(2, 5).toUpperCase()}9Z9`
+        }
+        if (corpo.codigo && campo !== 'codigo') {
+          corpo.codigo = `fuzz-${Math.random().toString(36).slice(2, 8)}`
+        }
+        if (corpo.nome && campo !== 'nome' && caminho.includes('cargos')) {
+          corpo.nome = `Cargo ${Math.random().toString(36).slice(2, 8)}`
+        }
+        const r = await chamar(metodo, caminho, { token: frota, corpo })
+        if (r.status >= 500) {
+          quebrados.push(`${metodo} ${caminho} <- ${campo}=${JSON.stringify(veneno)}`)
+        }
+      }
+    }
+  }
+
+  assert.deepEqual(quebrados, [], `respostas 500:\n  ${quebrados.join('\n  ')}`)
+})
+
+test('corpo: campo que quebra a coercao e recusado na porta', async () => {
+  // `String({ toString: null })` levanta TypeError, e o servidor coage texto em
+  // umas sessenta linhas. Um JSON com esse campo virava 500 — sem codigo, sem
+  // frase, e com rastro de excecao no log.
+  //
+  // A recusa mora em `lerCorpo`, e nao nas sessenta linhas: uma porta e' mais
+  // facil de manter fechada que sessenta janelas.
+  const frota = await entrar('frota.a@teste.local')
+
+  for (const chave of ['toString', 'valueOf', '__proto__']) {
+    const r = await chamar('POST', '/api/cargos',
+      { token: frota, corpo: { nome: 'Cargo', [chave]: null } })
+    assert.equal(r.status, 400, `${chave} devia ser recusado`)
+    assert.match(r.dados.mensagem, new RegExp(chave.replace('__', '__')),
+      'a mensagem tem que dizer qual campo')
+  }
+
+  // Aninhado tambem: o corpo do checklist leva um mapa de respostas.
+  const fundo = await chamar('POST', '/api/inspecoes', {
+    token: frota,
+    corpo: { cliente_uuid: 'x', respostas: { pneus: { toString: null } } },
+  })
+  assert.equal(fundo.status, 400)
+
+  // E o campo com nome parecido continua passando: a recusa e' exata.
+  const ok = await chamar('POST', '/api/cargos',
+    { token: frota, corpo: { nome: `Cargo ${Date.now()}`, tostring: 'minusculo' } })
+  assert.notEqual(ok.status, 400, 'so os tres nomes exatos sao recusados')
+})
+
+test('usuarios: cargo vazio no PATCH e recusado, nao gravado', async () => {
+  // `String('')` e `String([])` sao ambos '', que e falsy: a conferencia do
+  // cargo era pulada e o UPDATE gravava chave estrangeira invalida. O banco
+  // recusava, e o resultado chegava como 500.
+  const frota = await entrar('frota.a@teste.local')
+  const alvo = consultarUm('SELECT id, cargo_id FROM usuarios WHERE email = ?',
+    ['vendas.a@teste.local'])
+
+  for (const vazio of ['', [], null]) {
+    const r = await chamar('PATCH', `/api/usuarios/${alvo.id}`,
+      { token: frota, corpo: { cargo_id: vazio } })
+    assert.equal(r.status, 400,
+      `cargo_id=${JSON.stringify(vazio)} devia ser 400; veio ${r.status} ${JSON.stringify(r.dados)}`)
+    assert.match(r.dados.mensagem, /cargo/i)
+  }
+
+  // E o cargo que estava la continua la.
+  const depois = consultarUm('SELECT cargo_id FROM usuarios WHERE id = ?', [alvo.id])
+  assert.equal(depois.cargo_id, alvo.cargo_id)
+
+  // Nao mandar o campo continua mantendo o cargo, como sempre.
+  const semCampo = await chamar('PATCH', `/api/usuarios/${alvo.id}`,
+    { token: frota, corpo: { nome: 'Vendas A' } })
+  assert.equal(semCampo.status, 200)
+  assert.equal(semCampo.dados.usuario.cargo_id, alvo.cargo_id)
+})

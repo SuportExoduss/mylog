@@ -749,3 +749,37 @@ de campo e já está na lista do que o Android precisa implementar
 > Achado por uma leitura externa do repositório, e confirmado contra os três
 > documentos antes de mexer em qualquer coisa — agir sobre o relato sem conferir
 > teria removido comportamento que talvez fosse proposital.
+
+## D48 — Três nomes de campo não entram pelo corpo
+
+**Contexto.** Uma varredura de entrada malformada encontrou um **500** real:
+`POST /api/veiculos` com `placa: { "toString": null }`. `String()` levanta
+`TypeError` num objeto assim, e o servidor coage texto em cerca de sessenta
+linhas.
+
+**Decisão.** `lerCorpo` recusa `toString`, `valueOf` e `__proto__` como nome de
+campo, em qualquer profundidade, com **400 e o nome do campo na mensagem**.
+
+**Na porta, e não nas sessenta linhas.** Uma porta é mais fácil de manter
+fechada que sessenta janelas — e a próxima linha que coagir texto nasce
+protegida sem ninguém lembrar disso.
+
+**Recusar em vez de limpar.** Nenhum campo legítimo desta API tem esses nomes, e
+uma requisição que os traz está enganada ou tentando alguma coisa. Os ids de
+pergunta, que são livres, nascem minúsculos do gerador de slug — não colidem.
+
+`__proto__` entra na lista por outro motivo: não quebra nada sozinho, mas é o
+vetor clássico de poluição de protótipo quando o corpo é espalhado adiante.
+
+> **O que a varredura ensinou sobre varreduras.** A primeira versão mandava lixo
+> puro — corpo vazio, tipos absurdos — e passava em tudo. Ao conferi-la contra
+> um defeito injetado de propósito, ela não acusou: **lixo puro é barrado pela
+> primeira validação da rota e nunca alcança o código mais fundo.** A versão que
+> vale parte de um corpo **válido** e envenena um campo por vez. Foi essa que
+> achou o `toString` e, junto, um `cargo_id` vazio que pulava a conferência e
+> gravava chave estrangeira inválida.
+>
+> E uma segunda lição, mais barata de aprender aqui do que em produção: a
+> varredura precisa de **cobaia**. A primeira versão editava o próprio usuário
+> administrador da fixture, e `acessa_painel: null` vira 0 — o varredor demitiu
+> o administrador, e os testes seguintes passaram a levar 403.

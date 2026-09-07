@@ -231,14 +231,26 @@ export function registrarRotasUsuarios(rotas) {
     const nome = ctx.corpo.nome === undefined ? antes.nome : String(ctx.corpo.nome).trim()
     const telefone = ctx.corpo.telefone === undefined
       ? antes.telefone : (String(ctx.corpo.telefone).trim() || null)
-    const cargoId = ctx.corpo.cargo_id === undefined ? antes.cargo_id : String(ctx.corpo.cargo_id)
+    // `null` viraria a string 'null' e cairia em "cargo nao encontrado" — uma
+    // frase confusa para quem quis dizer "sem cargo". Vale como vazio.
+    const cargoId = ctx.corpo.cargo_id === undefined
+      ? antes.cargo_id
+      : (ctx.corpo.cargo_id === null ? '' : String(ctx.corpo.cargo_id))
     const acessaPainel = ctx.corpo.acessa_painel === undefined
       ? antes.acessa_painel : (ctx.corpo.acessa_painel ? 1 : 0)
     const usaVeiculoDiario = ctx.corpo.usa_veiculo_diario === undefined
       ? antes.usa_veiculo_diario : (ctx.corpo.usa_veiculo_diario ? 1 : 0)
 
     if (nome.length < 3) throw erro.requisicao('Informe o nome completo.')
-    if (cargoId && !consultarUm('SELECT id FROM cargos WHERE id = ? AND empresa_id = ?',
+
+    // O `cargoId &&` que havia aqui deixava passar o vazio: `String('')` e
+    // `String([])` sao ambos '', que e' falsy, entao a conferencia era PULADA e
+    // o UPDATE gravava uma chave estrangeira invalida — o banco recusava e
+    // virava 500, sem codigo nem frase. Quem nao mandou o campo cai no
+    // `undefined` logo acima e mantem o cargo que ja tinha; quem mandou vazio
+    // esta enganado, e merece ouvir isso.
+    if (!cargoId) throw erro.requisicao('Informe o cargo.')
+    if (!consultarUm('SELECT id FROM cargos WHERE id = ? AND empresa_id = ?',
       [cargoId, eu.empresa_id])) {
       throw erro.naoEncontrado('Cargo nao encontrado nesta empresa.')
     }

@@ -1553,6 +1553,7 @@ abertura ao fechamento.
 | Transições | O que a tela oferece é exatamente o que o servidor aceita |
 | Limite de lista | A consulta tem teto, a resposta o declara, e a tela avisa quando cortou |
 | Planilha | Teto próprio, muito maior que o da tela — e o arquivo avisa se ainda assim cortou |
+| Entrada malformada | Nenhuma rota responde 500: nem com lixo puro, nem com um campo envenenado |
 | **Contrato** | **Forma:** rota, corpo de envio e código de erro conferidos contra o servidor.
   **Significado:** o resultado que o app manda é ignorado, `momento` só aceita dois valores,
   o resumo tem os campos que a tela final lê |
@@ -1563,7 +1564,7 @@ abertura ao fechamento.
 
 ### Onde a cobertura começa e onde termina
 
-São 264 testes em três camadas:
+São 268 testes em três camadas:
 
 | Camada | Arquivo | O que prova |
 |---|---|---|
