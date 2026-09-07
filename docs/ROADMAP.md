@@ -1621,6 +1621,31 @@ Conferidos contra três furos abertos de propósito: consulta de veículo sem
 filtro de empresa, "marcar todas" sem destinatário e consulta de execuções sem
 tenant. Cada furo derrubou exatamente os testes que deveria, e nenhum outro.
 
+### A suíte roda com os dois relógios separados
+
+O fuso da operação (`MYLOG_FUSO`) e o do processo são **coisas diferentes**, e na
+produção vão estar separados: Cloud Functions roda em UTC, a frota opera em São
+Paulo. Enquanto os dois coincidem — o caso do notebook — um teste pode montar um
+instante na hora da máquina, afirmar coisa sobre o dia da operação, e passar por
+coincidência.
+
+Aconteceu com dois testes. A checagem que os pegou:
+
+```bash
+for f in America/Sao_Paulo Pacific/Kiritimati Pacific/Midway UTC; do
+  MYLOG_FUSO=$f npm run testar
+done
+```
+
+Vale rodar isso antes de fechar qualquer etapa. Um teste que só passa quando os
+dois relógios estão próximos não prova o que diz provar.
+
+> Houve também um teste que passava de tarde e falhava de madrugada: ele montava
+> "hoje às 07h50" e, antes das 07h55, essa hora ainda está no **futuro** — a
+> janela do servidor recusava, e o teste acusava a correção que ele mesmo
+> guarda. Passou a noite verde e amanheceu vermelho, sem ninguém tocar no
+> código. Teste amarrado à hora do dia é armadilha: use ontem.
+
 Todo teste que diz cobrir um defeito foi conferido contra ele: o código antigo
 é reintroduzido, o teste fica vermelho, o código novo devolve o verde. Um
 teste que nunca viu o bug que alega cobrir não prova nada — e foi assim que

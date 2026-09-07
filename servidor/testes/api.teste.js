@@ -244,7 +244,21 @@ const daquiAHoras = (h) => new Date(Date.now() + h * 3600000).toISOString()
 // O mesmo "hoje" que o servidor usa. Se o teste calculasse o dia pelo fuso do
 // processo e o servidor pelo fuso da operacao, os dois discordariam por tres
 // horas todo dia — e o teste acusaria o servidor por um erro dele proprio.
-const { diaLocal } = await import('../src/nucleo/relogio.js')
+const { diaLocal, bordaDoDia } = await import('../src/nucleo/relogio.js')
+
+// Um instante na hora da OPERACAO, e nao na da maquina.
+//
+// `new Date(ano, mes, dia, 22, 30)` monta 22h30 no fuso do processo. Quando o
+// processo e a operacao estao no mesmo fuso — o caso do notebook hoje — os dois
+// coincidem e ninguem percebe a diferenca. Quando nao estao, o teste passa a
+// afirmar uma coisa e a montar outra: era assim que dois testes ficavam
+// vermelhos com MYLOG_FUSO no Pacifico, sem nenhum defeito no servidor.
+//
+// E' o mesmo erro que a D37 tirou do servidor, sobrevivendo na camada de teste.
+function naHoraDaOperacao(diaIso, hora, minuto = 0) {
+  const meiaNoite = new Date(bordaDoDia(diaIso)).getTime()
+  return new Date(meiaNoite + (hora * 60 + minuto) * 60_000)
+}
 
 // Pedir carro passou a ser: escolher CATEGORIA. Liberar passou a ser: escolher
 // a PLACA. Os testes falam a mesma lingua do fluxo (roadmap 10.4).
@@ -1246,10 +1260,11 @@ test('execucoes: o dia do filtro e o dia de quem olha, nao o dia em UTC', async 
   // balde errado, justamente no fim de turno.
   const frota = await entrar('frota.a@teste.local')
 
-  // Uma inspecao gravada as 22h de HOJE, em hora local.
+  // Uma inspecao gravada as 22h30 de HOJE, na hora da OPERACAO — que e' quem
+  // decide onde o dia termina. Montar isso na hora da maquina fazia o teste
+  // afirmar uma coisa e preparar outra assim que os dois fusos se afastavam.
   const agora = new Date()
-  const noiteLocal = new Date(
-    agora.getFullYear(), agora.getMonth(), agora.getDate(), 22, 30, 0)
+  const noiteLocal = naHoraDaOperacao(diaLocal(agora), 22, 30)
   const alvo = consultarUm(
     'SELECT id FROM inspecoes WHERE empresa_id = ? ORDER BY criado_em LIMIT 1', [empresaA])
   assert.ok(alvo, 'os testes acima ja produziram inspecoes')
@@ -2304,10 +2319,18 @@ test('offline: a hora do checklist e a do patio, nao a da sincronizacao', async 
   const escolhido = app.dados.avulso[0]
   assert.ok(escolhido, 'o diarista escolhe o carro no galpao: precisa haver um');
 
-  // 07h50 de HOJE, na hora da operacao.
-  const hoje = diaLocal()
-  const inicio = new Date(`${hoje}T07:40:00`)
-  const fim = new Date(`${hoje}T07:50:00`)
+  // 07h50 de ONTEM, na hora da operacao — e nao de hoje.
+  //
+  // A primeira versao usava HOJE, e por isso so passava depois das 07h55: antes
+  // disso "hoje as 07h50" ainda esta no FUTURO, a janela do servidor recusa, e o
+  // teste acusava a correcao que ele mesmo guarda. Passou a noite inteira verde
+  // e amanheceu vermelho, sem ninguem ter tocado no codigo.
+  //
+  // Ontem serve igual: a classificacao no prazo x atrasado compara HORA DO DIA
+  // com o horario limite, e nao a data. E ontem esta sempre no passado.
+  const ontem = diaLocal(new Date(Date.now() - 86400000))
+  const inicio = naHoraDaOperacao(ontem, 7, 40)
+  const fim = naHoraDaOperacao(ontem, 7, 50)
 
   const envio = await chamar('POST', '/api/inspecoes', {
     token: diarista,
@@ -2325,7 +2348,7 @@ test('offline: a hora do checklist e a do patio, nao a da sincronizacao', async 
   assert.equal(envio.dados.inspecao.iniciada_em, inicio.toISOString())
 
   // E a consequencia que importa: com o prazo das 08h30, isso e' no prazo.
-  const lista = await chamar('GET', `/api/execucoes?de=${hoje}&ate=${hoje}`, { token: frota })
+  const lista = await chamar('GET', `/api/execucoes?de=${ontem}&ate=${ontem}`, { token: frota })
   const linha = lista.dados.execucoes.find((e) => e.id === envio.dados.inspecao.id)
   assert.ok(linha, 'o checklist tem que cair no dia em que foi feito')
   assert.equal(linha.prazo, 'no_prazo',
