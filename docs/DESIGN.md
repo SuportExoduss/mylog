@@ -48,7 +48,7 @@ Usos permitidos: marca, aba ativa, acao primaria, foco, links. Nada mais.
 **Texto em fonte de sistema; DADO em monoespacada.**
 
 E' a decisao que mais define o produto visualmente. Placa, quilometragem, id de
-item de checklist, numero de ticket, horario de auditoria — tudo com a classe
+item de checklist, numero da solicitacao, horario de auditoria — tudo com a classe
 `.dado`, em `Cascadia Mono` / `ui-monospace`, com `tabular-nums`.
 
 Duas razoes, uma estetica e uma operacional:
@@ -132,7 +132,7 @@ com pressa, as vezes de luva.
 1. **Nenhum `style` inline no JS.** Se uma tela precisa de algo que nao existe,
    a regra entra em `estilo.css`, nao no componente. Hoje: zero inline.
 2. **Todo identificador e toda medida levam `.dado`.** Placa, KM, id, numero de
-   ticket, horario.
+   numero de solicitacao, horario.
 3. **Selo de estado sempre com rotulo textual.** Nunca so a cor.
 4. **Coluna de acoes tem cabecalho vazio** — `tabela()` a encolhe sozinha.
 5. **Tabela larga rola dentro da propria caixa.** A pagina nunca rola de lado.

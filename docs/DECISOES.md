@@ -64,6 +64,12 @@ cabecalho.
 
 ## D6 — Autorizacao por capacidade, nao por papel espalhado no codigo
 
+> **Não vale mais.** `src/seguranca/permissoes.js` e `exigir(usuario, ...)`
+> nunca chegaram a existir — a tabela papel → capacidade foi substituída por
+> **dois níveis** (`seguranca/nivel.js`, `ehFrota` / `exigirFrota`), escolhidos
+> no cadastro da pessoa. Ver [D47](#d47--o-nível-escolhido-no-cadastro-vale-na-porta-do-painel).
+> O texto abaixo fica como registro do que se pensou antes.
+
 **Escolha:** `src/seguranca/permissoes.js` tem uma tabela papel -> capacidades.
 As rotas chamam `exigir(usuario, 'veiculos.escrever')`.
 
@@ -76,7 +82,7 @@ o que um supervisor pode fazer e' editar um array.
 **Escolha:** a rota de edicao recusa troca de placa; a orientacao e' cadastrar
 outro veiculo.
 
-**Por que:** a placa amarra inspecoes, evidencias, tickets e preventivas do
+**Por que:** a placa amarra inspecoes, evidencias, solicitacoes e preventivas do
 historico. Reescrever a placa reescreveria o significado de registros passados —
 e esses registros sao prova em acidente e em processo trabalhista.
 
@@ -134,6 +140,13 @@ existe "concluir e decidir depois" — e' assim que uma frota perde a agenda.
 
 ## D13 — Ticket e nao conformidade sao entidades separadas
 
+> **Não vale mais.** Não existe tabela `tickets`, e a palavra não aparece em
+> nenhuma linha de código. O ROADMAP (item 3 das mudanças, e §1405) trocou o
+> conceito: *ticket virou Solicitação de veículo* — reserva de carro com
+> janela, aprovação e devolução, não chamado de suporte. A separação que esta
+> decisão defende continua valendo, com os nomes de hoje: `solicitacoes` e
+> `ocorrencias` são tabelas distintas.
+
 **Escolha:** tabelas distintas. Um ticket PODE virar ocorrencia, por acao
 explicita da supervisao, e a ligacao fica na auditoria.
 
@@ -144,6 +157,11 @@ como falha de inspecao.
 
 ## D14 — Prazo de ticket derivado da prioridade
 
+> **Não vale mais**, pelo mesmo motivo da [D13](#d13--ticket-e-nao-conformidade-sao-entidades-separadas):
+> não há ticket. A solicitação tem **janela de horário** e o atraso é medido
+> contra ela, na devolução (`devolvida_com_atraso`); a ocorrência tem
+> prioridade, e não prazo. As 8h/72h nunca foram escritas.
+
 **Escolha:** 8 horas para prioridade alta, 72 para normal, calculado na
 abertura. "Atrasado" e' prazo vencido com o ticket ainda aberto.
 
@@ -152,6 +170,12 @@ SLA configuravel por empresa e' complexidade que ainda nao se justifica.
 Quando a operacao pedir, viram dois numeros na politica da empresa.
 
 ## D15 — O aplicativo de campo e' um PWA, nao um app nativo
+
+> **Revista pela [D46](#d46--o-pwa-entra-em-regime-de-manutenção)**, 06/09/2026:
+> o aplicativo Android será escrito do zero, nativo. O PWA em `app/` entra em
+> manutenção. O que esta decisão deixou de herança é o parágrafo "o que isso
+> NÃO fecha" — a API agnóstica de cliente, que é justamente o que torna a
+> troca possível sem mexer no servidor.
 
 **Escolha:** cliente instalavel em `app/`, servido pelo mesmo processo, com
 service worker e IndexedDB. A decisao entre Kotlin, Flutter e PWA estava aberta;
@@ -203,7 +227,7 @@ volta como "reprovado" e bloqueia o veiculo.
 ## D18 — Idempotencia por `cliente_uuid`
 
 **Escolha:** o aplicativo gera o id da inspecao antes de enviar. Reenvio da
-mesma inspecao devolve a que ja existe, com `duplicada: true`.
+mesma inspecao devolve a que ja existe, com `repetida: true`.
 
 **Por que:** a fila offline reenvia o que nao teve confirmacao — e "nao teve
 confirmacao" inclui o caso em que o servidor gravou e a resposta se perdeu no

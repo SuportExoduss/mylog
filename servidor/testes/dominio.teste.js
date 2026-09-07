@@ -753,6 +753,81 @@ test('documentos: o LEIA-ME aponta os cinco, e nenhum deles falta', () => {
     `copia .docx solta em docs/, competindo com o Markdown: ${soltos.join(', ')}`)
 })
 
+// Nenhum documento cita arquivo que nao existe.
+//
+// A D6 descrevia `src/seguranca/permissoes.js` e uma chamada `exigir(usuario,
+// 'veiculos.escrever')`. Nunca existiram: a autorizacao virou dois niveis, em
+// `seguranca/nivel.js`. A D13 e a D14 falavam de uma tabela `tickets` que o
+// ROADMAP substituiu por Solicitacao de veiculo. Tres decisoes descrevendo um
+// sistema que ninguem podia mais ler no codigo — e nada apontava isso.
+//
+// A EXCECAO e' deliberada: um bloco que comeca com "Nao vale mais" ou "Revista
+// pela" existe justamente para nomear o que foi embora. Cobrar existencia ali
+// seria proibir o registro de ter memoria.
+test('documentos: nenhum documento cita arquivo que nao existe', () => {
+  const raiz = path.join(import.meta.dirname, '..', '..')
+
+  const nomes = new Set()
+  const varrer = (dir) => {
+    for (const item of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (item.name === '.git' || item.name === 'node_modules' || item.name === 'dados') continue
+      if (item.isDirectory()) varrer(path.join(dir, item.name))
+      else nomes.add(item.name)
+    }
+  }
+  varrer(raiz)
+
+  const citados = []
+  for (const doc of ['ARQUITETURA', 'ROADMAP', 'DECISOES', 'API', 'DESIGN']) {
+    const texto = fs.readFileSync(path.join(raiz, 'docs', `${doc}.md`), 'utf8')
+    // Uma decisao revogada descreve um mundo que nao existe mais: e' o que a
+    // nota no topo dela avisa.
+    const blocos = texto.split(/^## /m)
+      .filter((b) => !/^[^\n]*\n+>[^]{0,400}?(Não vale mais|Revista pela)/.test(b))
+    for (const bloco of blocos) {
+      for (const m of bloco.matchAll(/`([A-Za-z0-9_./-]+\.(?:js|sql|css|html|md))`/g)) {
+        citados.push([doc, m[1]])
+      }
+    }
+  }
+  assert.ok(citados.length > 30, `poucas citacoes lidas: ${citados.length}`)
+
+  const ausentes = citados
+    .filter(([, c]) => !nomes.has(c.split('/').pop()))
+    .map(([doc, c]) => `${doc}.md cita ${c}`)
+  assert.deepEqual([...new Set(ausentes)], [],
+    `documento descrevendo arquivo que nao existe:\n${[...new Set(ausentes)].join('\n')}`)
+})
+
+// A secao 27 do ROADMAP listava onze relatorios sob a frase "todos os
+// relatorios acima sao HTML pronto para imprimir". Quatro existiam. Os outros
+// eram tela de painel, ou nada — e nada distinguia um do outro na tabela.
+//
+// Documento de escopo mente por acumulo: cada linha nasce como plano, e com o
+// tempo o leitor deixa de saber quais ja viraram codigo. Agora a secao tem duas
+// tabelas, "o que ja sai hoje" com a ROTA de cada uma, e "o que ainda nao
+// existe". Este teste guarda a primeira.
+test('documentos: toda rota que o ROADMAP 27 promete existe no servidor', () => {
+  const raiz = path.join(import.meta.dirname, '..', '..')
+  const roadmap = fs.readFileSync(path.join(raiz, 'docs', 'ROADMAP.md'), 'utf8')
+
+  const inicio = roadmap.indexOf('### O que já sai hoje')
+  const fim = roadmap.indexOf('### O que ainda não existe')
+  assert.ok(inicio > 0 && fim > inicio, 'a secao 27 perdeu a divisao entre o que sai e o que nao sai')
+
+  const prometidas = [...roadmap.slice(inicio, fim).matchAll(/`(\/[a-z0-9/.:_-]+)`/g)].map((m) => m[1])
+  assert.ok(prometidas.length >= 5, `poucas rotas lidas da tabela: ${prometidas.join(', ')}`)
+
+  const rotas = fs.readdirSync(path.join(raiz, 'servidor', 'src', 'rotas'))
+    .filter((f) => f.endsWith('.js'))
+    .map((f) => fs.readFileSync(path.join(raiz, 'servidor', 'src', 'rotas', f), 'utf8'))
+    .join('\n')
+
+  const faltando = prometidas.filter((r) => !rotas.includes(`'${r}'`))
+  assert.deepEqual(faltando, [],
+    `o ROADMAP 27 promete rota que o servidor nao registra: ${faltando.join(', ')}`)
+})
+
 // Toda referencia a codigo dentro do DESIGN.md existe de verdade. Documento de
 // interface envelhece calado: a classe e renomeada, e o texto continua
 // descrevendo um nome que ninguem mais usa.
@@ -772,4 +847,32 @@ test('documentos: o DESIGN.md nao cita classe, token nem funcao que nao existe',
     }
   }
   assert.deepEqual(ausentes, [], `o DESIGN.md cita o que nao existe: ${ausentes.join(', ')}`)
+})
+
+// A regra 1 do DESIGN.md — "nenhum style inline no JS" — vinha com um placar:
+// "Hoje: zero inline". Nao era verdade: o modal de historico do veiculo
+// carregava `style: 'max-width:620px'`. Um numero escrito a mao dentro de um
+// documento so fica certo ate a proxima tela, e nao havia nada que o
+// conferisse.
+//
+// Isto nao e' zelo tipografico. Medida em `style` nao aparece no `estilo.css`,
+// entao nao entra na conta de nenhum ajuste de layout, nao responde a tema e
+// nao aparece para quem procura por que uma caixa ficou daquele tamanho —
+// justamente o problema que a regra existe para evitar.
+test('painel: nenhuma tela carrega estilo embutido, como o DESIGN.md afirma', () => {
+  const raiz = path.join(import.meta.dirname, '..', '..')
+  const pasta = path.join(raiz, 'web', 'js')
+  const achados = []
+  for (const arquivo of fs.readdirSync(pasta).filter((f) => f.endsWith('.js'))) {
+    const texto = fs.readFileSync(path.join(pasta, arquivo), 'utf8')
+    texto.split(/\r?\n/).forEach((linha, i) => {
+      // As duas portas: a propriedade `style:` do `elemento()` e a escrita
+      // direta em `.style.` de um no ja montado.
+      if (/(^|[^a-zA-Z])style\s*:/.test(linha) || /\.style\.[a-zA-Z]/.test(linha)) {
+        achados.push(`web/js/${arquivo}:${i + 1}  ${linha.trim().slice(0, 80)}`)
+      }
+    })
+  }
+  assert.deepEqual(achados, [],
+    `o DESIGN.md diz "hoje: zero inline" e estas linhas dizem outra coisa:\n${achados.join('\n')}`)
 })

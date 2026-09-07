@@ -263,7 +263,8 @@ celular atrasa, adianta e pode ser mexido:
 | Mais de 5 min no futuro | Usa a hora do recebimento e registra na auditoria |
 | Mais de 30 dias atrás | Idem |
 | `finalizada_em` antes de `iniciada_em` | Usa `iniciada_em` |
-| Ilegível ou ausente | Usa a hora do recebimento, sem registro |
+| Ilegível | Usa a hora do recebimento, e **registra** `inspecao.relogio_recusado` |
+| Ausente | Usa a hora do recebimento, sem registro — não informar não é defeito |
 
 Fora da janela **a inspeção não é recusada** — ela aconteceu no mundo. Só a hora
 informada é descartada.

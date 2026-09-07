@@ -1688,23 +1688,39 @@ mudança:
 
 ## 27. Relatórios
 
-| Relatório | Conteúdo |
-|---|---|
-| Checklist completo | Todas as perguntas, respostas, evidências, usuário, veículo, momento e horário |
-| Comparativo saída × retorno | As duas passagens lado a lado, pergunta a pergunta |
-| Executivo | Resumo do resultado e principais problemas |
-| Dossiê de evidências | Fotos, contexto, assinaturas e histórico |
-| Preventivas | Realizadas, próximas, vencidas e histórico por veículo |
-| Solicitações | Pedidos, aprovações, devoluções e atrasos |
-| Frota | Status, ocorrências e indicadores |
-| Auditoria | Alterações críticas de cadastro e operação |
-| Histórico do usuário | Tudo que um colaborador fez, com data e hora |
-| **Dossiê de preventiva** | Antes × depois de cada peça, com foto dos dois lados — ver 27.1 |
-| **Resumo de checklists (planilha)** | Uma linha por execução, no leiaute do PROLOG — ver 11.10 |
+### O que já sai hoje
 
-Todos os relatórios acima são **HTML pronto para imprimir**, abertos pelo
-navegador (decisão D28). O resumo de checklists é a exceção: sai como **CSV**,
-porque não é para ler, é para filtrar e somar em planilha.
+| Relatório | Rota | Conteúdo |
+|---|---|---|
+| Checklist completo | `/relatorio/inspecao/:id` | Todas as perguntas, respostas, **evidências**, usuário, veículo, momento e horário |
+| Comparativo saída × retorno | `/relatorio/solicitacao/:id` | As duas passagens lado a lado, pergunta a pergunta |
+| Frota | `/relatorio/frota` | Status, ocorrências e indicadores |
+| **Dossiê de preventiva** | `/relatorio/preventiva/:id` | Antes × depois de cada peça, com foto dos dois lados — ver 27.1 |
+| **Resumo de checklists (planilha)** | `/api/execucoes.csv` | Uma linha por execução, no leiaute do PROLOG — ver 11.10 |
+
+Os quatro primeiros são **HTML pronto para imprimir**, abertos pelo navegador
+(decisão D28). O resumo de checklists é a exceção: sai como **CSV**, porque não
+é para ler, é para filtrar e somar em planilha.
+
+### O que ainda não existe
+
+Esta tabela já listou todos estes como se estivessem prontos, sob a frase
+"todos os relatórios acima são HTML pronto para imprimir". Não estavam. Quatro
+deles têm **tela** no painel, com os dados na mão e filtro — o que falta é a
+folha impressa:
+
+| Relatório | Situação hoje |
+|---|---|
+| Preventivas — realizadas, próximas, vencidas | Tela `preventivas`, sem versão impressa |
+| Solicitações — pedidos, aprovações, devoluções, atrasos | Tela `solicitacoes`, sem versão impressa |
+| Auditoria — alterações críticas | Tela `auditoria`, sem versão impressa |
+| Histórico do usuário | Tela `execucoes` filtra por pessoa; não há folha por colaborador |
+| Executivo — resumo e principais problemas | Não existe nem tela |
+| Dossiê de evidências | Não existe como peça separada — as fotos saem dentro do checklist completo, com a pergunta ao lado, que é onde elas significam alguma coisa. Pode ser que a linha inteira devesse sair daqui |
+
+Nenhum destes é obstáculo para a operação: o painel mostra os mesmos dados na
+tela. O que falta é o papel — e papel importa quando a conversa é com
+seguradora, auditoria ou sinistro.
 
 ### 27.1 Dossiê de preventiva
 

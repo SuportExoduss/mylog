@@ -993,6 +993,11 @@ tbody tr:hover { background: var(--superficie-2); }
    cabe na tela, e deixar o modal inteiro rolar esconderia os botoes. */
 .modal--alto { max-width: 560px; }
 
+/* Historico do veiculo: tabela de inspecoes com data, quem, checklist e
+   resultado. Nos 468px do modal padrao as colunas se espremem e o nome da
+   pessoa quebra em tres linhas. */
+.modal--largo { max-width: 620px; }
+
 .escolhas {
   max-height: 46vh;
   overflow: auto;

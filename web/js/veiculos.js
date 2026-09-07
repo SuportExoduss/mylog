@@ -90,7 +90,7 @@ async function verHistorico(veiculo, contexto) {
     contexto.irPara('ocorrencias', { veiculo: veiculo.id, placa: veiculo.placa })
   }
 
-  const formulario = elemento('div', { classe: 'modal', style: 'max-width:620px' }, [
+  const formulario = elemento('div', { classe: 'modal modal--largo' }, [
     elemento('h3', { texto: `Historico de ${veiculo.placa}` }),
     elemento('p', { classe: 'modal-sub', texto: `${veiculo.marca || ''} ${veiculo.modelo}`.trim() }),
 
