@@ -33,14 +33,30 @@ function idAPartirDo(texto, usados) {
   return `${base}_${n}`
 }
 
-// ------------------------------------------------------------------ criar
+// -------------------------------------------------------- criar e editar
 
-// O mesmo formulario cria os dois tipos de modelo. `finalidade` nao e' um campo
-// que a pessoa escolhe no meio do caminho: ela ja chegou aqui pela secao certa —
-// Checklists cria padrao, Preventivas cria preventiva —, e trocar isso depois de
-// criado nao existe, porque muda o que o aplicativo exige na execucao.
-async function novoChecklist(contexto, finalidade = 'padrao') {
-  const preventiva = finalidade === 'preventiva'
+// O MESMO formulario cria e edita, porque sao os mesmos campos.
+//
+// Ate aqui ele so criava: `PUT /api/templates/:id` sempre aceitou nome, tipo de
+// veiculo, cargos liberados, assinatura e o ritmo inteiro, e a tela so mandava
+// `{ estrutura }`. Ou seja: criado o checklist, a Frota nao conseguia mais
+// mexer em nada alem das perguntas — nem trocar o cargo que enxerga o modelo,
+// nem o horario limite que decide quem esta atrasado, nem corrigir um nome
+// digitado errado. Rotina de frota, sem porta na tela, com a rota pronta do
+// outro lado.
+//
+// `finalidade` continua fora: ela nao e' um campo que a pessoa escolhe no meio
+// do caminho — ela ja chegou pela secao certa, Checklists cria padrao e
+// Preventivas cria preventiva — e trocar depois mudaria o que o aplicativo
+// exige na execucao.
+//
+// `codigo` tambem fica fora na edicao: e' o identificador que amarra as versoes
+// umas as outras (`POST /:id/versao` procura pelo codigo). Trocar o codigo de
+// uma versao a separaria da propria linhagem. O servidor ja o ignora no PUT;
+// aqui a tela diz por que.
+async function formularioModelo(contexto, { finalidade = 'padrao', modelo = null, aoSalvar } = {}) {
+  const editando = Boolean(modelo)
+  const preventiva = (editando ? modelo.finalidade : finalidade) === 'preventiva'
   const { cargos } = await api.cargos()
   const area = document.getElementById('area-modal')
 
@@ -53,13 +69,25 @@ async function novoChecklist(contexto, finalidade = 'padrao') {
   const assinatura = elemento('input', { type: 'checkbox' })
   const aviso = elemento('div', { classe: 'aviso aviso--erro oculto' })
 
+  if (editando) {
+    nome.value = modelo.nome
+    codigo.value = modelo.codigo
+    codigo.disabled = true
+    tipo.value = modelo.tipo_veiculo
+    assinatura.checked = Boolean(modelo.exige_assinatura)
+  }
+
   // "Todos" e' uma opcao real, nao a ausencia de escolha.
-  const todos = elemento('input', { type: 'checkbox', checked: true })
+  const liberados = editando ? (modelo.cargos_liberados || []) : ['*']
+  const paraTodos = liberados.includes('*')
+  const todos = elemento('input', { type: 'checkbox', checked: paraTodos })
   const caixasCargo = cargos.map((c) => {
     const caixa = elemento('input', { type: 'checkbox', value: c.id })
+    caixa.checked = !paraTodos && liberados.includes(c.id)
     return { cargo: c, caixa, no: elemento('label', { classe: 'campo-linha' }, [caixa, c.nome]) }
   })
-  const listaCargos = elemento('div', { classe: 'oculto' }, caixasCargo.map((x) => x.no))
+  const listaCargos = elemento('div', { classe: paraTodos ? 'oculto' : '' },
+    caixasCargo.map((x) => x.no))
   todos.addEventListener('change', () => listaCargos.classList.toggle('oculto', todos.checked))
 
   // Ritmo do modelo (roadmap 11.2.1). Avulso e' o padrao: um checklist que
@@ -70,6 +98,7 @@ async function novoChecklist(contexto, finalidade = 'padrao') {
     { valor: 'semanal', rotulo: 'Semanal' },
     { valor: 'mensal', rotulo: 'Mensal' },
   ].map((o) => elemento('option', { value: o.valor, texto: o.rotulo })))
+  if (editando) periodicidade.value = modelo.periodicidade || 'avulso'
 
   // Os nomes e a numeracao vem do motor, nao daqui. Escritos a mao, a tela e o
   // servidor podiam discordar de qual numero e' segunda — e o checklist
@@ -78,9 +107,10 @@ async function novoChecklist(contexto, finalidade = 'padrao') {
   // Segunda a sexta ja marcados: e' o ritmo real da operacao — o relatorio do
   // PROLOG tem ~170 checklists por dia util contra 62 no sabado e 13 no
   // domingo. O padrao certo poupa o erro mais provavel.
+  const diasDoModelo = editando ? (modelo.dias_semana || []) : null
   const caixasDia = DIAS.map((d) => {
     const caixa = elemento('input', { type: 'checkbox', value: String(d.n) })
-    caixa.checked = d.n >= 1 && d.n <= 5
+    caixa.checked = diasDoModelo ? diasDoModelo.includes(d.n) : (d.n >= 1 && d.n <= 5)
     return { ...d, caixa, no: elemento('label', { classe: 'dia-semana' }, [caixa, d.nome]) }
   })
   const campoDias = elemento('div', { classe: 'campo oculto' }, [
@@ -90,12 +120,17 @@ async function novoChecklist(contexto, finalidade = 'padrao') {
 
   const diaSemana = elemento('select', {},
     DIAS.map((d) => elemento('option', { value: String(d.n), texto: d.nome })))
+  if (editando && modelo.dia_semana !== null && modelo.dia_semana !== undefined) {
+    diaSemana.value = String(modelo.dia_semana)
+  }
   const campoDiaSemana = elemento('div', { classe: 'campo oculto' }, [
     elemento('label', { texto: 'Vence em que dia da semana' }), diaSemana,
   ])
 
-  const temPrazo = elemento('input', { type: 'checkbox' })
-  const horario = elemento('input', { type: 'time', value: '08:30' })
+  const temPrazo = elemento('input', { type: 'checkbox',
+    checked: Boolean(editando && modelo.horario_limite) })
+  const horario = elemento('input', { type: 'time',
+    value: (editando && modelo.horario_limite) || '08:30' })
   const campoHorario = elemento('div', { classe: 'campo oculto' }, [
     elemento('label', { texto: 'Horario limite' }), horario,
     elemento('div', { classe: 'campo-dica',
@@ -118,8 +153,9 @@ async function novoChecklist(contexto, finalidade = 'padrao') {
   periodicidade.addEventListener('change', ajustarRitmo)
   temPrazo.addEventListener('change', ajustarRitmo)
 
-  // O codigo acompanha o nome ate alguem digitar um codigo proprio.
-  let codigoTocado = false
+  // O codigo acompanha o nome ate alguem digitar um codigo proprio. So na
+  // criacao: editando, ele esta travado.
+  let codigoTocado = editando
   codigo.addEventListener('input', () => { codigoTocado = true })
   nome.addEventListener('input', () => {
     if (!codigoTocado) codigo.value = idAPartirDo(nome.value, new Set()).replace(/_/g, '-')
@@ -138,19 +174,31 @@ async function novoChecklist(contexto, finalidade = 'padrao') {
         aviso.classList.remove('oculto')
         return
       }
+      const dados = {
+        nome: nome.value.trim(),
+        tipo_veiculo: tipo.value, cargos_liberados: selecionados,
+        exige_assinatura: assinatura.checked,
+        periodicidade: preventiva ? 'avulso' : periodicidade.value,
+        dias_semana: !preventiva && periodicidade.value === 'diario'
+          ? caixasDia.filter((d) => d.caixa.checked).map((d) => d.n)
+          : [],
+        dia_semana: !preventiva && periodicidade.value === 'semanal'
+          ? Number(diaSemana.value) : null,
+        horario_limite: !preventiva && temPrazo.checked && periodicidade.value !== 'avulso'
+          ? horario.value : null,
+      }
       try {
+        if (editando) {
+          await api.salvarTemplate(modelo.id, dados)
+          area.replaceChildren()
+          notificar('Dados do modelo salvos.')
+          if (aoSalvar) await aoSalvar()
+          return
+        }
         const { template } = await api.criarTemplate({
-          nome: nome.value.trim(), codigo: codigo.value.trim().toLowerCase(),
-          tipo_veiculo: tipo.value, cargos_liberados: selecionados,
-          exige_assinatura: assinatura.checked,
+          ...dados,
+          codigo: codigo.value.trim().toLowerCase(),
           finalidade,
-          periodicidade: periodicidade.value,
-          dias_semana: periodicidade.value === 'diario'
-            ? caixasDia.filter((d) => d.caixa.checked).map((d) => d.n)
-            : [],
-          dia_semana: periodicidade.value === 'semanal' ? Number(diaSemana.value) : null,
-          horario_limite: temPrazo.checked && periodicidade.value !== 'avulso'
-            ? horario.value : null,
           estrutura: { perguntas: [] },
         })
         area.replaceChildren()
@@ -162,12 +210,16 @@ async function novoChecklist(contexto, finalidade = 'padrao') {
       }
     },
   }, [
-    elemento('h3', { texto: preventiva ? 'Novo modelo de preventiva' : 'Novo checklist' }),
+    elemento('h3', { texto: editando
+      ? 'Dados do modelo'
+      : (preventiva ? 'Novo modelo de preventiva' : 'Novo checklist') }),
     elemento('p', { classe: 'modal-sub',
-      texto: preventiva
-        ? 'Nasce como rascunho. Depois de publicado, pode ser amarrado a uma preventiva agendada.'
-        : 'Nasce como rascunho. So passa a valer no aplicativo quando for publicado.' }),
-    preventiva
+      texto: editando
+        ? `Versao ${modelo.versao}, ainda em rascunho. As perguntas ficam na tela de tras; aqui e o resto.`
+        : (preventiva
+          ? 'Nasce como rascunho. Depois de publicado, pode ser amarrado a uma preventiva agendada.'
+          : 'Nasce como rascunho. So passa a valer no aplicativo quando for publicado.') }),
+    preventiva && !editando
       ? elemento('div', { classe: 'aviso aviso--info' }, [
           elemento('strong', { texto: 'Saida e retorno sao obrigatorios. ' }),
           'Toda pergunta pede relatorio, e no retorno cada foto pergunta se houve '
@@ -178,7 +230,10 @@ async function novoChecklist(contexto, finalidade = 'padrao') {
     elemento('div', { classe: 'campo' }, [elemento('label', { texto: 'Nome' }), nome]),
     elemento('div', { classe: 'campo' }, [
       elemento('label', { texto: 'Codigo' }), codigo,
-      elemento('div', { classe: 'campo-dica', texto: 'Identificador estavel entre versoes.' }),
+      elemento('div', { classe: 'campo-dica',
+        texto: editando
+          ? 'Nao muda: e o que amarra a versao 1 a versao 2. Mudar aqui separaria esta versao da propria linhagem.'
+          : 'Identificador estavel entre versoes.' }),
     ]),
     elemento('div', { classe: 'campo' }, [
       elemento('label', { texto: 'Tipo de veiculo' }), tipo,
@@ -209,7 +264,8 @@ async function novoChecklist(contexto, finalidade = 'padrao') {
     elemento('div', { classe: 'modal-acoes' }, [
       elemento('button', { classe: 'botao botao--suave', type: 'button', texto: 'Cancelar',
         aoClick: () => area.replaceChildren() }),
-      elemento('button', { classe: 'botao', type: 'submit', texto: 'Criar rascunho' }),
+      elemento('button', { classe: 'botao', type: 'submit',
+        texto: editando ? 'Salvar dados' : 'Criar rascunho' }),
     ]),
   ].filter(Boolean))
 
@@ -249,11 +305,20 @@ export async function telaTemplates(raiz, contexto) {
           rotulo: t.status === 'rascunho' ? 'Editar perguntas' : 'Ver perguntas',
           aoClick: () => contexto.irPara('templates', { id: t.id }),
         }]
+        // Rascunho ainda nao valeu para ninguem: edita no lugar.
+        if (t.status === 'rascunho') {
+          acoes.push({ rotulo: 'Editar dados do modelo', aoClick: () =>
+            formularioModelo(contexto, { modelo: t, aoSalvar: recarregar }) })
+        }
+        // Publicado nao se edita — se versiona. A acao chamava-se "Criar nova
+        // versao", que e' o que ela FAZ, mas nao e' o que a pessoa PROCURA:
+        // quem quer trocar o cargo liberado de um checklist procura "editar", e
+        // desistia antes de achar. O nome agora diz as duas coisas.
         if (t.status === 'publicado') {
-          acoes.push({ rotulo: 'Criar nova versao', aoClick: async () => {
+          acoes.push({ rotulo: 'Editar — abre a versao seguinte', aoClick: async () => {
             try {
               const { template } = await api.novaVersaoTemplate(t.id)
-              notificar(`Versao ${template.versao} criada como rascunho.`)
+              notificar(`Versao ${template.versao} criada como rascunho. Edite e publique.`)
               contexto.irPara('templates', { id: template.id })
             } catch (falha) { notificar(falha.message) }
           } })
@@ -307,7 +372,7 @@ export async function telaTemplates(raiz, contexto) {
       acoes: [elemento('button', {
         classe: 'botao',
         texto: soPreventivas ? '+ Novo modelo de preventiva' : '+ Novo checklist',
-        aoClick: () => novoChecklist(contexto, finalidade),
+        aoClick: () => formularioModelo(contexto, { finalidade }),
       })],
     }),
     soPreventivas
@@ -567,6 +632,16 @@ async function editor(raiz, contexto, id) {
   })]
 
   if (editavel) {
+    // A porta para o resto do modelo. Sem ela, esta tela editava as perguntas e
+    // mais nada — nome, cargo liberado, tipo de veiculo e horario limite ficavam
+    // congelados no que foi digitado na criacao.
+    acoes.push(elemento('button', {
+      classe: 'botao botao--suave', texto: 'Dados do modelo',
+      aoClick: () => formularioModelo(contexto, {
+        modelo: template,
+        aoSalvar: () => contexto.irPara('templates', { id: template.id }),
+      }),
+    }))
     acoes.push(elemento('button', {
       classe: 'botao botao--suave', texto: '+ Pergunta',
       aoClick: () => formularioPergunta(null),
@@ -585,6 +660,20 @@ async function editor(raiz, contexto, id) {
             contexto.irPara('templates')
           },
         })
+      },
+    }))
+  } else if (template.status === 'publicado') {
+    // Esta tela dizia "somente leitura" e parava ali: quem chegou querendo
+    // mudar alguma coisa tinha que voltar, abrir o menu da lista e achar
+    // "criar nova versao" sozinho. Aviso sem saida vira beco.
+    acoes.push(elemento('button', {
+      classe: 'botao', texto: `Editar — abre a versao ${Number(template.versao) + 1}`,
+      aoClick: async () => {
+        try {
+          const { template: nova } = await api.novaVersaoTemplate(template.id)
+          notificar(`Versao ${nova.versao} criada como rascunho. Edite e publique.`)
+          contexto.irPara('templates', { id: nova.id })
+        } catch (falha) { notificar(falha.message) }
       },
     }))
   }

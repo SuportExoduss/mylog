@@ -730,6 +730,71 @@ test('transicoes: o que a tela oferece e exatamente o que o servidor aceita', ()
   }
 })
 
+// Todo campo que a EDICAO de checklist aceita, a tela do painel sabe mandar.
+//
+// `PUT /api/templates/:id` sempre aceitou nome, tipo de veiculo, cargos
+// liberados, assinatura e o ritmo inteiro (periodicidade, dias da semana, dia
+// da semana, horario limite). A tela mandava `{ estrutura }` e mais nada: o
+// formulario com todos esses campos existia SO na criacao.
+//
+// Na pratica, criado um checklist, a Frota nao conseguia mais trocar o cargo
+// que enxerga o modelo, nem o horario limite que decide quem esta atrasado, nem
+// corrigir um nome digitado errado. Rotina de frota, com a rota pronta do outro
+// lado e nenhuma porta na tela. Uma capacidade inteira do servidor, orfa.
+//
+// A varredura le so os dois trechos que tratam dos DADOS do modelo — o corpo do
+// PUT e o `lerRitmo` que ele chama. A rota da imagem de exemplo tem contrato
+// proprio e nao entra.
+test('checklist: todo campo que a edicao aceita, a tela do painel sabe mandar', () => {
+  const raiz = path.join(import.meta.dirname, '..', '..')
+  const rota = fs.readFileSync(path.join(raiz, 'servidor/src/rotas/templates.js'), 'utf8')
+  const tela = fs.readFileSync(path.join(raiz, 'web/js/templates.js'), 'utf8')
+
+  // O fim do bloco e' a primeira linha que fecha na MESMA indentacao em que ele
+  // abriu. Recortar por "o proximo `})`" engolia da funcao ate a rota seguinte,
+  // e a varredura passava a ler campos que a edicao nao aceita — teste verde
+  // por rede larga demais, que e' o mesmo que teste nenhum.
+  const trecho = (inicio, fecha) => {
+    const i = rota.indexOf(inicio)
+    assert.ok(i > 0, `nao achei "${inicio}" em templates.js`)
+    const fim = rota.indexOf(`\n${fecha}`, i)
+    assert.ok(fim > i, `nao achei o fim de "${inicio}"`)
+    return rota.slice(i, fim)
+  }
+
+  const corpoDaEdicao = trecho("rotas.put('/api/templates/:id'", '  })')
+    + trecho('function lerRitmo', '  }')
+
+  // A rede tem que ser do tamanho certo: nem menos que o ritmo inteiro, nem a
+  // ponto de alcancar o que so a criacao aceita.
+  assert.ok(!/corpo\.finalidade/.test(corpoDaEdicao),
+    'o recorte passou do fim: `finalidade` so existe na criacao')
+  assert.ok(!/corpo\.codigo/.test(corpoDaEdicao),
+    'o recorte passou do fim: `codigo` so existe na criacao')
+
+  const aceitos = new Set([...corpoDaEdicao.matchAll(/corpo\.(\w+)/g)].map((m) => m[1]))
+  assert.ok(aceitos.size >= 8,
+    `varredura da rota veio pobre demais: ${[...aceitos].join(', ')}`)
+
+  const mudos = [...aceitos].filter((campo) => !new RegExp(`\\b${campo}\\s*:`).test(tela))
+  assert.deepEqual(mudos, [],
+    `a edicao de checklist aceita campo que a tela nao sabe mandar: ${mudos.join(', ')}`)
+
+  // E o formulario tem que servir os dois usos. Se ele voltar a existir so para
+  // criar, a lista acima continua passando — os campos estariam la, no
+  // formulario de criacao — e a Frota estaria de novo sem editar nada.
+  assert.match(tela, /formularioModelo\(contexto, \{ modelo/,
+    'o formulario de dados do modelo precisa abrir em modo de edicao')
+  assert.match(tela, /api\.salvarTemplate\(modelo\.id, dados\)/,
+    'a edicao precisa mandar os dados, e nao so a estrutura')
+
+  // A versao publicada e' imutavel por contrato — uma inspecao aponta para a
+  // linha dela. Entao a tela nao pode oferecer edicao direta: tem que oferecer
+  // a versao seguinte, e dizer isso no proprio rotulo.
+  assert.match(tela, /Editar — abre a versao/,
+    'a tela precisa dizer que editar publicado abre a versao seguinte')
+})
+
 // ------------------------- a hierarquia documental existe e nao mente
 
 // A regra e' "nao existe arquitetura paralela": cinco documentos, cada um com

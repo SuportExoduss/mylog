@@ -756,6 +756,27 @@ Cada inspeção aponta para a versão que foi respondida. Editar uma versão
 publicada reescreveria o significado de inspeções já feitas — uma pergunta
 removida faria uma inspeção antiga parecer incompleta.
 
+**O que é editável, e onde.** A regra acima vale para a *versão*, não para o
+modelo: tudo é editável, num rascunho.
+
+| Campo | Rascunho | Publicado |
+|---|---|---|
+| Nome, tipo de veículo, cargos liberados, assinatura | edita | abre a versão seguinte |
+| Periodicidade, dias da semana, horário limite | edita | abre a versão seguinte |
+| Perguntas e opções | edita | abre a versão seguinte |
+| `codigo` | **não** — é o que amarra a versão 1 à versão 2 | não |
+| `finalidade` (padrão / preventiva) | **não** — muda o que o app exige na execução | não |
+
+No painel: **Dados do modelo** abre o formulário (nome, cargos, ritmo, prazo),
+**+ Pergunta** abre as perguntas. Numa versão publicada as duas viram um botão
+só, **"Editar — abre a versão N+1"**, que cria o rascunho seguinte e leva até
+ele — na lista e dentro da própria tela do modelo.
+
+A tela do modelo publicado costumava dizer só "somente leitura" e parar ali.
+Aviso sem saída vira beco: quem chegou querendo mudar o cargo liberado tinha
+que voltar, abrir o menu da lista e reconhecer "criar nova versão" como sendo o
+que procurava.
+
 ### 11.7 Encerramento
 
 Antes de concluir, o aplicativo mostra um resumo com:

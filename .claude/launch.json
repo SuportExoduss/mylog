@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "mylog",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["--no-warnings", "--env-file-if-exists=.env", "servidor/src/servidor.js"],
+      "port": 4000
+    }
+  ]
+}
