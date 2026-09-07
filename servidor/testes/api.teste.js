@@ -358,8 +358,26 @@ test('nivel: colaborador nao alcanca painel, usuarios nem cadastro de veiculo', 
   assert.equal((await chamar('GET', '/api/auditoria', { token })).status, 403)
   assert.equal((await chamar('POST', '/api/veiculos',
     { token, corpo: { placa: 'ZZZ9Z99', modelo: 'Pirata' } })).status, 403)
-  // Mas ve a frota, que e o que ele precisa para pedir um carro.
-  assert.equal((await chamar('GET', '/api/veiculos', { token })).status, 200)
+
+  // Nem a frota. A linha anterior aqui dizia "mas ve a frota, que e o que ele
+  // precisa para pedir um carro" e liberava a lista inteira — placa, ano, km,
+  // status e motivo do status. Nao e' o que ele precisa: pelo roadmap 10.3 quem
+  // pede escolhe CATEGORIA, e `POST /api/solicitacoes` recusa `veiculo_id` com
+  // todas as letras. O comentario sobreviveu a regra que o desfez.
+  assert.equal((await chamar('GET', '/api/veiculos', { token })).status, 403)
+  assert.equal((await chamar('GET', `/api/veiculos/${veiculoA}`, { token })).status, 403)
+
+  // O formulario de pedido dele e' este, e continua aberto: categoria e quantos
+  // carros atendem, sem placa nenhuma.
+  const categorias = await chamar('GET', '/api/categorias', { token })
+  assert.equal(categorias.status, 200)
+  assert.ok(categorias.dados.categorias.length > 0)
+  assert.ok(!JSON.stringify(categorias.dados).includes('AAA'),
+    'a lista de categorias nao pode carregar placa')
+
+  // E a ponte entre categoria e placa e' da Frota.
+  assert.equal((await chamar('GET', `/api/categorias/${categorias.dados.categorias[0].id}/veiculos`,
+    { token })).status, 403)
 })
 
 test('nivel: a empresa nao pode ficar sem ninguem na frota', async () => {

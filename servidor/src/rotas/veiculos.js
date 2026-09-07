@@ -97,8 +97,19 @@ export function reavaliarPendencia(empresaId, veiculoId, { ator, ip } = {}) {
 
 export function registrarRotasVeiculos(rotas) {
   // ------------------------------------------------------------------ lista
+  //
+  // So a Frota. Nao por zelo: quem pede um carro escolhe CATEGORIA, nunca placa
+  // (roadmap 10.3), e `POST /api/solicitacoes` recusa `veiculo_id` de forma
+  // explicita. O formulario do colaborador e' `GET /api/categorias` — que
+  // continua aberto a ele, e por isso mesmo devolve categoria e contagem, sem
+  // placa. `GET /api/categorias/:id/veiculos`, que mostra placa, ja e' da Frota.
+  //
+  // Estas duas leituras eram o unico ponto onde a frota inteira — placa, ano,
+  // km, status e o MOTIVO do status — saia para qualquer sessao. O aplicativo
+  // nunca chamou nenhuma das duas: o veiculo dele vem dentro da tarefa, em
+  // /api/app/inicio.
   rotas.get('/api/veiculos', async (ctx) => {
-    const eu = exigirAutenticado(ctx)
+    const eu = exigirFrota(exigirAutenticado(ctx))
     const status = ctx.query.get('status')
     const tipo = ctx.query.get('tipo')
     const busca = (ctx.query.get('busca') || '').trim().toLowerCase()
@@ -157,7 +168,9 @@ export function registrarRotasVeiculos(rotas) {
 
   // --------------------------------------------------------------- detalhe
   rotas.get('/api/veiculos/:id', async (ctx) => {
-    const eu = exigirAutenticado(ctx)
+    // So a Frota, pelo mesmo motivo da lista — e aqui vem junto a fila de
+    // ocorrencias abertas do carro, que e' pauta de manutencao.
+    const eu = exigirFrota(exigirAutenticado(ctx))
     const veiculo = buscarNaEmpresa(eu.empresa_id, ctx.params.id)
     const ocorrencias = consultar(
       `SELECT id, descricao, prioridade, status, aberta_em FROM ocorrencias
