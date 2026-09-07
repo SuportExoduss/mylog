@@ -427,11 +427,31 @@ test('ritmo: dia util obrigatorio nao alcanca o fim de semana', () => {
   assert.equal(obrigatorioNoDia(diaUtil, DOMINGO), false)
 })
 
-test('ritmo: avulso nunca e obrigatorio; semanal e mensal valem o periodo todo', () => {
-  const domingo = 0
-  assert.equal(obrigatorioNoDia({ periodicidade: 'avulso' }, domingo), false)
-  assert.equal(obrigatorioNoDia({ periodicidade: 'semanal', dia_semana: 3 }, domingo), true)
-  assert.equal(obrigatorioNoDia({ periodicidade: 'mensal' }, domingo), true)
+test('ritmo: semanal vence no dia configurado, e mensal nao entra na cobranca diaria', () => {
+  // Este teste afirmava o contrario ate agora: que semanal e mensal valiam
+  // "o periodo todo", devolvendo true em qualquer dia. Ele codificava o defeito.
+  //
+  // Quem chama `obrigatorioNoDia` e' a cobranca, e ela pergunta POR DIA. Com
+  // true todo dia, quem so e cobrado as quartas aparecia como faltante nos
+  // outros seis dias — toda semana, para sempre.
+  const DOM = 0, QUA = 3, QUI = 4
+
+  assert.equal(obrigatorioNoDia({ periodicidade: 'avulso' }, DOM), false)
+
+  // O dia de vencimento e' campo OBRIGATORIO do semanal (conferirPeriodicidade),
+  // estava preenchido e validado, e o motor nao lia.
+  const semanal = { periodicidade: 'semanal', dia_semana: QUA }
+  assert.equal(obrigatorioNoDia(semanal, QUA), true, 'na quarta, cobra')
+  assert.equal(obrigatorioNoDia(semanal, QUI), false, 'na quinta, nao cobra')
+  assert.equal(obrigatorioNoDia(semanal, DOM), false, 'no domingo, nao cobra')
+
+  // Mensal nao tem onde vencer: o esquema so tem `dia_semana`, e
+  // `conferirPeriodicidade` o recusa fora do semanal. Sem ancora, todo dia
+  // seria "o dia" — vinte e nove faltas falsas por mes. Nao cobrar e' errado;
+  // cobrar todo dia e' pior. Roadmap 39 registra a decisao em aberto.
+  for (const dia of [DOM, QUA, QUI]) {
+    assert.equal(obrigatorioNoDia({ periodicidade: 'mensal' }, dia), false)
+  }
 })
 
 test('ritmo: o horario limite classifica, nao impede', () => {

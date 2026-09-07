@@ -2912,3 +2912,49 @@ test('usuarios: cargo vazio no PATCH e recusado, nao gravado', async () => {
   assert.equal(semCampo.status, 200)
   assert.equal(semCampo.dados.usuario.cargo_id, alvo.cargo_id)
 })
+
+test('painel: o card de hoje conta o dia da operacao, nao o dia em UTC', async () => {
+  // `new Date().toISOString().slice(0, 10)` e' o dia em UTC. No Brasil, entre
+  // 21h e meia-noite ele ja e' amanha: o card "checklists de hoje" contava os de
+  // amanha — zero — durante tres horas toda noite, no fim de turno.
+  //
+  // A D37 passou por painel.js e corrigiu o `hoje` da cobranca; este, duas
+  // linhas acima, ficou.
+  //
+  // A asercao precisa ISOLAR a linha alvo, e a rota so devolve contagem: entao
+  // o teste move a MESMA inspecao entre dois instantes e compara. A primeira
+  // versao so exigia `hoje > 0`, e passava com o defeito reintroduzido porque as
+  // outras inspecoes da suite ja bastavam para o contador.
+  const frota = await entrar('frota.a@teste.local')
+  const hoje = diaLocal()
+  const noite = naHoraDaOperacao(hoje, 22, 30)
+
+  // Com a operacao em UTC nao ha deslocamento, e 22h30 da operacao E' o mesmo
+  // dia em UTC: o cenario deixa de DISCRIMINAR o defeito, embora a regra que ele
+  // afirma continue valendo. Entao a guarda e' condicional e a asercao de
+  // comportamento, nao — o teste continua util em todo fuso, e forte onde pode.
+  const separaOsDias = noite.toISOString().slice(0, 10) !== hoje
+
+  const alvo = consultarUm(
+    'SELECT id FROM inspecoes WHERE empresa_id = ? ORDER BY criado_em LIMIT 1', [empresaA])
+  const contar = async () =>
+    (await chamar('GET', '/api/painel', { token: frota })).dados.checklists.hoje
+
+  // Longe de hoje: a inspecao nao conta.
+  executar('UPDATE inspecoes SET iniciada_em = ? WHERE id = ?',
+    [naHoraDaOperacao(diaLocal(new Date(Date.now() - 10 * 86400000)), 12, 0).toISOString(), alvo.id])
+  const fora = await contar()
+
+  // As 22h30 de hoje na operacao: passa a contar, mesmo sendo outro dia em UTC.
+  executar('UPDATE inspecoes SET iniciada_em = ? WHERE id = ?', [noite.toISOString(), alvo.id])
+  const dentro = await contar()
+
+  assert.equal(dentro, fora + 1,
+    'o checklist das 22h30 de hoje tem que entrar no card de hoje, e so ele mudou')
+
+  // E, quando o fuso da operacao separa os dois dias, isto foi de fato uma prova
+  // contra o defeito — e nao uma coincidencia de calendario.
+  if (separaOsDias) {
+    assert.notEqual(noite.toISOString().slice(0, 10), hoje)
+  }
+})

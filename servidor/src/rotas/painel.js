@@ -5,7 +5,7 @@ import { exigirAutenticado } from '../seguranca/sessao.js'
 import { exigirFrota } from '../seguranca/nivel.js'
 import { avaliarPreventivas } from '../nucleo/preventivas.js'
 import { quemNaoFez, venceu } from '../nucleo/cobranca.js'
-import { diaLocal } from '../nucleo/relogio.js'
+import { diaLocal, bordaDoDia } from '../nucleo/relogio.js'
 
 function contarPorChave(linhas) {
   const saida = {}
@@ -18,7 +18,14 @@ export function registrarRotasPainel(rotas) {
     const eu = exigirFrota(exigirAutenticado(ctx))
     const empresa = eu.empresa_id
     const agoraIso = new Date().toISOString()
-    const hoje = agoraIso.slice(0, 10)
+    // O dia da OPERACAO, e nao o do UTC. `agoraIso.slice(0, 10)` era o dia em
+    // UTC: no Brasil, entre 21h e meia-noite ele ja e' amanha, e o card
+    // "checklists de hoje" contava os de amanha — zero — durante tres horas
+    // toda noite, justamente no fim de turno.
+    //
+    // A D37 passou por este arquivo e corrigiu o `hoje` da cobranca. Este aqui,
+    // duas linhas acima, ficou.
+    const hoje = diaLocal()
 
     // O status das preventivas e' derivado de KM/data; recalcula antes de exibir.
     avaliarPreventivas(empresa)
@@ -31,9 +38,16 @@ export function registrarRotasPainel(rotas) {
       `SELECT status AS chave, COUNT(*) AS total FROM usuarios
         WHERE empresa_id = ? AND status <> 'desativado' GROUP BY status`, [empresa]))
 
+    // Pelas BORDAS do dia da operacao, e nao pelo prefixo da string.
+    // `substr(iniciada_em, 1, 10)` e' a data em UTC do instante gravado: um
+    // checklist das 22h30 em Sao Paulo fica guardado como 01h30 do dia seguinte,
+    // e o prefixo dele nunca ia bater com o dia de hoje. Trocar so a variavel
+    // `hoje` nao resolveria — os dois lados da comparacao estavam em fusos
+    // diferentes. E' o mesmo formato que /api/execucoes ja usa.
     const checklistsHoje = consultarUm(
       `SELECT COUNT(*) AS total FROM inspecoes
-        WHERE empresa_id = ? AND substr(iniciada_em, 1, 10) = ?`, [empresa, hoje])?.total ?? 0
+        WHERE empresa_id = ? AND iniciada_em >= ? AND iniciada_em <= ?`,
+      [empresa, bordaDoDia(hoje), bordaDoDia(hoje, true)])?.total ?? 0
 
     const saidasAbertas = consultarUm(
       `SELECT COUNT(*) AS total FROM solicitacoes

@@ -100,7 +100,23 @@ export function conferirPeriodicidade(modelo = {}) {
 export function obrigatorioNoDia(modelo = {}, diaSemana) {
   const p = modelo.periodicidade || 'avulso'
   if (p === 'avulso') return false
-  if (p === 'mensal' || p === 'semanal') return true   // a janela e' maior que o dia
+
+  // SEMANAL vence num dia especifico, e esse dia e' obrigatorio na criacao
+  // (`conferirPeriodicidade`). Antes daqui saia `true` todo dia com a nota "a
+  // janela e' maior que o dia" — mas quem pergunta e' a cobranca, e ela pergunta
+  // POR DIA: quem so e' cobrado as quartas aparecia como faltante nos outros
+  // seis dias da semana, toda semana. O campo estava preenchido e validado, e
+  // ninguem lia.
+  if (p === 'semanal') return diaSemana === modelo.dia_semana
+
+  // MENSAL nao entra na cobranca diaria, e isso e' uma falta de regra, nao uma
+  // escolha: nao existe campo que diga em que dia do mes ele vence — o esquema
+  // so tem `dia_semana`, e `conferirPeriodicidade` o recusa fora do semanal.
+  // Sem ancora, todo dia seria "o dia", e a pessoa apareceria como faltante
+  // vinte e nove vezes por mes. Nao cobrar e' errado; cobrar todo dia e' pior.
+  // Esta anotado no roadmap 39 como decisao em aberto.
+  if (p === 'mensal') return false
+
   return (modelo.dias_semana || []).includes(diaSemana)
 }
 

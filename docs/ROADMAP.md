@@ -1566,7 +1566,7 @@ abertura ao fechamento.
 
 ### Onde a cobertura começa e onde termina
 
-São 275 testes em três camadas:
+São 276 testes em três camadas:
 
 | Camada | Arquivo | O que prova |
 |---|---|---|
@@ -1953,7 +1953,13 @@ Pontos que ainda dependem de decisão da operação:
    utilitário") cobrem a frota inteira? Falta decidir se **moto e caminhão**
    entram como categoria pedível — hoje não entram, e quem precisa de um
    fala com a Frota.
-8. **O filtro de período "igual ao do Fibra nos relatórios de O.S."** — desenhei
+8. **Checklist mensal não tem onde vencer.** O esquema só tem `dia_semana`, e ele
+   é recusado fora da periodicidade semanal — então um modelo mensal não tem dia
+   de vencimento. Hoje ele **não entra** na cobrança diária: cobrar todo dia
+   daria vinte e nove faltas falsas por mês, e não cobrar é o menos errado dos
+   dois. Para valer de verdade, precisa de uma âncora — dia do mês, ou "último
+   dia útil", ou "a cada N dias desde a última". É decisão da operação.
+9. **O filtro de período "igual ao do Fibra nos relatórios de O.S."** — desenhei
    como *de… até…* mais navegação por mês e atalhos (11.9). Se a tela do Fibra
    tem algo além disso, um print resolve.
 
