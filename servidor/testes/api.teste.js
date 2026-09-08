@@ -2306,6 +2306,71 @@ test('cobranca: um checklist por pessoa, nao um por modelo', async () => {
   assert.ok(comVarios, 'a fixture tem cargo liberado em mais de um modelo')
 })
 
+test('hodometro: as tres portas escrevem, e as tres deixam rastro no veiculo', async () => {
+  // O KM entra por tres caminhos: a edicao do veiculo, a leitura do checklist e
+  // a execucao da preventiva. Os dois primeiros passavam por `registrarKm`, que
+  // grava `veiculo.km_atualizado`. O terceiro escrevia direto na tabela.
+  //
+  // E' o caminho que MAIS importa — e' dele que sai o alvo da proxima
+  // preventiva — e o historico do veiculo le eventos por `entidade = 'veiculo'`.
+  // Como `preventiva.concluida` e' evento de PREVENTIVA, o historico do carro
+  // mostrava o hodometro saltando dez mil quilometros sem nenhuma linha
+  // explicando de onde veio.
+  const frota = await entrar('frota.a@teste.local')
+  const veiculo = criarVeiculo(empresaA, 'AAA9H99', 'compacto_leve', 10000)
+
+  const eventosDoCarro = async () => (await chamar(
+    'GET', `/api/veiculos/${veiculo}/historico`, { token: frota }))
+    .dados.eventos.filter((e) => e.acao === 'veiculo.km_atualizado')
+
+  assert.equal((await eventosDoCarro()).length, 0, 'controle: o carro nasce sem leitura')
+
+  // 1. Pela edicao do veiculo.
+  await chamar('PATCH', `/api/veiculos/${veiculo}`, { token: frota, corpo: { km_atual: 12000 } })
+  assert.equal((await eventosDoCarro()).length, 1, 'a edicao deixa rastro')
+
+  // 2. Pela execucao de uma preventiva.
+  const preventiva = criarPreventivaComModelo(empresaA, veiculo, modeloPreventivaA)
+  const r = await chamar('POST', `/api/preventivas/${preventiva}/concluir`, {
+    token: frota,
+    corpo: { servico: 'Revisao completa', km_realizado: 22000,
+      proximo_modo: 'km', proximo_km: 32000 },
+  })
+  assert.equal(r.status, 200, JSON.stringify(r.dados))
+  assert.equal(consultarUm('SELECT km_atual FROM veiculos WHERE id = ?', [veiculo]).km_atual, 22000,
+    'a leitura da oficina anda com o hodometro')
+
+  const depois = await eventosDoCarro()
+  assert.equal(depois.length, 2, 'a leitura da oficina TAMBEM deixa rastro no veiculo')
+  assert.equal(depois[0].depois.km_atual, 22000)
+  assert.equal(depois[0].antes.km_atual, 12000, 'e diz de onde veio, nao so para onde foi')
+  assert.match(depois[0].depois.motivo, /preventiva/i, 'e por qual porta entrou')
+  assert.ok(depois[0].ator_nome, 'e quem leu o hodometro')
+
+  // 3. O hodometro nao anda para tras sem justificativa — a preventiva por KM
+  //    depende inteiramente deste numero.
+  const paraTras = await chamar('PATCH', `/api/veiculos/${veiculo}`,
+    { token: frota, corpo: { km_atual: 5000 } })
+  assert.equal(paraTras.status, 400, 'sem motivo, o hodometro nao volta')
+  assert.equal(consultarUm('SELECT km_atual FROM veiculos WHERE id = ?', [veiculo]).km_atual, 22000)
+
+  const corrigido = await chamar('PATCH', `/api/veiculos/${veiculo}`,
+    { token: frota, corpo: { km_atual: 5000, motivo_km: 'hodometro trocado na oficina' } })
+  assert.equal(corrigido.status, 200, 'com motivo escrito, a correcao passa')
+  assert.equal((await eventosDoCarro()).length, 3, 'e a correcao tambem deixa rastro')
+
+  // 4. Uma leitura MENOR vinda da preventiva nao mexe no hodometro — na
+  //    oficina, numero menor e erro de digitacao, nao correcao.
+  const p2 = consultarUm(
+    `SELECT id FROM preventivas WHERE veiculo_id = ? AND status <> 'realizada' LIMIT 1`, [veiculo])
+  await chamar('POST', `/api/preventivas/${p2.id}/concluir`, {
+    token: frota,
+    corpo: { servico: 'Ajuste', km_realizado: 100, proximo_modo: 'km', proximo_km: 40000 },
+  })
+  assert.equal(consultarUm('SELECT km_atual FROM veiculos WHERE id = ?', [veiculo]).km_atual, 5000,
+    'leitura menor na oficina nao puxa o hodometro para tras')
+})
+
 test('cobranca: colaborador nao ve quem faltou', async () => {
   const vendas = await entrar('vendas.a@teste.local')
   const r = await chamar('GET', '/api/execucoes/faltando?dia=2026-09-03', { token: vendas })

@@ -514,6 +514,8 @@ export function registrarRotasInspecoes(rotas) {
           atual: preventiva,
           empresaId: eu.empresa_id,
           atorId: eu.id,
+          ator: eu,
+          ip: ctx.ip,
           kmRealizado: km ?? preventiva.km_atual,
           dataRealizada: ts.slice(0, 10),
           servico: servicos.length

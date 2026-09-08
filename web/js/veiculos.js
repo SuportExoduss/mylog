@@ -75,6 +75,36 @@ function mudarStatus(veiculo, recarregar) {
   })
 }
 
+// "KM 12.000 -> 22.000" e' a linha que alguem abre o historico para ver. O
+// servidor sempre mandou `antes` e `depois`; a tabela mostrava so quando, quem
+// e a acao — o "o que" ficava na resposta, sem chegar a tela.
+//
+// Campos que nao interessam a quem le o historico de um carro ficam de fora: o
+// motivo ja aparece por extenso, e nao vale repetir a placa em toda linha.
+const OCULTOS = new Set(['motivo', 'placa', 'id', 'empresa_id'])
+
+function descreverMudanca(evento) {
+  const antes = evento.antes || {}
+  const depois = evento.depois || {}
+  const campos = [...new Set([...Object.keys(antes), ...Object.keys(depois)])]
+    .filter((c) => !OCULTOS.has(c))
+
+  const mudou = campos
+    .filter((c) => JSON.stringify(antes[c]) !== JSON.stringify(depois[c]))
+    .map((c) => {
+      const de = antes[c]
+      const para = depois[c]
+      const valor = (v) => (typeof v === 'number' ? numero(v) : String(v ?? '—'))
+      return de === undefined ? `${c}: ${valor(para)}` : `${c}: ${valor(de)} → ${valor(para)}`
+    })
+
+  // O motivo escrito pela Frota vale mais que a lista de campos: e' a unica
+  // parte da linha que explica POR QUE.
+  const motivo = depois.motivo || antes.motivo
+  if (motivo) return mudou.length ? `${mudou.join(' · ')} — ${motivo}` : String(motivo)
+  return mudou.join(' · ') || '—'
+}
+
 async function verHistorico(veiculo, contexto) {
   // Duas perguntas na mesma tela, porque quem abre o historico de um carro
   // esta decidindo se libera ele: "o que ja aconteceu" e "o que ainda esta
@@ -129,10 +159,11 @@ async function verHistorico(veiculo, contexto) {
       : vazio('Nenhum checklist ainda.'),
     elemento('div', { classe: 'secao-titulo esp-t-4' }, [elemento('h2', { texto: 'Alteracoes de cadastro' })]),
     dados.eventos.length
-      ? tabela(['Quando', 'Quem', 'Acao'], dados.eventos.map((e) => elemento('tr', {}, [
+      ? tabela(['Quando', 'Quem', 'Acao', 'O que mudou'], dados.eventos.map((e) => elemento('tr', {}, [
           elemento('td', { classe: 'celula-fraca dado', texto: dataCurta(e.criado_em) }),
           elemento('td', { classe: 'celula-fraca', texto: e.ator_nome || 'sistema' }),
           elemento('td', {}, [elemento('span', { classe: 'celula-forte dado', texto: e.acao })]),
+          elemento('td', { classe: 'celula-fraca', texto: descreverMudanca(e) }),
         ])))
       : vazio('Sem alteracoes.'),
     elemento('div', { classe: 'modal-acoes' }, [

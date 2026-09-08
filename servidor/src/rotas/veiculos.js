@@ -292,10 +292,21 @@ export function registrarRotasVeiculos(rotas) {
            JOIN usuarios u ON u.id = i.usuario_id
            JOIN templates t ON t.id = i.template_id
           WHERE i.veiculo_id = ? ORDER BY i.iniciada_em DESC LIMIT 50`, [veiculo.id]),
+      // `antes` e `depois` sao devolvidos JA LIDOS, como em /api/auditoria.
+      // Vinham como texto JSON cru: os mesmos dois campos, duas formas,
+      // dependendo da rota. Quem escreve cliente pela documentacao acerta um e
+      // erra o outro — e o painel, que recebia os dois desde sempre, nao
+      // mostrava nenhum: pedia ao servidor o que a mudanca foi e desenhava so
+      // "quando, quem, acao".
       eventos: consultar(
         `SELECT acao, ator_nome, antes, depois, criado_em FROM eventos_auditoria
           WHERE entidade = 'veiculo' AND entidade_id = ?
-          ORDER BY criado_em DESC LIMIT 50`, [veiculo.id]),
+          ORDER BY criado_em DESC LIMIT 50`, [veiculo.id])
+        .map((e) => ({
+          ...e,
+          antes: e.antes ? JSON.parse(e.antes) : null,
+          depois: e.depois ? JSON.parse(e.depois) : null,
+        })),
     }
   })
 }

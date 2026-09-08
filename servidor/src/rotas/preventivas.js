@@ -247,7 +247,7 @@ export function registrarRotasPreventivas(rotas) {
       // Mesmo caminho que o checklist de preventiva usa ao finalizar o retorno
       // (roadmap 14.2.3): duas portas, um ato so.
       idProxima = encerrarCiclo({
-        atual, empresaId: eu.empresa_id, atorId: eu.id,
+        atual, empresaId: eu.empresa_id, atorId: eu.id, ator: eu, ip: ctx.ip,
         kmRealizado, dataRealizada, servico,
         proximo: { modo: proximoModo, ...proximoAlvo },
         alertas: { km: ctx.corpo.alerta_antes_km, dias: ctx.corpo.alerta_antes_dias },

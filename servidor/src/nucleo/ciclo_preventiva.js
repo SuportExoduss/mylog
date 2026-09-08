@@ -5,12 +5,14 @@
 // finalizado no aparelho. Se cada porta tivesse a sua copia, um dia elas
 // divergiriam — e a divergencia aqui e' uma frota sem agenda de manutencao.
 import { executar, novoId, agora } from './banco.js'
+import { registrarEvento } from './auditoria.js'
 
 // Fecha o ciclo atual e abre o proximo, num ato so. Recebe o alvo ja validado.
 // NAO abre transacao: quem chama decide o escopo, porque o checklist grava a
 // inspecao junto e as duas coisas precisam cair ou passar juntas.
 export function encerrarCiclo({
-  atual, empresaId, atorId, kmRealizado, dataRealizada, servico, proximo, alertas = {},
+  atual, empresaId, atorId, ator, ip, kmRealizado, dataRealizada, servico,
+  proximo, alertas = {},
 }) {
   const ts = agora()
   const idProxima = novoId('preventiva')
@@ -23,10 +25,28 @@ export function encerrarCiclo({
     [atorId, ts, km, dataRealizada, servico, ts, atual.id, empresaId],
   )
 
-  // A execucao da manutencao tambem e' leitura de hodometro.
+  // A execucao da manutencao tambem e' leitura de hodometro — e a leitura MAIS
+  // importante das tres, porque e' dela que sai o alvo da proxima preventiva.
+  //
+  // Escrevia direto na tabela, sem evento. As outras duas portas do hodometro
+  // (a edicao do veiculo e a leitura do checklist) registram
+  // `veiculo.km_atualizado`, e o historico do veiculo le eventos por
+  // `entidade = 'veiculo'`. Como `preventiva.concluida` e' evento de PREVENTIVA,
+  // o historico do carro mostrava o hodometro saltando dez mil quilometros sem
+  // nenhuma linha explicando de onde veio.
+  //
+  // So para frente, como estava: hodometro nao anda para tras, e uma leitura
+  // menor na oficina e' erro de digitacao, nao correcao.
   if (km > Number(atual.km_atual ?? 0)) {
     executar('UPDATE veiculos SET km_atual = ?, atualizado_em = ? WHERE id = ?',
       [km, ts, atual.veiculo_id])
+    registrarEvento({
+      empresaId, ator, acao: 'veiculo.km_atualizado',
+      entidade: 'veiculo', entidadeId: atual.veiculo_id,
+      antes: { km_atual: atual.km_atual ?? 0 },
+      depois: { km_atual: km, motivo: 'Leitura na execucao da preventiva' },
+      ip,
+    })
   }
 
   executar(

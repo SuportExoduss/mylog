@@ -282,6 +282,14 @@ duplicar:
 Isso é o que permite a fila offline reenviar sem medo. A resposta pode ter se
 perdido no caminho; a inspeção, não.
 
+### `antes` e `depois` vêm sempre como objeto
+
+Nos eventos de auditoria — tanto em `GET /api/auditoria` quanto em
+`GET /api/veiculos/:id/historico` — os campos `antes` e `depois` chegam **já
+lidos**, como objeto JSON, e não como texto. Podem ser `null` quando o evento
+não tem um dos lados (a primeira publicação de um checklist não substitui
+ninguém).
+
 ### `PUT /api/templates/:id` aceita corpo parcial
 
 Mande só o que mudou. Todo campo ausente conserva o valor que já estava —
