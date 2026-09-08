@@ -2511,6 +2511,91 @@ test('reserva: as oito relacoes possiveis entre duas janelas', async () => {
     `a conta de sobreposicao errou em:\n${erradas.join('\n')}`)
 })
 
+test('contrato: o exemplo da API.md e o que /api/app/inicio manda de verdade', async () => {
+  // A API.md e' o unico artefato desta etapa que o app Android nativo vai
+  // consumir (D46). O exemplo de resposta que ela publica nao pode ser uma
+  // aproximacao: quem escreve o cliente le AQUELE JSON e cria as classes a
+  // partir dele. Um campo que existe no exemplo e nao na resposta vira um
+  // `null` em Kotlin, no meio do patio, sem sinal. E um campo que a resposta
+  // manda e o exemplo esconde e' funcionalidade que o app nunca vai usar.
+  //
+  // O exemplo e' LIDO do documento, nunca copiado para ca: copia se desatualiza
+  // sozinha, que e' exatamente o defeito que este teste existe para pegar.
+  const raiz = path.join(import.meta.dirname, '..', '..')
+  const doc = fs.readFileSync(path.join(raiz, 'docs', 'API.md'), 'utf8')
+
+  // Ancora no BLOCO, e nao no titulo da secao: "GET /api/app/inicio" aparece
+  // primeiro no indice do documento, la em cima, e foi onde a primeira versao
+  // deste teste caiu — lendo o pedaco errado e reprovando por isso.
+  const CERCA = '```json'
+  const blocos = []
+  let corte = doc.indexOf(CERCA)
+  while (corte >= 0) {
+    const abre = corte + CERCA.length
+    const fecha = doc.indexOf('```', abre)
+    if (fecha < 0) break
+    blocos.push(doc.slice(abre, fecha))
+    corte = doc.indexOf(CERCA, fecha)
+  }
+  const bruto = blocos.find((b) => b.includes('"tarefas"') && b.includes('"modelos"'))
+  assert.ok(bruto, 'nao achei o exemplo de resposta de /api/app/inicio na API.md')
+
+  // As reticencias do exemplo viram valores comuns, e ai ele PARSEIA. Comparar
+  // estruturas de verdade e' muito melhor que raspar chaves com expressao
+  // regular — foi o que tentei primeiro, e a raspagem confundia o nome da
+  // lista com os campos de dentro dela.
+  const exemplo = JSON.parse(
+    bruto
+      .replace(/"\.\.\.":\s*"\.\.\.",?/g, '')
+      .replace(/"\.\.\."/g, '"x"')
+      .replace(/,(\s*[}\]])/g, '$1'),
+  )
+
+  const motorista = await entrar('vendas.a@teste.local')
+  const r = await chamar('GET', '/api/app/inicio', { token: motorista })
+  assert.equal(r.status, 200)
+
+  // Compara os dois lados, campo a campo, descendo nos objetos e no PRIMEIRO
+  // item de cada lista — que e' o que o exemplo mostra.
+  const faltando = []
+  const sobrando = []
+
+  const comparar = (caminho, doExemplo, daResposta) => {
+    if (doExemplo === null || typeof doExemplo !== 'object') return
+    if (Array.isArray(doExemplo)) {
+      if (!doExemplo.length) return
+      if (!Array.isArray(daResposta) || !daResposta.length) return   // lista vazia hoje
+      comparar(`${caminho}[]`, doExemplo[0], daResposta[0])
+      return
+    }
+    if (daResposta === null || typeof daResposta !== 'object') {
+      faltando.push(`${caminho} (a resposta nao trouxe o objeto)`)
+      return
+    }
+    for (const chave of Object.keys(doExemplo)) {
+      if (chave === 'x' || chave === '...') continue
+      if (!(chave in daResposta)) { faltando.push(`${caminho}.${chave}`); continue }
+      comparar(`${caminho}.${chave}`, doExemplo[chave], daResposta[chave])
+    }
+    // So na raiz e nos objetos que o exemplo detalha por inteiro. Dentro da
+    // `estrutura` do modelo o exemplo abrevia de proposito, e cobrar o
+    // contrario seria exigir que a API.md repetisse o checklist inteiro.
+    if (!caminho.includes('estrutura')) {
+      for (const chave of Object.keys(daResposta)) {
+        if (!(chave in doExemplo)) sobrando.push(`${caminho}.${chave}`)
+      }
+    }
+  }
+
+  comparar('resposta', exemplo, r.dados)
+
+  assert.deepEqual(faltando, [],
+    `a API.md mostra campo que /api/app/inicio nao manda:\n${faltando.join('\n')}`)
+  assert.deepEqual(sobrando, [],
+    `/api/app/inicio manda campo que a API.md nao mostra — o app nao vai usar o `
+    + `que nao sabe que existe:\n${sobrando.join('\n')}`)
+})
+
 test('cobranca: colaborador nao ve quem faltou', async () => {
   const vendas = await entrar('vendas.a@teste.local')
   const r = await chamar('GET', '/api/execucoes/faltando?dia=2026-09-03', { token: vendas })

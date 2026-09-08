@@ -101,7 +101,8 @@ localmente (Room, DataStore, o que preferir).
 
 ```json
 {
-  "usuario": { "id": "...", "nome": "...", "cargo_id": "...", "usa_veiculo_diario": true },
+  "usuario": { "id": "...", "nome": "...", "cargo_id": "...", "cargo_nome": "Motorista",
+               "usa_veiculo_diario": true },
 
   "tarefas": [
     { "solicitacao_id": "sol_...", "numero": 2, "momento": "saida",
