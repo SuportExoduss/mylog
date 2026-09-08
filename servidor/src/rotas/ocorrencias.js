@@ -50,8 +50,22 @@ export function registrarRotasOcorrencias(rotas) {
 
     let sql = `SELECT ${CAMPOS} ${DE} WHERE o.empresa_id = ?`
     const params = [eu.empresa_id]
-    if (status && STATUS_OCORRENCIA.includes(status)) { sql += ' AND o.status = ?'; params.push(status) }
-    else if (!status) sql += ` AND o.status <> 'encerrada'`
+    // `em_aberto` nao e' um status da tabela: e' o par que ainda pede acao,
+    // e existe porque o cartao do painel conta exatamente esse par. Sem ele,
+    // clicar em "4 abertas" abria uma lista de 5 — a quinta ja resolvida,
+    // esperando so o encerramento. Numero e lista tem que fechar.
+    //
+    // O `else` final e' do filtro NAO RECONHECIDO tambem, e nao so do filtro
+    // ausente. Escrito como tres condicoes independentes, um valor invalido
+    // (`?status=lixo`, um marcador antigo, um erro de digitacao) escapava das
+    // tres e a consulta saia SEM clausula nenhuma — devolvendo mais do que o
+    // padrao, encerradas incluidas. Na semente isso passa despercebido, porque
+    // nao ha nenhuma encerrada para aparecer.
+    //
+    // Filtro que ninguem entende cai no padrao. Nunca abre a lista.
+    if (status === 'em_aberto') { sql += ` AND o.status IN ('aberta', 'em_tratamento')` }
+    else if (status && STATUS_OCORRENCIA.includes(status)) { sql += ' AND o.status = ?'; params.push(status) }
+    else sql += ` AND o.status <> 'encerrada'`
     if (prioridade && PRIORIDADES.includes(prioridade)) {
       sql += ' AND o.prioridade = ?'; params.push(prioridade)
     }

@@ -19,6 +19,22 @@ function card(titulo, valor, detalhes = [], aoClick) {
   ])
 }
 
+// Um selo solto que leva a algum lugar. `selosDe` monta os que vem de um mapa
+// de contagens; este e' para os avulsos, que tambem precisam levar.
+function seloQueLeva(texto, tom, titulo, ir) {
+  const etiqueta = selo(texto, tom)
+  etiqueta.classList.add('clicavel')
+  etiqueta.setAttribute('role', 'button')
+  etiqueta.setAttribute('tabindex', '0')
+  etiqueta.setAttribute('title', titulo)
+  const abrir = (evento) => { evento.stopPropagation(); ir() }
+  etiqueta.addEventListener('click', abrir)
+  etiqueta.addEventListener('keydown', (evento) => {
+    if (evento.key === 'Enter' || evento.key === ' ') { evento.preventDefault(); abrir(evento) }
+  })
+  return etiqueta
+}
+
 // Esconde o que estiver zerado: o painel mostra problema, nao tabela cheia.
 //
 // Cada selo leva a lista JA FILTRADA por aquele status. As telas de destino
@@ -58,17 +74,31 @@ export async function telaPainel(raiz, contexto) {
     (status) => contexto.irPara('veiculos', { status }),
   ), () => contexto.irPara('veiculos')))
 
+  // O clique leva ao que o NUMERO conta. O cartao diz "pendentes" e mostra a
+  // contagem de pendentes; abrir a lista inteira obrigava a procurar de novo os
+  // mesmos registros que o cartao acabou de contar.
   cards.push(card('Solicitacoes pendentes', dados.solicitacoes.pendentes, [
-    dados.solicitacoes.em_uso > 0 ? selo(`${dados.solicitacoes.em_uso} em uso`, 's-alerta') : null,
+    dados.solicitacoes.em_uso > 0
+      ? seloQueLeva(`${dados.solicitacoes.em_uso} em uso`, 's-alerta',
+        'Ver so: em uso', () => contexto.irPara('solicitacoes', { status: 'em_uso' }))
+      : null,
+    // Atraso nao e' status proprio — e' um `em_uso` com a janela vencida. O selo
+    // leva para os em uso, que e' onde a linha atrasada esta, marcada.
     dados.solicitacoes.atrasadas > 0
-      ? selo(`${dados.solicitacoes.atrasadas} devolucao atrasada`, 's-critico') : null,
-  ].filter(Boolean), () => contexto.irPara('solicitacoes')))
+      ? seloQueLeva(`${dados.solicitacoes.atrasadas} devolucao atrasada`, 's-critico',
+        'Ver os veiculos na rua', () => contexto.irPara('solicitacoes', { status: 'em_uso' }))
+      : null,
+  ].filter(Boolean), () => contexto.irPara('solicitacoes', { status: 'pendente' })))
 
+  // Este era o unico cartao sem destino: mostrava o numero do dia e nao abria
+  // nada. A tela de Checklists feitos ja nasce com o periodo em hoje, entao o
+  // destino e' ela, sem parametro.
   cards.push(card('Checklists hoje', dados.checklists.hoje, [
     dados.checklists.veiculos_em_uso > 0
-      ? selo(`${dados.checklists.veiculos_em_uso} veiculo(s) na rua`, 's-marca')
+      ? seloQueLeva(`${dados.checklists.veiculos_em_uso} veiculo(s) na rua`, 's-marca',
+        'Ver os veiculos na rua', () => contexto.irPara('solicitacoes', { status: 'em_uso' }))
       : selo('nenhum veiculo fora', 's-ok'),
-  ]))
+  ], () => contexto.irPara('execucoes')))
 
   cards.push(card('Ocorrencias abertas', dados.ocorrencias.abertas, selosDe(
     dados.ocorrencias.por_prioridade, ROTULO_PRIORIDADE, TOM_PRIORIDADE,
@@ -76,14 +106,14 @@ export async function telaPainel(raiz, contexto) {
     // Prioridade, nao status: e' o filtro que a tela de ocorrencias tem para
     // esta contagem.
     (prioridade) => contexto.irPara('ocorrencias', { prioridade }),
-  ), () => contexto.irPara('ocorrencias')))
+  ), () => contexto.irPara('ocorrencias', { status: 'em_aberto' })))
 
   const prev = dados.preventivas.por_status
   cards.push(card('Preventivas vencidas', prev.vencida || 0, selosDe(
     prev, ROTULO_STATUS_PREVENTIVA, TOM_STATUS_PREVENTIVA,
     ['muito_proxima', 'proxima', 'em_dia'],
     (status) => contexto.irPara('preventivas', { status }),
-  ), () => contexto.irPara('preventivas')))
+  ), () => contexto.irPara('preventivas', { status: 'vencida' })))
 
   cards.push(card('Usuarios', Object.values(dados.usuarios.por_status).reduce((a, b) => a + b, 0),
     selosDe(dados.usuarios.por_status, ROTULO_STATUS_USUARIO, TOM_STATUS_USUARIO,

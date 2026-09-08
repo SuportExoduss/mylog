@@ -227,6 +227,11 @@ export async function telaOcorrencias(raiz, contexto) {
     aoChange: (e) => { filtros.status = e.target.value; recarregar() },
   }, [
     elemento('option', { value: '', texto: 'Nao encerradas' }),
+    // O par que ainda pede acao, que e' o que o cartao do painel conta. Chegando
+    // de la, o seletor precisa mostrar ESTE valor: um seletor dizendo "nao
+    // encerradas" sobre uma lista filtrada contaria uma mentira.
+    elemento('option', { value: 'em_aberto', texto: 'Em aberto (sem as resolvidas)',
+      selected: filtros.status === 'em_aberto' }),
     ...Object.entries(ROTULO_STATUS).map(([valor, rotulo]) =>
       elemento('option', { value: valor, texto: rotulo, selected: valor === filtros.status })),
   ])

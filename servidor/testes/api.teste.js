@@ -1978,6 +1978,47 @@ test('empresa suspensa: ninguem entra, e quem ja estava dentro cai na hora', asy
   assert.equal(volta.status, 200, 'reativada, a empresa volta a funcionar')
 })
 
+test('ocorrencias: o cartao do painel e a lista contam a mesma coisa', async () => {
+  // O cartao "Ocorrencias abertas" conta `aberta + em_tratamento`. A lista, sem
+  // filtro, devolvia `<> encerrada` — que inclui as RESOLVIDAS, ja tratadas e
+  // esperando so o encerramento. Clicar num numero e receber uma lista maior
+  // ensina a pessoa a nao confiar no numero.
+  const frota = await entrar('frota.a@teste.local')
+  const veiculo = criarVeiculo(empresaA, 'AAA9F99')
+
+  const ts = agora()
+  const situacoes = ['aberta', 'em_tratamento', 'resolvida', 'encerrada']
+  for (const [i, situacao] of situacoes.entries()) {
+    executar(
+      `INSERT INTO ocorrencias (id, empresa_id, veiculo_id, pergunta_id, descricao,
+                                prioridade, status, aberta_em)
+       VALUES (?, ?, ?, 'filtro', ?, 'media', ?, ?)`,
+      [novoId('ocorrencia'), empresaA, veiculo, `Ocorrencia ${situacao}`, situacao,
+       new Date(new Date(ts).getTime() - i * 1000).toISOString()])
+  }
+
+  const listar = async (query) => (await chamar(
+    'GET', `/api/ocorrencias?veiculo_id=${veiculo}${query}`, { token: frota }))
+    .dados.ocorrencias.map((o) => o.status).sort()
+
+  const painel = await chamar('GET', '/api/painel', { token: frota })
+  assert.ok(painel.dados.ocorrencias.abertas >= 2, 'controle: o painel esta contando')
+
+  assert.deepEqual(await listar('&status=em_aberto'), ['aberta', 'em_tratamento'],
+    'o filtro do cartao devolve exatamente o par que ele conta')
+
+  assert.deepEqual(await listar(''), ['aberta', 'em_tratamento', 'resolvida'],
+    'sem filtro, a lista mostra tudo que nao foi encerrado')
+
+  // E o filtro que ninguem entende — marcador antigo, erro de digitacao — cai
+  // no PADRAO. Escrito como tres condicoes independentes, um valor invalido
+  // escapava das tres e a consulta saia sem clausula nenhuma, devolvendo MAIS
+  // do que o padrao: a encerrada aparecia junto.
+  assert.deepEqual(await listar('&status=lixo_que_nao_existe'),
+    ['aberta', 'em_tratamento', 'resolvida'],
+    'filtro invalido nunca pode devolver mais do que o padrao')
+})
+
 // ------------------------------------------- criterio: notificacoes
 
 const naoLidas = async (token) =>
