@@ -49,23 +49,16 @@ function pintarMarca(marca) {
   ].join('\n')
 }
 
-// A marca da empresa AO LADO da do MyLog, nunca no lugar dela. Nao ha
-// parametro para esconder o MyLog — a ausencia do caminho e' a garantia.
-function marcaDaEmpresa() {
-  const m = estado.marca
-  if (!m?.logo_url && !m?.nome_exibicao) return null
-  return elemento('div', { classe: 'login-empresa' }, [
-    m.logo_url
-      ? elemento('img', { classe: 'login-empresa-logo', src: m.logo_url,
-          // O nome no `alt`: uma logo que nao carrega nao pode deixar a tela
-          // sem dizer de quem e' o aplicativo.
-          alt: m.nome_exibicao || 'Logo da empresa' })
-      : null,
-    m.nome_exibicao
-      ? elemento('div', { classe: 'login-empresa-nome', texto: m.nome_exibicao })
-      : null,
-  ])
-}
+// A marca da empresa NAO aparece no login, e nao ha funcao que a coloque la.
+//
+// Houve uma. Ela nunca teve como funcionar: antes de entrar, o servidor nao
+// sabe de que empresa e' quem esta olhando, entao `estado.marca` e' nulo. O
+// unico caminho em que ela desenhava alguma coisa era o da sessao vencida —
+// justamente o caso em que mostrar a empresa e' um vazamento, e nao um
+// servico. Funcao que so roda no caso errado nao e' funcionalidade.
+//
+// Dentro do aplicativo o co-branding vale inteiro: as cores da empresa pintam
+// tudo, pelo `pintarMarca`, e o painel mostra nome e logo ao lado do MyLog.
 
 // ------------------------------------------------------------- estrutura
 
@@ -127,6 +120,19 @@ function aviso(mensagem, tom = 'erro') {
 // isto a promessa era falsa: o login levava ao inicio e a inspecao morria com
 // a tela. Um checklist de quarenta perguntas, com fotos, feito no patio.
 function telaLogin(mensagem, depois = carregar) {
+  // A tela de login nao e' de empresa nenhuma, e quem garante isso e' ELA.
+  //
+  // A limpeza morava so no `sair()`. A sessao que VENCE chega aqui por outra
+  // porta — `carregar` toma 401 e chama `telaLogin('Sua sessao expirou')` — e
+  // por essa porta a marca ficava: o nome da empresa e as cores dela na tela
+  // de quem esta pedindo senha. No patio o aparelho passa de mao em mao, e o
+  // proximo a pegar via de quem ele estava.
+  //
+  // Duas portas para a mesma tela, e uma delas incompleta. Agora nao ha porta:
+  // mostrar o login e esquecer a empresa viraram a mesma coisa.
+  estado.marca = null
+  pintarMarca(null)
+
   const email = elemento('input', { type: 'email', autocomplete: 'username',
     inputmode: 'email', placeholder: 'seu@email', required: true })
   const senha = elemento('input', { type: 'password', autocomplete: 'current-password',
@@ -167,7 +173,6 @@ function telaLogin(mensagem, depois = carregar) {
         }
       },
     }, [
-      marcaDaEmpresa(),
       elemento('div', { classe: 'login-marca', texto: 'MyLog' }),
       elemento('p', { classe: 'login-sub', texto: 'Checklist de frota' }),
       erro,
@@ -644,11 +649,7 @@ function telaFeito(tarefa, resumo, mensagem, pendencia = '') {
 async function sair() {
   try { await fetch('/api/auth/sair', { method: 'POST', credentials: 'same-origin' }) } catch { /* sem rede */ }
   estado.usuario = null
-  // A tela de login nao e' de empresa nenhuma. Deixar a marca da ultima ali
-  // diria, para quem pega o aparelho depois, de quem ele estava — e no patio
-  // o aparelho passa de mao em mao.
-  estado.marca = null
-  pintarMarca(null)
+  // Quem esquece a empresa e' o `telaLogin`, para todas as portas de uma vez.
   telaLogin()
 }
 

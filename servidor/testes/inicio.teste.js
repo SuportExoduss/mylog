@@ -639,3 +639,54 @@ test('primeiro acesso: a troca continua obrigatoria — sair nao e pular', async
     'nao ha caminho para a tela inicial sem trocar a senha')
   assert.equal(botaoDeTexto('Atualizar'), undefined)
 })
+
+// ============================================ o login nao e de empresa nenhuma
+test('marca: a sessao que vence nao deixa a empresa na tela de login', async () => {
+  // No patio o aparelho passa de mao em mao. Deixar o nome e as cores da
+  // empresa na tela de quem esta pedindo senha diz, para o proximo a pegar, de
+  // quem o aparelho estava.
+  //
+  // `sair()` ja limpava — e explicava por que. A sessao que VENCE chega ao
+  // mesmo login por outra porta (`carregar` toma 401), e por essa porta a
+  // marca ficava. Duas portas para a mesma tela, e uma incompleta.
+  respostas['/api/app/inicio'].corpo = {
+    ...contextoDe({ tarefas: [TAREFA] }),
+    marca: { nome_exibicao: 'Transportes Aurora', logo_url: null,
+      tokens: { claro: { marca: '#1d5c34' }, escuro: { marca: '#7fd3a0' } } },
+  }
+  await abrirApp()
+  assert.match(textoDaTela(), /Ola, Ana/, 'controle: entrou')
+  const folha = () => tela.documento.getElementById('marca-da-empresa')?.textContent ?? ''
+  assert.match(folha(), /#1d5c34/, 'controle: as cores da empresa estao pintadas')
+
+  // A sessao vence pelas costas: a tela descobre na proxima chamada.
+  respostas['/api/app/inicio'] = { status: 401, corpo: {} }
+  botaoDeTexto('Atualizar').click()
+  await assentar()
+
+  const texto = textoDaTela()
+  assert.match(texto, /sessao expirou/i, 'controle: caiu no login por sessao vencida')
+  assert.doesNotMatch(texto, /Aurora/i,
+    'e a tela de login NAO diz de quem era o aparelho')
+  assert.doesNotMatch(folha(), /#1d5c34|#7fd3a0/,
+    'nem continua pintada com as cores da empresa')
+})
+
+test('marca: sair pela porta normal tambem esquece a empresa', async () => {
+  // O caminho que ja funcionava, como controle: a correcao da outra porta nao
+  // pode ter quebrado esta.
+  respostas['/api/app/inicio'].corpo = {
+    ...contextoDe(),
+    marca: { nome_exibicao: 'Transportes Aurora', logo_url: null,
+      tokens: { claro: { marca: '#1d5c34' }, escuro: { marca: '#7fd3a0' } } },
+  }
+  await abrirApp()
+  const folha = () => tela.documento.getElementById('marca-da-empresa')?.textContent ?? ''
+  assert.match(folha(), /#1d5c34/, 'controle: pintado')
+
+  botaoDeTexto('Sair').click()
+  await assentar()
+  assert.match(textoDaTela(), /Entrar/)
+  assert.doesNotMatch(textoDaTela(), /Aurora/i)
+  assert.doesNotMatch(folha(), /#1d5c34|#7fd3a0/)
+})
