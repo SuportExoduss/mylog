@@ -413,12 +413,28 @@ test('preventiva: disse SIM e nao descreveu, o Proximo trava', async () => {
   assert.equal(botao(raiz, 'Proximo').disabled, true)
   assert.match(raiz.textContent, /descreva o que foi feito/i)
 
+  // Escrever o relatorio SOLTA o botao — sem tocar em mais nada.
+  //
+  // Esta linha ja teve `botao(raiz, 'Sim').click()` no meio, com o comentario
+  // "redesenha com o texto guardado". Era a gambiarra que o teste precisava
+  // porque o botao ficava congelado no estado do desenho: a pessoa escrevia o
+  // relatorio e o Proximo continuava cinza. O teste documentava o defeito como
+  // se fosse o fluxo — e ninguem, no patio, descobre que precisa tocar em "Sim"
+  // de novo.
   const relato = raiz.querySelector('.exec-relato')
   relato.value = 'Pastilha e disco trocados.'
   relato.dispatchEvent(new Event('input'))
-  botao(raiz, 'Sim').click()          // redesenha com o texto guardado
 
-  assert.equal(botao(raiz, 'Proximo').disabled, false)
+  assert.equal(botao(raiz, 'Proximo').disabled, false,
+    'escrever o relatorio libera o Proximo na hora')
+  assert.ok(raiz.querySelector('.exec-alerta-relato')?.hidden,
+    'e o alerta de "descreva o que foi feito" sai junto')
+
+  // E apagar o texto trava de novo: a trava acompanha o campo nos dois sentidos.
+  relato.value = ''
+  relato.dispatchEvent(new Event('input'))
+  assert.equal(botao(raiz, 'Proximo').disabled, true,
+    'apagar o relatorio volta a travar')
 })
 
 test('preventiva: disse NAO, o relatorio segue opcional', async () => {

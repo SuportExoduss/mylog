@@ -646,8 +646,22 @@ export function executarChecklist({ tarefa, modelo, aoConcluir, aoSair }) {
     })
     relato.value = r.relatorio || ''
     // Guarda sem redesenhar: redesenhar a cada tecla tiraria o foco do campo.
+    //
+    // Mas nao redesenhar deixava o botao "Proximo" congelado no estado em que
+    // foi desenhado. Quem tocava em "Sim" via o botao travar — correto, falta o
+    // relatorio — escrevia o relatorio, e o botao CONTINUAVA cinza, porque nada
+    // recalculava. A unica saida era tocar em "Sim" de novo, que redesenha; e
+    // ninguem descobre isso no patio.
+    //
+    // O teste que cobria este caminho tinha a gambiarra escrita nele, com
+    // comentario e tudo: `botao(raiz, 'Sim').click() // redesenha com o texto
+    // guardado`. Ele documentava o defeito como se fosse o fluxo.
+    //
+    // Agora o input mexe SO no que depende dele: o botao e o alerta. O foco
+    // fica onde esta.
     relato.addEventListener('input', () => {
       respostas[p.id] = { ...respostas[p.id], relatorio: relato.value }
+      atualizarTrava()
     })
 
     function responder(valor) {
@@ -660,8 +674,22 @@ export function executarChecklist({ tarefa, modelo, aoConcluir, aoSair }) {
       desenharManutencao()
     }
 
-    const faltaTexto = feita === true
-      && String(r.relatorio || '').trim().length < MINIMO_RELATORIO
+    const faltaTexto = () => respostas[p.id]?.manutencao_feita === true
+      && String(respostas[p.id]?.relatorio || '').trim().length < MINIMO_RELATORIO
+
+    // O alerta e o botao sao os dois unicos pedacos que mudam ao digitar.
+    const alerta = elemento('p', { classe: 'exec-alerta-relato',
+      texto: 'Mexeu na peca: descreva o que foi feito.' })
+    const proximo = elemento('button', {
+      classe: 'botao botao--ok', type: 'button', texto: 'Proximo',
+    })
+
+    function atualizarTrava() {
+      const semResposta = respostas[p.id]?.manutencao_feita !== true
+        && respostas[p.id]?.manutencao_feita !== false
+      proximo.disabled = semResposta || faltaTexto()
+      alerta.hidden = !faltaTexto()
+    }
 
     const ilustracao = fotos
       ? elemento('img', {
@@ -696,10 +724,7 @@ export function executarChecklist({ tarefa, modelo, aoConcluir, aoSair }) {
         elemento('label', { classe: 'exec-rotulo-relato',
           texto: feita ? 'Relatorio do servico (obrigatorio)' : 'Relatorio desta foto' }),
         relato,
-        faltaTexto
-          ? elemento('p', { classe: 'exec-alerta-relato',
-              texto: 'Mexeu na peca: descreva o que foi feito.' })
-          : null,
+        alerta,
       ].filter(Boolean)),
 
       elemento('footer', { classe: 'exec-rodape exec-rodape--tres' }, [
@@ -720,18 +745,17 @@ export function executarChecklist({ tarefa, modelo, aoConcluir, aoSair }) {
           disabled: fotos >= maximo,
           aoClick: () => capturarDireto(p, desenharManutencao),
         }),
-        elemento('button', {
-          classe: 'botao botao--ok', type: 'button', texto: 'Proximo',
-          // Trava exatamente o que o motor tambem trava: sem resposta, ou
-          // mexeu sem descrever. A tela diz a regra antes de o servidor negar.
-          disabled: feita !== true && feita !== false ? true : faltaTexto,
-          aoClick: () => {
-            respostas[p.id] = { ...respostas[p.id], relatorio: relato.value }
-            avancar()
-          },
-        }),
+        proximo,
       ]),
     )
+
+    // Trava exatamente o que o motor tambem trava: sem resposta, ou mexeu sem
+    // descrever. A tela diz a regra antes de o servidor negar.
+    proximo.addEventListener('click', () => {
+      respostas[p.id] = { ...respostas[p.id], relatorio: relato.value }
+      avancar()
+    })
+    atualizarTrava()
   }
 
   // A frase de cada pendencia vem do motor compartilhado: a mesma que o
