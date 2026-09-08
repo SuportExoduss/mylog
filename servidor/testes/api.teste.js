@@ -5352,3 +5352,45 @@ test('marca: logo — sobe, e serve so para quem e da empresa', async () => {
   // E sem sessao nenhuma, tambem nao: link vazado nao vira acesso.
   assert.equal((await chamar('GET', daA.dados.marca.logo_url)).status, 401)
 })
+
+// O filtro da auditoria nao pode ficar para tras do que a auditoria grava.
+//
+// A tela tinha a lista de entidades ESCRITA A MAO, enquanto a de acoes vinha
+// do servidor. Na primeira entidade nova a lista envelheceu calada: o white
+// label gravava `entidade: 'marca'`, o filtro de acao ja oferecia
+// `marca.publicada` — e o de entidade nao tinha `marca`. Quem quisesse ver
+// tudo sobre a marca da empresa nao conseguia filtrar por ela.
+//
+// Este teste nao confere uma lista: confere que as duas fontes sao a mesma.
+test('auditoria: o filtro oferece TODA entidade que a auditoria grava', async () => {
+  const token = await entrar('frota.a@teste.local')
+  const r = await chamar('GET', '/api/auditoria?limite=1', { token })
+  assert.equal(r.status, 200, `a auditoria recusou: ${JSON.stringify(r.dados)}`)
+  const dados = r.dados
+
+  assert.ok(Array.isArray(dados.entidades), 'a rota precisa devolver as entidades')
+  assert.ok(Array.isArray(dados.acoes), 'e as acoes, como ja devolvia')
+
+  // O que a auditoria realmente gravou, pela porta ampla: sem filtro de
+  // entidade e com limite alto, para a comparacao ser sobre o mesmo universo.
+  const { dados: tudo } = await chamar('GET', '/api/auditoria?limite=500', { token })
+  const noFiltro = new Set(dados.entidades.map((e) => e.entidade))
+  const gravadas = new Set(tudo.eventos.map((e) => e.entidade).filter(Boolean))
+
+  assert.ok(gravadas.size >= 3, `varredura pobre: ${gravadas.size} entidades gravadas`)
+
+  const faltando = [...gravadas].filter((e) => !noFiltro.has(e)).sort()
+  assert.deepEqual(faltando, [],
+    `a auditoria grava entidade que o filtro nao oferece:\n${faltando.join('\n')}`)
+
+  // E o contrario: nada de oferecer filtro que nunca devolve linha.
+  const fantasmas = [...noFiltro].filter((e) => !gravadas.has(e)).sort()
+  assert.deepEqual(fantasmas, [],
+    `o filtro oferece entidade que nao existe na auditoria:\n${fantasmas.join('\n')}`)
+
+  // Cada entidade vem com a contagem, para a tela poder dizer quantos sao.
+  for (const e of dados.entidades) {
+    assert.equal(typeof e.total, 'number', `${e.entidade} precisa vir com total`)
+    assert.ok(e.total > 0, `${e.entidade} nao pode vir com contagem zero`)
+  }
+})

@@ -316,14 +316,19 @@ export async function telaAuditoria(raiz, contexto) {
     ])
   }
 
-  const { acoes } = await api.auditoria({ limite: 1 })
+  const { acoes, entidades } = await api.auditoria({ limite: 1 })
   areaFiltros.append(
     elemento('input', { type: 'search', placeholder: 'Buscar por pessoa, acao ou valor',
       aoInput: (e) => { filtros.busca = e.target.value; recarregar() } }),
+    // A lista vem do servidor, e nao escrita aqui. A versao escrita a mao
+    // ficou para tras na primeira entidade nova: o white label gravava
+    // `entidade: 'marca'` na auditoria, o filtro de acao ja oferecia
+    // `marca.publicada`, e o de entidade nao tinha `marca` — quem quisesse
+    // ver tudo sobre a marca da empresa nao conseguia filtrar.
     elemento('select', { aoChange: (e) => { filtros.entidade = e.target.value; recarregar() } }, [
       elemento('option', { value: '', texto: 'Todas as entidades' }),
-      ...['usuario', 'cargo', 'veiculo', 'template', 'preventiva', 'solicitacao', 'ocorrencia', 'inspecao']
-        .map((v) => elemento('option', { value: v, texto: v })),
+      ...(entidades || []).map((v) =>
+        elemento('option', { value: v.entidade, texto: `${v.entidade} (${v.total})` })),
     ]),
     elemento('select', { aoChange: (e) => { filtros.acao = e.target.value; recarregar() } }, [
       elemento('option', { value: '', texto: 'Todas as acoes' }),

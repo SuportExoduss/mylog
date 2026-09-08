@@ -224,6 +224,18 @@ export function registrarRotasAuditoria(rotas) {
       `SELECT acao, COUNT(*) AS total FROM eventos_auditoria
         WHERE empresa_id = ? GROUP BY acao ORDER BY acao`, [eu.empresa_id])
 
-    return { eventos, acoes, limite }
+    // As entidades vem daqui pelo mesmo motivo que as acoes: a tela tinha uma
+    // lista escrita a mao, e ela envelheceu na primeira entidade nova. Quando
+    // o white label chegou, a auditoria GRAVAVA `entidade: 'marca'`, o filtro
+    // de acao ja oferecia `marca.publicada` — e o de entidade nao tinha
+    // `marca`. Quem quisesse ver tudo sobre a marca da empresa nao conseguia.
+    //
+    // Lista derivada do que existe nao tem como ficar para tras.
+    const entidades = consultar(
+      `SELECT entidade, COUNT(*) AS total FROM eventos_auditoria
+        WHERE empresa_id = ? AND entidade IS NOT NULL
+        GROUP BY entidade ORDER BY entidade`, [eu.empresa_id])
+
+    return { eventos, acoes, entidades, limite }
   })
 }
