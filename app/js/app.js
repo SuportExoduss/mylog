@@ -127,8 +127,16 @@ function telaLogin(mensagem, depois = carregar) {
   ]))
 }
 
-// Roadmap 8.1: no primeiro acesso a troca de senha e' obrigatoria e vem antes
-// de qualquer outra tela.
+// Roadmap 8.1: no primeiro acesso a troca de senha vem antes de qualquer outra
+// tela, e nao ha como pula-la. Mas "nao pular" nao e' "nao sair".
+//
+// Esta tela nao tinha saida nenhuma, e a falta sobrevivia ao recarregamento: a
+// sessao ja existe, entao `iniciar` le `deve_trocar_senha` e volta para ca.
+// Quem entrasse na conta errada — ou nao soubesse a senha recebida — prendia o
+// aparelho ate o cookie vencer, doze horas depois. No patio o aparelho e'
+// compartilhado, e a proxima pessoa ficava sem aplicativo pelo resto do dia.
+//
+// Sair sempre pode. Nao pula a troca: encerra a sessao.
 function telaTrocaDeSenha() {
   const atual = elemento('input', { type: 'password', autocomplete: 'current-password', required: true })
   const nova = elemento('input', { type: 'password', autocomplete: 'new-password', required: true })
@@ -166,6 +174,8 @@ function telaTrocaDeSenha() {
       elemento('p', { classe: 'campo-dica', texto: 'Minimo de 8 caracteres, com letras e numeros.' }),
       elemento('button', { classe: 'botao botao--grande botao--ok', type: 'submit',
         texto: 'Trocar e entrar' }),
+      elemento('button', { classe: 'botao botao--suave', type: 'button',
+        texto: 'Nao sou eu — sair', aoClick: sair }),
     ]),
   ]))
 }

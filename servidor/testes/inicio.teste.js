@@ -605,3 +605,37 @@ test('login: quem entra pela porta normal continua indo para o inicio', async ()
   assert.match(textoDaTela(), /Ola, Ana/)
   assert.match(textoDaTela(), /ABC1D23/)
 })
+
+test('primeiro acesso: da para sair da troca de senha obrigatoria', async () => {
+  // A tela nao tinha saida, e a falta sobrevivia ao recarregamento: a sessao ja
+  // existe, entao a abertura le `deve_trocar_senha` e volta para ca. Quem
+  // entrasse na conta errada prendia o aparelho ate o cookie vencer, doze horas
+  // depois — e no patio o aparelho e da equipe, nao da pessoa.
+  respostas['/api/auth/eu'] = { corpo: { usuario: { ...ANA, deve_trocar_senha: true } } }
+  await abrirApp()
+  assert.match(textoDaTela(), /Primeiro acesso/, 'a troca vem antes de tudo')
+
+  // Recarregar nao escapa: e' o que fazia dela uma ratoeira.
+  area.replaceChildren()
+  await abrirApp()
+  assert.match(textoDaTela(), /Primeiro acesso/, 'recarregar traz de volta para ca')
+
+  const sair = botaoDeTexto('Nao sou eu — sair')
+  assert.ok(sair, 'existe saida')
+  respostas['/api/auth/eu'] = { status: 401, corpo: {} }
+  respostas['/api/app/inicio'] = { status: 401, corpo: {} }
+  sair.click()
+  await assentar()
+
+  assert.match(textoDaTela(), /Entrar/, 'e ela leva ao login')
+  assert.ok(pedidos.some((p) => p.caminho === '/api/auth/sair' && p.metodo === 'POST'),
+    'encerrando a sessao no servidor — sair nao pode ser so trocar de tela')
+})
+
+test('primeiro acesso: a troca continua obrigatoria — sair nao e pular', async () => {
+  respostas['/api/auth/eu'] = { corpo: { usuario: { ...ANA, deve_trocar_senha: true } } }
+  await abrirApp()
+  assert.doesNotMatch(textoDaTela(), /Ola, Ana/,
+    'nao ha caminho para a tela inicial sem trocar a senha')
+  assert.equal(botaoDeTexto('Atualizar'), undefined)
+})
