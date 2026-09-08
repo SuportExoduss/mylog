@@ -282,6 +282,13 @@ duplicar:
 Isso é o que permite a fila offline reenviar sem medo. A resposta pode ter se
 perdido no caminho; a inspeção, não.
 
+### `PUT /api/templates/:id` aceita corpo parcial
+
+Mande só o que mudou. Todo campo ausente conserva o valor que já estava —
+inclusive `estrutura`, `dias_semana` e `horario_limite`. Só versão em
+`rascunho` aceita o `PUT`, e o mesmo vale para o envio da imagem de exemplo
+(`POST /api/templates/:id/imagem`): versão publicada é imutável (D50).
+
 ### O `template_id` pode ser de uma versão arquivada
 
 Pode, e precisa poder: é a versão que o aparelho baixou antes de ficar sem

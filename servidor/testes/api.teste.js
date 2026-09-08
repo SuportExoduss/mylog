@@ -4059,6 +4059,152 @@ test('estados: soltar veiculo bloqueado exige motivo, e so isso', async () => {
   assert.equal(mesmo.status, 200, 'reafirmar o bloqueio nao e solta-lo')
 })
 
+// O ciclo de vida do modelo de checklist: rascunho -> publicado -> arquivado.
+//
+// A regra que sustenta tudo e' a D50: versao publicada e' IMUTAVEL, porque cada
+// inspecao aponta para a linha dela. Editar uma versao publicada reescreveria o
+// significado de checklists ja respondidos — uma pergunta removida hoje faria
+// uma inspecao do mes passado parecer incompleta.
+//
+// Cinco acoes contra tres estados. `versao` aceitar ARQUIVADO e' de proposito:
+// "voltar para a versao antiga e partir dela" e' operacao legitima, e o rascunho
+// que nasce recebe o proximo numero livre, sem sobrescrever nada.
+const ACOES_DO_MODELO = [
+  { acao: 'editar',    aceita: ['rascunho'] },
+  { acao: 'publicar',  aceita: ['rascunho'] },
+  { acao: 'descartar', aceita: ['rascunho'] },
+  { acao: 'imagem',    aceita: ['rascunho'] },
+  { acao: 'versao',    aceita: ['publicado', 'arquivado'] },
+]
+
+// PNG de um pixel — o menor arquivo que passa pela conferencia de assinatura.
+const PNG_MINIMO = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
+
+test('modelo: o PUT aceita corpo parcial e nao apaga o que nao veio', async () => {
+  // Todo campo do PUT e' `corpo.X === undefined ? antes.X : ...` — a rota foi
+  // feita para receber so o que mudou. Esse caminho nunca tinha sido exercido:
+  // todo chamador de hoje manda o corpo inteiro, o painel incluido.
+  //
+  // E ele estava QUEBRADO. `lerRitmo` fazia `JSON.parse(antes.dias_semana)`,
+  // mas `antes` vem de `buscarNaEmpresa`, que ja desserializou o campo em
+  // array. `JSON.parse(String([1,2,3,4,5]))` e' `JSON.parse('1,2,3,4,5')`, que
+  // levanta SyntaxError — 500 na cara de quem so queria corrigir o nome.
+  const frota = await entrar('frota.a@teste.local')
+
+  const criado = await chamar('POST', '/api/templates', {
+    token: frota,
+    corpo: {
+      codigo: 'put-parcial', nome: 'Antes do PUT parcial', tipo_veiculo: 'pickup',
+      cargos_liberados: [cgMotoristaA], exige_assinatura: true, finalidade: 'padrao',
+      periodicidade: 'diario', dias_semana: [1, 3, 5], horario_limite: '09:45',
+      estrutura: ESTRUTURA,
+    },
+  })
+  assert.equal(criado.status, 200, JSON.stringify(criado.dados))
+
+  const antes = criado.dados.template
+  const r = await chamar('PUT', `/api/templates/${antes.id}`, {
+    token: frota, corpo: { nome: 'Depois do PUT parcial' },
+  })
+  assert.equal(r.status, 200, `corpo parcial derrubou a rota: ${JSON.stringify(r.dados)}`)
+
+  const depois = r.dados.template
+  assert.equal(depois.nome, 'Depois do PUT parcial', 'o que veio no corpo muda')
+
+  // E nada mais muda. Um a um, porque "nao apaga o que nao veio" so vale se
+  // valer para todos.
+  assert.equal(depois.tipo_veiculo, 'pickup')
+  assert.deepEqual(depois.cargos_liberados, [cgMotoristaA])
+  assert.equal(depois.exige_assinatura, true)
+  assert.equal(depois.periodicidade, 'diario')
+  assert.deepEqual(depois.dias_semana, [1, 3, 5], 'o ritmo era exatamente o campo que explodia')
+  assert.equal(depois.horario_limite, '09:45')
+  assert.equal(depois.finalidade, 'padrao')
+  assert.equal(depois.estrutura.perguntas.length, ESTRUTURA.perguntas.length)
+
+  // E com dias_semana vazio tambem — o outro formato que o `JSON.parse` nao
+  // aguentava (`String([])` e' texto vazio, e `JSON.parse('')` tambem levanta).
+  const avulso = await chamar('POST', '/api/templates', {
+    token: frota,
+    corpo: {
+      codigo: 'put-parcial-avulso', nome: 'Avulso', tipo_veiculo: 'compacto_leve',
+      cargos_liberados: ['*'], finalidade: 'padrao', periodicidade: 'avulso',
+      estrutura: ESTRUTURA,
+    },
+  })
+  const semDias = await chamar('PUT', `/api/templates/${avulso.dados.template.id}`, {
+    token: frota, corpo: { nome: 'Avulso renomeado' },
+  })
+  assert.equal(semDias.status, 200, JSON.stringify(semDias.dados))
+  assert.deepEqual(semDias.dados.template.dias_semana, [])
+})
+
+test('estados: cada acao do modelo so vale onde a imutabilidade permite', async () => {
+  const frota = await entrar('frota.a@teste.local')
+
+  // Codigo proprio: publicar arquiva a versao anterior do MESMO codigo, e
+  // emprestar o codigo de outro teste bagunca o vizinho.
+  const id = criarDiario(empresaA, 'ciclo-de-vida', 'compacto_leve')
+
+  const situacao = () => consultarUm('SELECT status FROM templates WHERE id = ?', [id])?.status
+  const por = (estado) => {
+    // O registro pode ter sido descartado por uma tentativa anterior.
+    if (!situacao()) {
+      executar(
+        `INSERT INTO templates (id, empresa_id, codigo, nome, tipo_veiculo, cargos_liberados,
+                                exige_assinatura, finalidade, periodicidade, dias_semana,
+                                horario_limite, versao, status, estrutura,
+                                publicado_em, criado_em, atualizado_em)
+         VALUES (?, ?, 'ciclo-de-vida', 'Ciclo de vida', 'compacto_leve', '["*"]', 0, 'padrao',
+                 'diario', '[1,2,3,4,5]', '08:30', 1, ?, ?, ?, ?, ?)`,
+        [id, empresaA, estado, JSON.stringify(ESTRUTURA), ts, ts, ts])
+      return
+    }
+    executar('UPDATE templates SET status = ? WHERE id = ?', [estado, id])
+    // Um rascunho irmao sobrando faz `versao` recusar por outro motivo.
+    executar(`DELETE FROM templates WHERE empresa_id = ? AND codigo = 'ciclo-de-vida' AND id <> ?`,
+      [empresaA, id])
+  }
+
+  const disparar = (acao) => {
+    if (acao === 'editar') {
+      return chamar('PUT', `/api/templates/${id}`, { token: frota, corpo: { nome: 'Renomeado' } })
+    }
+    if (acao === 'descartar') return chamar('DELETE', `/api/templates/${id}`, { token: frota })
+    if (acao === 'imagem') {
+      return chamar('POST', `/api/templates/${id}/imagem`,
+        { token: frota, corpo: { conteudo: PNG_MINIMO, tipo_mime: 'image/png' } })
+    }
+    return chamar('POST', `/api/templates/${id}/${acao}`, { token: frota, corpo: {} })
+  }
+
+  const aceitouDemais = []
+  const recusouDeMais = []
+  let tentativas = 0
+
+  for (const { acao, aceita } of ACOES_DO_MODELO) {
+    for (const estado of ['rascunho', 'publicado', 'arquivado']) {
+      por(estado)
+      tentativas += 1
+      const r = await disparar(acao)
+      const permitida = aceita.includes(estado)
+
+      if (permitida && r.status !== 200) {
+        recusouDeMais.push(`${acao} em "${estado}": ${r.status} ${r.dados?.mensagem || ''}`)
+      }
+      if (!permitida && r.status === 200) {
+        aceitouDemais.push(`${acao} em "${estado}": aceita, e versao publicada e imutavel`)
+      }
+    }
+  }
+
+  assert.ok(tentativas >= 15, `poucas tentativas: ${tentativas}`)
+  assert.deepEqual(aceitouDemais, [],
+    `acao aceita num estado que a imutabilidade nao permite:\n${aceitouDemais.join('\n')}`)
+  assert.deepEqual(recusouDeMais, [],
+    `acao recusada num estado em que devia valer:\n${recusouDeMais.join('\n')}`)
+})
+
 test('limite da consulta: numero que nao da para ler vira o padrao', async () => {
   // `Math.min(Number(bruto || 100), 500)` parecia bastar e nao bastava:
   // `Number('lixo')` da NaN, `Math.min(NaN, 500)` da NaN, e `LIMIT NaN` derruba

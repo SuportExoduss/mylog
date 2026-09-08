@@ -17,6 +17,19 @@ import {
 
 const CODIGO = /^[a-z0-9_-]{2,40}$/
 
+// Os dias da semana podem chegar como array (linha ja desserializada) ou como
+// texto JSON (linha crua do banco). Aceita os dois, e nunca levanta.
+function diasComoLista(bruto) {
+  if (Array.isArray(bruto)) return bruto.map(Number)
+  if (typeof bruto !== 'string' || !bruto.trim()) return []
+  try {
+    const lido = JSON.parse(bruto)
+    return Array.isArray(lido) ? lido.map(Number) : []
+  } catch {
+    return []
+  }
+}
+
 function desserializar(linha) {
   if (!linha) return null
   return {
@@ -93,8 +106,22 @@ export function registrarRotasTemplates(rotas) {
     const periodicidade = corpo.periodicidade === undefined
       ? (antes.periodicidade || 'avulso') : String(corpo.periodicidade)
 
+    // `antes` chega de `buscarNaEmpresa`, que passa por `desserializar` — e
+    // `desserializar` JA transformou `dias_semana` em array. Fazer `JSON.parse`
+    // nele de novo e' `JSON.parse(String([1,2,3,4,5]))`, ou seja
+    // `JSON.parse('1,2,3,4,5')`, que levanta SyntaxError: 500 na cara de quem
+    // mandou um PUT sem esse campo.
+    //
+    // E o PUT foi feito para aceitar corpo PARCIAL — todo campo dele e'
+    // `corpo.X === undefined ? antes.X : ...`. Ou seja: o caminho que a rota
+    // mais promete era o unico que ninguem tinha exercido. Nenhum teste pegava
+    // porque todo chamador de hoje manda `dias_semana` sempre, o painel
+    // incluido.
+    //
+    // Ler os dois formatos e' o certo aqui, e nao "lembrar de nao chamar
+    // desserializado": quem escreve a proxima rota nao vai lembrar.
     const dias = corpo.dias_semana === undefined
-      ? JSON.parse(antes.dias_semana || '[]')
+      ? diasComoLista(antes.dias_semana)
       : (Array.isArray(corpo.dias_semana) ? corpo.dias_semana.map(Number) : [])
 
     const diaSemana = corpo.dia_semana === undefined
@@ -245,6 +272,19 @@ export function registrarRotasTemplates(rotas) {
   rotas.post('/api/templates/:id/imagem', async (ctx) => {
     const eu = exigirFrota(exigirAutenticado(ctx))
     const template = buscarNaEmpresa(eu.empresa_id, ctx.params.id)
+
+    // So rascunho, pela mesma razao do PUT.
+    //
+    // Esta rota nao mexe na estrutura: ela grava o arquivo e devolve a URL, e
+    // quem poe a URL dentro da pergunta e' o `PUT` — que recusa versao
+    // publicada. Aceitar aqui era prometer o que nao se cumpre: o upload
+    // respondia 200, deixava um arquivo orfao no acervo, e a foto nunca
+    // aparecia em lugar nenhum. Silencio e' o pior jeito de nao fazer uma
+    // coisa.
+    if (template.status !== 'rascunho') {
+      throw erro.conflito(
+        'Esta versao ja foi publicada e nao pode ser alterada. Crie a versao seguinte para trocar a imagem.')
+    }
 
     const base64 = String(ctx.corpo.conteudo || '').replace(/^data:[^,]+,/, '')
     if (!base64) throw erro.requisicao('Imagem vazia.')
