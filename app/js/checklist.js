@@ -822,6 +822,26 @@ export function executarChecklist({ tarefa, modelo, aoConcluir, aoSair }) {
     ])
   }
 
+  // Reavalia so o botao final, sem tocar no resto do resumo.
+  //
+  // Existe para a assinatura: cada traco muda o julgamento (a pendencia de
+  // assinatura sai), e o unico pedaco da tela que depende disso e' o botao. O
+  // canvas fica onde esta, com o desenho dentro.
+  function atualizarFinal() {
+    const botao = raiz.querySelector('.exec-final')
+    if (!botao) return
+    const juizo = avaliarInspecao(estrutura, materializar(), {
+      politicas: tarefa.politicas || {},
+      exige_assinatura: modelo.exige_assinatura,
+      assinatura,
+      finalidade: modelo.finalidade,
+      momento: tarefa.momento,
+      proxima_preventiva: proximaPreventiva,
+    })
+    botao.disabled = !juizo.pode_finalizar
+    botao.textContent = rotuloDoBotao(juizo)
+  }
+
   function desenharResumo() {
     const juizo = avaliarInspecao(estrutura, materializar(), {
       politicas: tarefa.politicas || {},
@@ -879,16 +899,32 @@ export function executarChecklist({ tarefa, modelo, aoConcluir, aoSair }) {
         // acabou de fazer o servico e' quem sabe; perguntar depois no painel e'
         // perguntar a quem nao estava la.
         ehRetornoPreventiva ? blocoProximaPreventiva() : null,
+        // O painel de assinatura NAO redesenha o resumo a cada traco.
+        //
+        // `aoAssinar` dispara a cada `pointerup` — ou seja, a cada vez que a
+        // pessoa levanta o dedo. Redesenhando o resumo ali, o canvas era
+        // recriado em branco: o traco sumia da tela, e o traco seguinte
+        // comecava numa tela nova, sobrescrevendo o anterior.
+        //
+        // Na pratica, assinatura de mais de um traco era impossivel. Qualquer
+        // nome com pingo no i, corte no t, ou simplesmente sobrenome separado,
+        // era gravado so pelo ultimo pedaco — e a pessoa via a tela apagar o
+        // que ela acabara de desenhar, o que leva a assinar de novo, e de novo.
+        //
+        // A assinatura e' o que prova QUEM executou o checklist. Ela merece
+        // mais cuidado que um redesenho por conveniencia.
         modelo.exige_assinatura
           ? elemento('section', { classe: 'resumo-assinatura' }, [
               elemento('h2', { classe: 'folha-titulo', texto: 'Assinatura do condutor' }),
-              painelAssinatura({ aoAssinar: (dados) => { assinatura = dados; desenharResumo() } }),
+              painelAssinatura({
+                aoAssinar: (dados) => { assinatura = dados; atualizarFinal() },
+              }),
             ])
           : null,
       ]),
       elemento('footer', { classe: 'exec-rodape exec-rodape--unico' }, [
         elemento('button', {
-          classe: 'botao botao--grande botao--ok', type: 'button',
+          classe: 'botao botao--grande botao--ok exec-final', type: 'button',
           texto: rotuloDoBotao(juizo),
           disabled: !juizo.pode_finalizar,
           aoClick: () => aoConcluir({

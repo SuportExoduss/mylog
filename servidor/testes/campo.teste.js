@@ -292,6 +292,58 @@ test('campo: sem pendencia, o botao final libera o envio', () => {
   assert.equal(final.disabled, false)
 })
 
+// Um traco de assinatura: pointerdown, pointermove (que e' o que marca traco),
+// pointerup. O canvas falso nao tem pixels, mas registra as chamadas — da para
+// exercitar o CAMINHO, que e' o que este teste precisa.
+function assinar(canvas) {
+  for (const tipo of ['pointerdown', 'pointermove', 'pointerup']) {
+    const evento = new Event(tipo)
+    evento.clientX = 10
+    evento.clientY = 10
+    canvas.dispatchEvent(evento)
+  }
+}
+
+test('campo: assinar com dois tracos nao apaga o quadro entre eles', () => {
+  // `aoAssinar` dispara a cada `pointerup` — a cada vez que a pessoa levanta o
+  // dedo. Ele redesenhava o RESUMO INTEIRO, e o resumo recria o canvas: o traco
+  // sumia da tela, e o traco seguinte comecava num quadro novo, sobrescrevendo
+  // o anterior.
+  //
+  // Assinatura de mais de um traco era impossivel. Qualquer nome com pingo no
+  // i, corte no t, ou sobrenome separado, ficava gravado so pelo ultimo pedaco
+  // — e a pessoa via a tela apagar o que acabara de desenhar, o que leva a
+  // assinar de novo, e de novo.
+  //
+  // A assinatura e' o que prova QUEM executou o checklist.
+  let enviado = null
+  const raiz = montarChecklist({ exigeAssinatura: true, aoConcluir: (d) => { enviado = d } })
+  comecar(raiz)
+  botao(raiz, 'OK').click()
+  botao(raiz, 'OK').click()
+
+  const canvas = raiz.querySelector('canvas')
+  assert.ok(canvas, 'o resumo com assinatura precisa ter o quadro de assinar')
+
+  const final = () => raiz.querySelector('.exec-rodape--unico').querySelector('button')
+  assert.equal(final().disabled, true, 'controle: sem assinatura o botao final trava')
+
+  assinar(canvas)
+  assert.equal(raiz.querySelector('canvas'), canvas,
+    'o quadro nao pode ser recriado a cada traco — recriar apaga o desenho')
+  assert.equal(final().disabled, false,
+    'e o botao final libera assim mesmo, sem redesenhar o resumo')
+  assert.equal(final().textContent.trim(), 'Finalizar checklist')
+
+  // Segundo traco: o quadro continua o MESMO, entao o desenho anterior segue la.
+  assinar(canvas)
+  assert.equal(raiz.querySelector('canvas'), canvas,
+    'o segundo traco tambem nao recria o quadro')
+
+  final().click()
+  assert.ok(enviado?.assinatura, 'a assinatura vai no envio')
+})
+
 test('campo: o envio leva o julgamento e a leitura do hodometro', () => {
   let enviado = null
   const raiz = montarChecklist({ aoConcluir: (d) => { enviado = d } })
