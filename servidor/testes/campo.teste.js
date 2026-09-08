@@ -583,6 +583,108 @@ test('fila: sessao vencida e freio NAO apagam a evidencia do aparelho', () => {
   }
 })
 
+test('fila: foto recusada pelo servidor nao some sem deixar recado', async () => {
+  // A segunda porta do mesmo silencio, e pior que a primeira.
+  //
+  // A D54 tratou da foto perdida por erro PASSAGEIRO. Esta e' a recusa
+  // DEFINITIVA — imagem acima do limite, arquivo que nao e' imagem. A foto era
+  // apagada do aparelho, o que esta certo (insistir nao muda o resultado), mas
+  // nao entrava em conta nenhuma: `restantes` continuava zero, a inspecao era
+  // marcada como `enviada` com `erro: null`, e o motorista via um checklist
+  // completo. A foto deixava de existir nos dois lados sem uma linha dizendo
+  // isso.
+  //
+  // Uma evidencia que nao entrou e' exatamente o que alguem vai procurar meses
+  // depois, num sinistro.
+  const { fotos: deposito } = await import('../../app/js/armazem.js')
+
+  // `sincronizar` sai cedo sem `navigator.onLine`, e o `navigator` do Node so
+  // tem getter: redefine a propriedade e devolve a original no fim.
+  const navegadorAntes = Object.getOwnPropertyDescriptor(globalThis, 'navigator')
+  Object.defineProperty(globalThis, 'navigator',
+    { configurable: true, value: { onLine: true } })
+
+  // `blobParaBase64` usa FileReader, que o Node nao tem: sem este falso as duas
+  // fotos caem no `catch` e viram "ficou para tras", que e' outro caminho.
+  const leitorAntes = globalThis.FileReader
+  globalThis.FileReader = class {
+    readAsDataURL() { setTimeout(() => this.onload?.(), 0) }
+    get result() { return 'data:image/jpeg;base64,AAAA' }
+  }
+
+  const buscaAntes = globalThis.fetch
+  const pendentesAntes = filaReal.pendentes
+  const marcarAntes = filaReal.marcar
+  const daInspecaoAntes = deposito.daInspecao
+  const removerAntes = deposito.remover
+
+  const marcacoes = []
+  const apagadas = []
+
+  filaReal.pendentes = async () => [{
+    cliente_uuid: 'uuid-foto-recusada',
+    inspecao_id: 'ins_ja_no_servidor',
+    estado: 'pendente',
+  }]
+  filaReal.marcar = async (uuid, mudancas) => { marcacoes.push({ uuid, mudancas }) }
+  deposito.daInspecao = async () => ([
+    { id: 'f1', pergunta_id: 'lataria', capturado_em: '2026-09-08T07:00:00.000Z',
+      blob: { type: 'image/jpeg' } },
+    { id: 'f2', pergunta_id: 'pneus', capturado_em: '2026-09-08T07:01:00.000Z',
+      blob: { type: 'image/jpeg' } },
+  ])
+  deposito.remover = async (id) => { apagadas.push(id) }
+
+  // A primeira sobe; a segunda o servidor recusa por tamanho.
+  let chamada = 0
+  globalThis.fetch = async () => {
+    chamada += 1
+    if (chamada === 1) return { ok: true, status: 200, json: async () => ({}) }
+    return {
+      ok: false,
+      status: 413,
+      json: async () => ({ mensagem: 'Imagem acima do limite de 4 MB.' }),
+    }
+  }
+
+  try {
+    await sincronia.sincronizar()
+
+    assert.deepEqual(apagadas, ['f1', 'f2'],
+      'as duas saem do aparelho: uma por ter subido, outra por recusa definitiva')
+
+    const marcada = marcacoes.at(-1)
+    assert.ok(marcada, 'a fila precisa ser marcada depois do envio')
+    assert.equal(marcada.mudancas.fotos_pendentes, 0,
+      'nenhuma ficou para tras — a recusada nao volta a ser tentada')
+
+    // O ponto do teste: a recusa ficou registrada.
+    assert.equal(marcada.mudancas.fotos_recusadas?.length, 1,
+      'a foto recusada tem que ficar anotada no item da fila')
+    assert.equal(marcada.mudancas.fotos_recusadas[0].pergunta_id, 'pneus',
+      'e dizer de qual pergunta era')
+    assert.match(marcada.mudancas.erro || '', /recusada/i,
+      'e aparecer na mensagem que o motorista le')
+    assert.match(marcada.mudancas.erro || '', /limite/i,
+      'com o motivo que o servidor deu, e nao um texto generico')
+  } finally {
+    // A fila vazia desarma o relogio de retentativa antes de devolver os
+    // originais: sem isto o teste deixa um `setTimeout` armado e o vizinho, que
+    // conta tentativas, herda o relogio deste.
+    filaReal.pendentes = async () => []
+    await sincronia.sincronizar()
+
+    globalThis.fetch = buscaAntes
+    globalThis.FileReader = leitorAntes
+    filaReal.pendentes = pendentesAntes
+    filaReal.marcar = marcarAntes
+    deposito.daInspecao = daInspecaoAntes
+    deposito.remover = removerAntes
+    if (navegadorAntes) Object.defineProperty(globalThis, 'navigator', navegadorAntes)
+    else delete globalThis.navigator
+  }
+})
+
 test('fila: nao arma relogio sem fila nem sem rede', () => {
   // Sem fila nao ha o que reenviar. Sem rede, quem acorda e o evento `online`,
   // que chega na hora certa e nao gasta nada esperando.

@@ -127,11 +127,23 @@ function blobParaBase64(blob) {
   })
 }
 
-// Devolve quantas fotos ficaram para tras.
+// Devolve duas contas: quantas ficaram para tras, e quantas o servidor RECUSOU.
+//
+// A segunda faltava, e a falta era pior que a perda. Uma foto recusada em
+// definitivo — imagem acima do limite, arquivo que nao e' imagem — era apagada
+// do aparelho e nao entrava em conta nenhuma: `restantes` continuava zero, a
+// inspecao era marcada como `enviada` com `erro: null`, e o motorista via um
+// checklist completo. A foto simplesmente deixava de existir, no aparelho e no
+// servidor, sem uma linha dizendo isso.
+//
+// O roadmap 28 diz "fila que nunca apaga item em silencio". Esta era a segunda
+// porta do mesmo silencio: a D54 fechou a de erro passageiro, e esta e' a de
+// recusa definitiva.
 async function enviarFotos(clienteUuid, inspecaoId) {
-  if (!inspecaoId) return 0
+  if (!inspecaoId) return { restantes: 0, recusadas: [] }
   const pendentes = await fotos.daInspecao(clienteUuid)
   let restantes = 0
+  const recusadas = []
 
   for (const foto of pendentes) {
     try {
@@ -153,6 +165,14 @@ async function enviarFotos(clienteUuid, inspecaoId) {
       } else if (recusaDefinitiva(resposta.status)) {
         // Recusa por regra nao melhora tentando de novo; a foto so ocuparia
         // espaco para sempre. Sessao vencida e freio NAO entram aqui.
+        //
+        // Mas antes de apagar, ANOTA: quem executou o checklist precisa saber
+        // que aquela foto nao entrou, e por que.
+        const dados = await resposta.json().catch(() => ({}))
+        recusadas.push({
+          pergunta_id: foto.pergunta_id,
+          motivo: dados.mensagem || `O servidor recusou a foto (${resposta.status}).`,
+        })
         await fotos.remover(foto.id)
       } else {
         restantes += 1
@@ -161,7 +181,7 @@ async function enviarFotos(clienteUuid, inspecaoId) {
       restantes += 1
     }
   }
-  return restantes
+  return { restantes, recusadas }
 }
 
 async function enviarUma(item) {
@@ -196,7 +216,18 @@ async function enviarUma(item) {
     // As fotos sobem DEPOIS, uma a uma. Se alguma falhar, a inspecao ja esta
     // gravada e a foto continua no aparelho para a proxima tentativa — nunca
     // se perde evidencia por causa de um upload interrompido.
-    const restantes = await enviarFotos(item.cliente_uuid, inspecaoId)
+    const { restantes, recusadas } = await enviarFotos(item.cliente_uuid, inspecaoId)
+
+    // A foto recusada nao impede a inspecao de ficar `enviada` — ela ESTA no
+    // servidor, e insistir nao muda isso. Mas o aviso vai junto e fica: uma
+    // evidencia que nao entrou e' exatamente o que alguem vai procurar meses
+    // depois, num sinistro.
+    const aviso = [
+      restantes ? `${restantes} foto(s) ainda no aparelho.` : null,
+      recusadas.length
+        ? `${recusadas.length} foto(s) recusada(s): ${recusadas[0].motivo}`
+        : null,
+    ].filter(Boolean).join(' ')
 
     await fila.marcar(item.cliente_uuid, {
       estado: restantes === 0 ? 'enviada' : 'pendente',
@@ -204,7 +235,8 @@ async function enviarUma(item) {
       resultado_servidor: dados.resumo?.resultado,
       estado_veiculo: dados.resumo?.estado_veiculo_previsto,
       fotos_pendentes: restantes,
-      erro: restantes === 0 ? null : `${restantes} foto(s) ainda no aparelho.`,
+      fotos_recusadas: recusadas,
+      erro: aviso || null,
     })
     return { ok: true, dados }
   }
@@ -245,11 +277,20 @@ export async function sincronizar() {
       try {
         // Ja aceita pelo servidor: falta so terminar de subir as fotos.
         if (item.inspecao_id) {
-          const restantes = await enviarFotos(item.cliente_uuid, item.inspecao_id)
+          const { restantes, recusadas } = await enviarFotos(item.cliente_uuid, item.inspecao_id)
+          // Mesmo aviso do primeiro envio: a foto recusada nao pode sumir sem
+          // deixar recado, seja no envio inicial ou na retentativa.
+          const aviso = [
+            restantes ? `${restantes} foto(s) ainda no aparelho.` : null,
+            recusadas.length
+              ? `${recusadas.length} foto(s) recusada(s): ${recusadas[0].motivo}`
+              : null,
+          ].filter(Boolean).join(' ')
           await fila.marcar(item.cliente_uuid, {
             estado: restantes === 0 ? 'enviada' : 'pendente',
             fotos_pendentes: restantes,
-            erro: restantes === 0 ? null : `${restantes} foto(s) ainda no aparelho.`,
+            fotos_recusadas: [...(item.fotos_recusadas || []), ...recusadas],
+            erro: aviso || null,
           })
           if (restantes === 0) enviadas += 1
           continue

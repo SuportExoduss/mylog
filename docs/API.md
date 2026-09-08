@@ -524,6 +524,12 @@ não.
 | `400` `403` `404` `409` `413` `422` | não | O servidor recusou por regra: repetir dá o mesmo resultado |
 | `5xx` | **sim** | Problema do servidor, não do pedido |
 
+**Uma foto recusada em definitivo também não some em silêncio.** Ela sai do
+aparelho — insistir daria o mesmo resultado — mas o motivo fica no item da fila,
+com a pergunta a que ela pertencia. A inspeção continua `enviada`, porque ela
+está no servidor; o que falta é a evidência, e é justamente isso que alguém vai
+procurar meses depois, num sinistro.
+
 **O item nunca some em silêncio.** Numa recusa definitiva ele fica na fila,
 marcado, com a mensagem do servidor à vista — quem executou precisa saber que
 aquele checklist não entrou, e por quê.
