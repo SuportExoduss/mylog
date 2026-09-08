@@ -762,8 +762,18 @@ test('checklist: todo campo que a edicao aceita, a tela do painel sabe mandar', 
     return rota.slice(i, fim)
   }
 
-  const corpoDaEdicao = trecho("rotas.put('/api/templates/:id'", '  })')
-    + trecho('function lerRitmo', '  }')
+  // Sem os comentarios. Um comentario explicando a rota costuma CITAR os campos
+  // dela, e foi o que aconteceu: escrevi `corpo.X === undefined ? antes.X : ...`
+  // dentro de uma explicacao, e a varredura passou a exigir da tela um campo
+  // chamado "X". Comentario e' prosa, nao contrato.
+  const semComentarios = (texto) => texto
+    .replace(new RegExp('/\\*[\\s\\S]*?\\*/', 'g'), '')
+    .split('\n')
+    .filter((linha) => !linha.trim().startsWith('//'))
+    .join('\n')
+
+  const corpoDaEdicao = semComentarios(trecho("rotas.put('/api/templates/:id'", '  })'))
+    + semComentarios(trecho('function lerRitmo', '  }'))
 
   // A rede tem que ser do tamanho certo: nem menos que o ritmo inteiro, nem a
   // ponto de alcancar o que so a criacao aceita.
