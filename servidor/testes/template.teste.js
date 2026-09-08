@@ -626,3 +626,192 @@ test('ritmo: DIAS_SEMANA e indexado pelo numero do dia, e a tela depende disso',
   const quinta = new Date(Date.UTC(2026, 8, 3))
   assert.equal(DIAS_SEMANA[quinta.getUTCDay()], 'qui')
 })
+
+// ======================================================================
+// As contas do julgamento fecham, para QUALQUER entrada
+// ======================================================================
+//
+// Os testes acima verificam casos escolhidos a mao — e casos escolhidos a mao
+// sao escolhidos por quem ja sabe o que espera. Este bloco vai pelo outro lado:
+// gera centenas de combinacoes de estrutura e resposta e cobra do resultado
+// invariantes que precisam valer SEMPRE, sem dizer qual e' a resposta certa.
+//
+// Foi assim que apareceu `conformes: -2`. No retorno de preventiva a conta era
+// `perguntas.length - pendencias.length`, e a lista de pendencias mistura as de
+// PERGUNTA com as do DOCUMENTO — assinatura e proxima preventiva. Com dois
+// itens, nenhum respondido, assinatura exigida e sem proxima preventiva: quatro
+// pendencias sobre duas perguntas, e um "-2 de 2 conformes" na tela de
+// encerramento e no dossie impresso.
+
+const PRIORIDADES_POSSIVEIS = ['baixa', 'media', 'alta', 'critica']
+
+function estruturaGerada(n, semente) {
+  const perguntas = []
+  for (let i = 0; i < n; i += 1) {
+    const v = (semente + i * 7) % 4
+    perguntas.push({
+      id: `p${i}`,
+      titulo: `Pergunta ${i}`,
+      foto_ok: ['obrigatorio', 'opcional', 'nao_capturar'][v % 3],
+      max_fotos_ok: 1 + (v % 3),
+      opcoes_problema: [
+        { id: `p${i}_leve`, nome: 'Leve', abrir_ocorrencia: false, max_fotos: 2 },
+        { id: `p${i}_grave`, nome: 'Grave', abrir_ocorrencia: true,
+          prioridade: PRIORIDADES_POSSIVEIS[v % 4], foto: 'opcional', max_fotos: 2 },
+      ],
+    })
+  }
+  return { perguntas }
+}
+
+function respostasGeradas(estrutura, semente) {
+  const respostas = {}
+  estrutura.perguntas.forEach((pergunta, i) => {
+    const v = (semente + i * 3) % 5
+    if (v === 0) return                                    // sem responder
+    if (v === 1) { respostas[pergunta.id] = { desfecho: 'ok', fotos: 1 }; return }
+    if (v === 2) { respostas[pergunta.id] = { desfecho: 'ok', fotos: 0 }; return }
+    respostas[pergunta.id] = {
+      desfecho: 'ocorrencia',
+      opcao_id: v === 3 ? pergunta.opcoes_problema[0].id : pergunta.opcoes_problema[1].id,
+      fotos: 1,
+    }
+  })
+  return respostas
+}
+
+test('julgamento: as contas fecham para qualquer estrutura e qualquer resposta', () => {
+  const PESO = { baixa: 0, media: 1, alta: 2, critica: 3 }
+  let combinacoes = 0
+
+  for (let n = 0; n <= 6; n += 1) {
+    for (let semente = 0; semente < 20; semente += 1) {
+      for (const assina of [false, true]) {
+        for (const bloqueia of [true, false]) {
+          const estrutura = estruturaGerada(n, semente)
+          const respostas = respostasGeradas(estrutura, semente + 1)
+          const r = avaliarInspecao(estrutura, respostas, {
+            exige_assinatura: assina,
+            assinatura: assina && semente % 2 === 0 ? 'rabisco' : null,
+            politicas: { bloqueio_por_critica: bloqueia },
+          })
+          combinacoes += 1
+          const onde = `n=${n} semente=${semente} assina=${assina} bloqueia=${bloqueia}`
+
+          // 1. O total e' o total, e as contas cabem dentro dele.
+          assert.equal(r.total_perguntas, n, `${onde}: total_perguntas`)
+          assert.ok(r.conformes >= 0, `${onde}: conformes negativo (${r.conformes})`)
+          assert.ok(r.conformes <= n, `${onde}: conformes ${r.conformes} > ${n}`)
+          assert.ok(r.conformes + r.ocorrencias.length <= n,
+            `${onde}: conformes + ocorrencias passou do total`)
+
+          // 2. Toda ocorrencia aponta para uma pergunta que existe.
+          for (const o of r.ocorrencias) {
+            assert.ok(estrutura.perguntas.some((p) => p.id === o.pergunta_id),
+              `${onde}: ocorrencia em pergunta inexistente ${o.pergunta_id}`)
+            assert.ok(PRIORIDADES_POSSIVEIS.includes(o.prioridade),
+              `${onde}: prioridade fora do vocabulario`)
+          }
+
+          // 3. A maior prioridade e' a MAIOR, e nao existe sem ocorrencia.
+          if (!r.ocorrencias.length) {
+            assert.equal(r.maior_prioridade, null, `${onde}: prioridade sem ocorrencia`)
+          } else {
+            const maior = r.ocorrencias.reduce(
+              (m, o) => (PESO[o.prioridade] > PESO[m] ? o.prioridade : m), 'baixa')
+            assert.equal(r.maior_prioridade, maior, `${onde}: maior_prioridade errada`)
+          }
+
+          // 4. Poder finalizar e' nao ter pendencia. Sem excecao.
+          assert.equal(r.pode_finalizar, r.pendencias.length === 0, `${onde}: pode_finalizar`)
+
+          // 5. O resultado segue as ocorrencias, e nada mais.
+          const temCritica = r.ocorrencias.some((o) => o.prioridade === 'critica')
+          const esperado = temCritica ? 'reprovado'
+            : r.ocorrencias.length ? 'com_pendencia' : 'aprovado'
+          assert.equal(r.resultado, esperado, `${onde}: resultado`)
+
+          // 6. Bloquear e' consequencia de critica COM politica. Nunca de outra
+          //    coisa — um carro parado precisa de motivo explicavel.
+          if (r.estado_veiculo_previsto === 'bloqueado') {
+            assert.ok(temCritica && bloqueia, `${onde}: bloqueou sem critica ou sem politica`)
+            assert.ok(r.motivo, `${onde}: bloqueou sem motivo escrito`)
+          }
+          if (!r.ocorrencias.length) {
+            assert.equal(r.estado_veiculo_previsto, 'disponivel',
+              `${onde}: sem ocorrencia o carro nao muda de estado`)
+          }
+
+          // 7. Assinatura pendente aparece como pendencia, e nunca como
+          //    ocorrencia: nao e' problema do carro.
+          const daAssinatura = r.pendencias.filter((x) => x.motivo === 'assinatura_obrigatoria')
+          assert.equal(daAssinatura.length,
+            assina && !(semente % 2 === 0) ? 1 : 0, `${onde}: pendencia de assinatura`)
+        }
+      }
+    }
+  }
+
+  assert.ok(combinacoes >= 500, `varredura pobre demais: ${combinacoes} combinacoes`)
+})
+
+test('julgamento: no retorno de preventiva as contas tambem fecham', () => {
+  // O ramo onde o `conformes: -2` morava. Aqui "conforme" quer dizer
+  // DOCUMENTADO: nao ha conformidade a julgar, o carro acabou de sair da
+  // oficina.
+  let combinacoes = 0
+
+  for (let n = 0; n <= 5; n += 1) {
+    for (let semente = 0; semente < 12; semente += 1) {
+      for (const assina of [false, true]) {
+        for (const temProxima of [false, true]) {
+          const estrutura = estruturaGerada(n, semente)
+          const respostas = {}
+          estrutura.perguntas.forEach((pergunta, i) => {
+            const v = (semente + i * 3) % 4
+            if (v === 0) return                                 // sem responder
+            if (v === 1) { respostas[pergunta.id] = { manutencao_feita: false, fotos: 1 }; return }
+            if (v === 2) {
+              respostas[pergunta.id] = { manutencao_feita: true, fotos: 1 }  // sem relatorio
+              return
+            }
+            respostas[pergunta.id] = {
+              manutencao_feita: true, relatorio: 'pastilha e disco trocados', fotos: 1,
+            }
+          })
+
+          const r = avaliarInspecao(estrutura, respostas, {
+            finalidade: 'preventiva', momento: 'retorno',
+            exige_assinatura: assina,
+            assinatura: assina ? 'rabisco' : null,
+            proxima_preventiva: temProxima ? { modo: 'km', proximo_km: 90000 } : null,
+          })
+          combinacoes += 1
+          const onde = `n=${n} semente=${semente} assina=${assina} proxima=${temProxima}`
+
+          assert.equal(r.total_perguntas, n, `${onde}: total_perguntas`)
+          assert.ok(r.conformes >= 0, `${onde}: conformes NEGATIVO (${r.conformes})`)
+          assert.ok(r.conformes <= n, `${onde}: conformes ${r.conformes} > ${n}`)
+          assert.ok(r.itens_com_manutencao <= n, `${onde}: mais servicos que perguntas`)
+          assert.equal(r.servicos.length, r.itens_com_manutencao, `${onde}: servicos x contagem`)
+
+          // O retorno de preventiva nao abre ocorrencia nem mexe no carro.
+          assert.deepEqual(r.ocorrencias, [], `${onde}: preventiva abriu ocorrencia`)
+          assert.equal(r.estado_veiculo_previsto, 'disponivel',
+            `${onde}: a preventiva nao decide sobre o carro — quem decide e a Frota`)
+          assert.equal(r.resultado, 'aprovado', `${onde}: retorno de preventiva nao reprova`)
+          assert.equal(r.pode_finalizar, r.pendencias.length === 0, `${onde}: pode_finalizar`)
+
+          // Sem a proxima definida nao ha como encerrar: a frota ficaria sem
+          // agenda justamente depois de fazer a manutencao.
+          if (!temProxima) {
+            assert.ok(r.pendencias.some((x) => x.motivo === 'proxima_preventiva_obrigatoria'),
+              `${onde}: encerrou sem proxima preventiva`)
+          }
+        }
+      }
+    }
+  }
+
+  assert.ok(combinacoes >= 200, `varredura pobre demais: ${combinacoes} combinacoes`)
+})

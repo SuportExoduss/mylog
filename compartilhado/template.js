@@ -378,12 +378,30 @@ function avaliarRetornoPreventiva(estrutura, respostas, opcoes) {
   const servicos = []
   let mexidas = 0
 
+  // Contado aqui, uma pergunta por vez, e nao subtraido das pendencias no fim.
+  //
+  // A conta anterior era `perguntas.length - pendencias.length`, e errava de
+  // duas maneiras ao mesmo tempo. A lista de pendencias mistura duas coisas: as
+  // que sao de PERGUNTA e as que sao do DOCUMENTO — assinatura e proxima
+  // preventiva. Subtrair as do documento tira de "conformes" algo que nunca foi
+  // pergunta. E uma pergunta que produz dois problemas era subtraida duas vezes.
+  //
+  // Com dois itens, nenhum respondido, assinatura exigida e sem a proxima
+  // preventiva, davam quatro pendencias sobre duas perguntas: `conformes: -2`.
+  // Esse numero vai para a tela de encerramento e para o dossie impresso —
+  // "-2 de 2 conformes" numa folha que existe para provar servico.
+  let respondidas = 0
+
   for (const pergunta of estrutura.perguntas) {
     const juizo = avaliarManutencao(pergunta, respostas[pergunta.id])
     for (const problema of juizo.problemas) {
       pendencias.push({ pergunta_id: pergunta.id, titulo: pergunta.titulo, motivo: problema })
     }
     if (!juizo.respondida) continue
+    // No retorno de preventiva "conforme" quer dizer DOCUMENTADO: a pergunta
+    // foi respondida e nao deixou problema. Nao ha conformidade a julgar aqui —
+    // o carro acabou de sair da oficina.
+    if (!juizo.problemas.length) respondidas += 1
     if (juizo.manutencao) {
       mexidas += 1
       servicos.push({
@@ -407,7 +425,7 @@ function avaliarRetornoPreventiva(estrutura, respostas, opcoes) {
     finalidade: 'preventiva',
     momento: 'retorno',
     total_perguntas: estrutura.perguntas.length,
-    conformes: estrutura.perguntas.length - pendencias.length,
+    conformes: respondidas,
     pendencias,
     ocorrencias: [],
     servicos,
