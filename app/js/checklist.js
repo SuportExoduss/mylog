@@ -334,13 +334,43 @@ export function executarChecklist({ tarefa, modelo, aoConcluir, aoSair }) {
 
   // ----------------------------------------------------------- desfechos
 
+  // Trocar a resposta de uma pergunta descarta as fotos da resposta anterior.
+  //
+  // A tela promete isso com todas as letras — "Ja respondida como OK. Responder
+  // de novo SUBSTITUI" — e a promessa nao estava sendo cumprida. A resposta
+  // nova nascia com `fotos_ids: []`, mas as fotos antigas continuavam no
+  // IndexedDB amarradas a esta inspecao, e o envio manda TODAS as fotos da
+  // inspecao (`fotos.daInspecao`), nao so as citadas nas respostas.
+  //
+  // O resultado eram duas coisas erradas ao mesmo tempo: o relatorio mostrava
+  // fotos de um julgamento que a pessoa desfez, e a CONTAGEM que o motor usa
+  // para decidir "foto obrigatoria pendente" nao batia com o que subiu — o
+  // julgamento contava uma, o acervo guardava tres.
+  //
+  // Descartar aqui e' seguro: quem esta trocando a resposta esta no veiculo,
+  // com a peca na frente, e acabou de ler que a anterior seria substituida.
+  // Sincrona de proposito, e o descarte corre solto.
+  //
+  // A primeira versao era `async` e os dois desfechos viravam `async` com ela —
+  // o que adia o redesenho da tela para depois do apagamento. Quatro testes de
+  // navegacao acusaram na hora, e estavam certos: tocar em OK tem que mudar a
+  // tela AGORA. Quem espera o apagamento e' ninguem; a resposta nova ja nao
+  // cita as fotos antigas.
+  function trocarResposta(perguntaId, nova) {
+    const antigas = respostas[perguntaId]?.fotos_ids || []
+    respostas[perguntaId] = nova
+    for (const id of antigas) descartarFoto(id).catch(() => { /* some na proxima */ })
+  }
+
+
   function avancar() {
     if (indice < perguntas.length - 1) { indice += 1; desenhar() }
     else desenharResumo()
   }
 
   function marcarOk(pergunta) {
-    respostas[pergunta.id] = { desfecho: 'ok', fotos_ids: [], respondido_em: new Date().toISOString() }
+    trocarResposta(pergunta.id,
+      { desfecho: 'ok', fotos_ids: [], respondido_em: new Date().toISOString() })
     const modo = pergunta.foto_ok || 'opcional'
     const maximo = pergunta.max_fotos_ok ?? 1
 
@@ -364,10 +394,10 @@ export function executarChecklist({ tarefa, modelo, aoConcluir, aoSair }) {
   // Como a exigencia de foto vive na opcao, conferimos depois da escolha: se a
   // opcao exigia foto e a pessoa cancelou a camera, voltamos a pedir.
   function marcarOcorrencia(pergunta) {
-    respostas[pergunta.id] = {
+    trocarResposta(pergunta.id, {
       desfecho: 'ocorrencia', fotos_ids: [], opcao_id: null, relatorio: null,
       respondido_em: new Date().toISOString(),
-    }
+    })
     const maiorLimite = Math.max(1, ...(pergunta.opcoes_problema || []).map((o) => o.max_fotos ?? 1))
     capturar({ pergunta, maximo: maiorLimite, aoTerminar: () => escolherProblema(pergunta) })
   }

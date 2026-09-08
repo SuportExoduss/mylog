@@ -1063,6 +1063,54 @@ test('aplicativo: apagar foto passa sempre pelo mesmo lugar', () => {
     `poucos usos do helper (${pelosHelper.length}): a definicao mais os tres pontos de descarte`)
 })
 
+// Trocar a resposta de uma pergunta leva as fotos da anterior junto.
+//
+// A tela promete isso com todas as letras — "Ja respondida como OK. Responder
+// de novo SUBSTITUI" — e a promessa nao valia para as fotos. A resposta nova
+// nascia com `fotos_ids: []`, mas as antigas continuavam no armazem amarradas
+// a inspecao, e o envio manda TODAS as fotos dela (`fotos.daInspecao`), nao so
+// as citadas nas respostas.
+//
+// Duas coisas erradas de uma vez: o relatorio mostraria fotos de um julgamento
+// que a pessoa desfez, e a contagem que o motor usa para "foto obrigatoria
+// pendente" nao bateria com o acervo — o julgamento contando uma, o disco
+// guardando tres.
+//
+// O QUE ESTE TESTE PROVA, e o que nao prova. Ele le o codigo: que os dois
+// desfechos passam por `trocarResposta`, e que `trocarResposta` descarta as
+// fotos anteriores. Nao exercita a captura — no arranjo de teste a camera nunca
+// responde, entao nao ha foto de verdade para descartar. A cobertura de
+// comportamento aqui depende de aparelho real, e esta anotada como tal.
+test('aplicativo: trocar a resposta descarta as fotos da resposta anterior', () => {
+  const raiz = path.join(import.meta.dirname, '..', '..')
+  const codigo = fs.readFileSync(path.join(raiz, 'app', 'js', 'checklist.js'), 'utf8')
+    .split('\n').filter((l) => !l.trim().startsWith('//')).join('\n')
+
+  // Os dois desfechos escrevem a resposta pelo mesmo caminho.
+  for (const desfecho of ['marcarOk', 'marcarOcorrencia']) {
+    const i = codigo.indexOf(`function ${desfecho}(`)
+    assert.ok(i > 0, `${desfecho} sumiu ou mudou de nome`)
+    const corpo = codigo.slice(i, codigo.indexOf('\n  }', i))
+    assert.match(corpo, /trocarResposta\(/,
+      `${desfecho} precisa trocar a resposta pelo caminho unico`)
+    assert.ok(!/respostas\[\s*pergunta\.id\s*\]\s*=/.test(corpo),
+      `${desfecho} nao pode escrever em respostas[] direto — e assim que as fotos ficam para tras`)
+  }
+
+  // E o caminho unico descarta o que ficou.
+  const iTroca = codigo.indexOf('function trocarResposta(')
+  assert.ok(iTroca > 0, 'o caminho unico de troca de resposta sumiu')
+  const troca = codigo.slice(iTroca, codigo.indexOf('\n  }', iTroca))
+  assert.match(troca, /fotos_ids/, 'precisa olhar as fotos da resposta anterior')
+  assert.match(troca, /descartarFoto\(/, 'e descarta-las')
+
+  // Sincrona: tocar em OK muda a tela AGORA. A primeira versao era `async`, os
+  // dois desfechos viraram `async` com ela, e quatro testes de navegacao
+  // acusaram o atraso do redesenho.
+  assert.ok(!/async function trocarResposta\(/.test(codigo),
+    'trocar resposta nao pode adiar o redesenho da tela')
+})
+
 // ------------------------- a hierarquia documental existe e nao mente
 
 // A regra e' "nao existe arquitetura paralela": cinco documentos, cada um com
