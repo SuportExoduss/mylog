@@ -376,6 +376,8 @@ test('devolucao: sem rede a tela nao vira ratoeira', async () => {
   await executarTudoOk()
 
   assert.equal(enviadas.length, 1, 'controle: o checklist ja subiu, o trabalho esta feito')
+  assert.equal(pedidos.filter((p) => p.caminho === '/api/solicitacoes/1/devolver').length, 0,
+    'controle: a devolucao em si ainda nao foi tentada')
 
   tela.corpo.querySelector('textarea').value = 'a base estava fechada quando cheguei'
   botaoDeTexto('Enviar motivo e devolver').click()
@@ -383,8 +385,10 @@ test('devolucao: sem rede a tela nao vira ratoeira', async () => {
 
   const sair = botaoDeTexto('Voltar ao inicio')
   assert.ok(sair, 'depois da falha existe um caminho de volta')
-  assert.match(textoDaTela(), /sera enviado sozinho/,
-    'e a tela diz que o checklist esta salvo')
+  assert.match(textoDaTela(), /ja foi enviado e esta gravado/,
+    'e a tela diz o que ja esta seguro — nao promete uma fila que nao existe')
+  assert.doesNotMatch(textoDaTela(), /sera enviado sozinho|salvo no aparelho/,
+    'nada sobe sozinho depois: sem fila, isso seria mentira tranquilizadora')
   assert.match(textoDaTela(), /a equipe da frota encerra pelo painel/,
     'e quem fecha a devolucao quando ela nao vai')
 

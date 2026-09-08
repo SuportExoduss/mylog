@@ -1288,3 +1288,54 @@ test('painel: nenhuma tela carrega estilo embutido, como o DESIGN.md afirma', ()
   assert.deepEqual(achados, [],
     `o DESIGN.md diz "hoje: zero inline" e estas linhas dizem outra coisa:\n${achados.join('\n')}`)
 })
+
+// O vocabulario da fila nao pode sobreviver a ela.
+//
+// Quando a fila saiu (D58), tres frases ficaram para tras dizendo que o
+// checklist "sera enviado sozinho quando houver sinal". Era verdade com a
+// fila; sem ela virou mentira, e mentira TRANQUILIZADORA — do tipo que faz a
+// pessoa guardar o aparelho e ir embora achando que esta resolvido.
+//
+// Texto de tela envelhece calado: ninguem le a tela de erro num teste de
+// regressao, e o defeito so aparece no dia em que alguem depende dela.
+test('aplicativo: nenhuma tela promete uma fila que nao existe mais', () => {
+  const raiz = path.join(import.meta.dirname, '..', '..')
+  const pasta = path.join(raiz, 'app', 'js')
+
+  // Promessas que dependiam da fila. A frase precisa aparecer NUM TEXTO, e nao
+  // num comentario que explica por que ela saiu.
+  const promessas = [
+    /enviad[oa] sozinh/i,
+    /salvo no aparelho/i,
+    /guardado no aparelho/i,
+    /quando houver sinal/i,
+    /aguardando conexao/i,
+    /fila de envio/i,
+  ]
+
+  const achados = []
+  for (const nome of fs.readdirSync(pasta)) {
+    if (!nome.endsWith('.js')) continue
+    const codigo = fs.readFileSync(path.join(pasta, nome), 'utf8')
+      .split('\n').filter((l) => !l.trim().startsWith('//')).join('\n')
+    // So o que vai para a tela.
+    const textos = [...codigo.matchAll(/texto: (?:'([^']*)'|`([^`]*)`)/g)]
+      .map((m) => m[1] ?? m[2])
+      .concat([...codigo.matchAll(/telaLogin\('([^']*)'/g)].map((m) => m[1]))
+    for (const t of textos) {
+      for (const p of promessas) {
+        const m = t.match(p)
+        if (!m) continue
+        // "Ele NAO fica guardado no aparelho" e' a mesma frase com o sentido
+        // invertido — e e' justamente o aviso certo. A negacao vem ANTES do
+        // trecho, entao e' o que esta atras dele que decide.
+        const atras = t.slice(Math.max(0, m.index - 24), m.index)
+        if (/\b(nao|não)\b/i.test(atras)) continue
+        achados.push(`${nome}: "${t.slice(0, 70)}"`)
+      }
+    }
+  }
+
+  assert.deepEqual(achados, [],
+    `texto de tela prometendo fila:\n${achados.join('\n')}`)
+})

@@ -480,17 +480,24 @@ function telaDevolucao(tarefa, resumo) {
   //
   // Esta tela nao tinha saida NENHUMA: sem seta de voltar e com um unico
   // botao, que e' justamente o que nao funciona sem rede. Quem devolvesse o
-  // carro no patio sem sinal ficava preso aqui — o checklist ja estava na
-  // fila, o trabalho estava feito, e o unico jeito de sair era matar o
-  // aplicativo. Quem faz isso uma vez desconfia do aparelho para sempre.
+  // carro no patio sem sinal ficava preso aqui — o checklist ja tinha subido,
+  // o trabalho estava feito, e o unico jeito de sair era matar o aplicativo.
+  // Quem faz isso uma vez desconfia do aparelho para sempre.
   //
   // Ela nao aparece antes da falha de proposito: enquanto der para encerrar
   // direito, o caminho e' encerrar direito, com o motivo escrito.
+  //
+  // O texto dizia "o checklist ja esta salvo no aparelho e sera enviado
+  // sozinho quando houver sinal". Era verdade com a fila; sem ela virou
+  // mentira — e mentira tranquilizadora, do tipo que faz a pessoa ir embora
+  // achando que esta resolvido. Aqui o checklist ja subiu de verdade: esta
+  // tela so aparece DEPOIS do envio, e por isso da para dizer isso com todas
+  // as letras.
   const saida = elemento('div', { classe: 'devolucao-saida oculto' }, [
     elemento('p', { classe: 'texto',
-      texto: 'O checklist ja esta salvo no aparelho e sera enviado sozinho quando '
-        + 'houver sinal. A devolucao em si precisa de rede — se nao voltar, a '
-        + 'equipe da frota encerra pelo painel.' }),
+      texto: 'O checklist ja foi enviado e esta gravado — isso nao se perde. '
+        + 'O que falta e so registrar a devolucao, e ela precisa de rede. Se '
+        + 'nao voltar, a equipe da frota encerra pelo painel.' }),
     elemento('button', { classe: 'botao botao--suave', type: 'button',
       texto: 'Voltar ao inicio', aoClick: carregar }),
   ])
