@@ -8,7 +8,7 @@
 // continua sendo o tipo — sozinho — que decide qual checklist aparece no
 // aplicativo: o checklist confere o carro que esta na mao, nao o que foi
 // pedido.
-import { consultar, consultarUm, executar, novoId, agora } from '../nucleo/banco.js'
+import { consultar, consultarUm, executar, transacao, novoId, agora } from '../nucleo/banco.js'
 import { erro } from '../nucleo/http.js'
 import { registrarEvento } from '../nucleo/auditoria.js'
 import { exigirAutenticado } from '../seguranca/sessao.js'
@@ -116,8 +116,14 @@ export function registrarRotasCategorias(rotas) {
       throw erro.conflito(
         `${usos.total} solicitacao(oes) pediram esta categoria. Desative em vez de remover.`)
     }
-    executar('DELETE FROM veiculo_categorias WHERE categoria_id = ?', [categoria.id])
-    executar('DELETE FROM categorias_uso WHERE id = ? AND empresa_id = ?', [categoria.id, eu.empresa_id])
+    // Os dois DELETE sao um ato so. Se o primeiro passasse e o segundo nao, a
+    // categoria continuaria de pe sem nenhum carro — visivel no formulario de
+    // pedido, e impossivel de atender.
+    transacao(() => {
+      executar('DELETE FROM veiculo_categorias WHERE categoria_id = ?', [categoria.id])
+      executar('DELETE FROM categorias_uso WHERE id = ? AND empresa_id = ?',
+        [categoria.id, eu.empresa_id])
+    })
     registrarEvento({
       empresaId: eu.empresa_id, ator: eu, acao: 'categoria.removida',
       entidade: 'categoria', entidadeId: categoria.id, antes: { nome: categoria.nome }, ip: ctx.ip,
@@ -153,12 +159,22 @@ export function registrarRotasCategorias(rotas) {
     const forasteiro = pedidos.find((id) => !daEmpresa.has(id))
     if (forasteiro) throw erro.naoEncontrado('Veiculo nao encontrado nesta empresa.')
 
-    executar('DELETE FROM veiculo_categorias WHERE categoria_id = ?', [categoria.id])
-    for (const veiculoId of new Set(pedidos)) {
-      executar(
-        'INSERT INTO veiculo_categorias (empresa_id, veiculo_id, categoria_id) VALUES (?, ?, ?)',
-        [eu.empresa_id, veiculoId, categoria.id])
-    }
+    // Apagar e reinserir e' UM ato, e por isso vai numa transacao.
+    //
+    // O comentario logo acima ja dizia que a rota "evita o estado intermediario
+    // de um PUT parcial" — e era exatamente nesse estado que ela podia deixar o
+    // banco: o DELETE passava, um dos INSERT falhava, e a categoria ficava com
+    // a lista pela metade ou VAZIA. Categoria vazia nao e' um detalhe: e' o
+    // formulario de pedido do colaborador, e na liberacao e' dela que sai a
+    // lista de carros que atendem.
+    transacao(() => {
+      executar('DELETE FROM veiculo_categorias WHERE categoria_id = ?', [categoria.id])
+      for (const veiculoId of new Set(pedidos)) {
+        executar(
+          'INSERT INTO veiculo_categorias (empresa_id, veiculo_id, categoria_id) VALUES (?, ?, ?)',
+          [eu.empresa_id, veiculoId, categoria.id])
+      }
+    })
     registrarEvento({
       empresaId: eu.empresa_id, ator: eu, acao: 'categoria.veiculos',
       entidade: 'categoria', entidadeId: categoria.id,

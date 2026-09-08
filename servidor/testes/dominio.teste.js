@@ -919,6 +919,58 @@ test('notificacao: ninguem e avisado da propria acao, e todo aviso leva a uma te
     `notificacao que nao leva a lugar nenhum:\n${destinoInvalido.join('\n')}`)
 })
 
+// Rota que escreve DUAS vezes escreve dentro de uma transacao.
+//
+// Meia escrita e' o pior estado do banco: pior que nao escrever, porque ninguem
+// fica sabendo. A resposta volta com erro, a tela mostra a recusa, e metade do
+// pedido esta gravada — quem le a tela nao tem como saber.
+//
+// A varredura conta `executar(` e as chamadas a funcoes que escrevem por baixo.
+// Excecoes sao nomeadas com o motivo; excecao sem motivo escrito vira porta
+// aberta.
+test('atomicidade: rota com duas escritas usa transacao', () => {
+  const raiz = path.join(import.meta.dirname, '..', 'src', 'rotas')
+
+  const QUE_ESCREVEM = /\b(registrarKm|encerrarCiclo|reavaliarPendencia|reaplicarPendencia)\(/g
+
+  const SOLTAS = new Map([
+    ['POST /api/notificacoes/lidas',
+      'marca aviso como lido, por usuario. Meia marcacao deixa um aviso nao lido '
+      + 'a mais no sino — e nada alem disso'],
+  ])
+
+  const semTransacao = []
+  let comTransacao = 0
+
+  for (const arquivo of fs.readdirSync(raiz).filter((f) => f.endsWith('.js'))) {
+    const linhas = fs.readFileSync(path.join(raiz, arquivo), 'utf8').split('\n')
+    const inicios = []
+    linhas.forEach((linha, i) => {
+      const m = linha.match(/rotas\.(get|post|put|patch|delete)\(\s*'([^']+)'/)
+      if (m) inicios.push({ i, metodo: m[1].toUpperCase(), caminho: m[2] })
+    })
+    inicios.forEach((r, k) => {
+      if (r.metodo === 'GET') return
+      const fim = k + 1 < inicios.length ? inicios[k + 1].i : linhas.length
+      const corpo = linhas.slice(r.i, fim).join('\n')
+      const escritas = (corpo.match(/\bexecutar\(/g) || []).length
+        + (corpo.match(QUE_ESCREVEM) || []).length
+      if (escritas < 2) return
+      if (corpo.includes('transacao(')) { comTransacao += 1; return }
+      const chave = `${r.metodo} ${r.caminho}`
+      if (SOLTAS.has(chave)) return
+      semTransacao.push(`${chave} — ${escritas} escritas (${arquivo}:${r.i + 1})`)
+    })
+  }
+
+  // Piso de sanidade, nao contagem exata: se a varredura parar de achar rotas
+  // (regex quebrada, arquivo movido), ela precisa acusar em vez de passar verde
+  // por nao ter olhado nada. Hoje sao 7.
+  assert.ok(comTransacao >= 6, `varredura pobre demais: ${comTransacao} rotas com transacao`)
+  assert.deepEqual(semTransacao, [],
+    `rota com duas escritas e sem transacao — envolva, ou nomeie a excecao com o motivo:\n${semTransacao.join('\n')}`)
+})
+
 // ------------------------- a hierarquia documental existe e nao mente
 
 // A regra e' "nao existe arquitetura paralela": cinco documentos, cada um com

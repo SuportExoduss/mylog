@@ -229,16 +229,26 @@ export function registrarRotasVeiculos(rotas) {
     if (modelo.length < 2) throw erro.requisicao('Informe o modelo.')
     if (!TIPOS_VEICULO.includes(tipo)) throw erro.requisicao('Tipo de veiculo invalido.')
 
-    executar(
-      'UPDATE veiculos SET modelo = ?, marca = ?, tipo = ?, ano = ?, atualizado_em = ? WHERE id = ? AND empresa_id = ?',
-      [modelo, marca, tipo, ano, agora(), antes.id, eu.empresa_id],
-    )
+    // O cadastro e o hodometro sao a MESMA edicao, e caem ou passam juntos.
+    //
+    // Sem a transacao, a ordem trai: o UPDATE do cadastro passava primeiro e o
+    // `registrarKm` podia levantar depois — KM menor que o atual sem motivo
+    // escrito e' recusa, e a recusa e' o caso comum de quem digitou errado.
+    // A resposta voltava 400, a tela mostrava "informe o motivo da correcao", e
+    // o modelo e o tipo do veiculo JA ESTAVAM gravados. Erro tem que significar
+    // que nada foi salvo.
+    transacao(() => {
+      executar(
+        'UPDATE veiculos SET modelo = ?, marca = ?, tipo = ?, ano = ?, atualizado_em = ? WHERE id = ? AND empresa_id = ?',
+        [modelo, marca, tipo, ano, agora(), antes.id, eu.empresa_id],
+      )
 
-    if (ctx.corpo.km_atual !== undefined && ctx.corpo.km_atual !== '') {
-      registrarKm(antes, ctx.corpo.km_atual, {
-        motivo: String(ctx.corpo.motivo_km || '').trim() || null, ator: eu, ip: ctx.ip,
-      })
-    }
+      if (ctx.corpo.km_atual !== undefined && ctx.corpo.km_atual !== '') {
+        registrarKm(antes, ctx.corpo.km_atual, {
+          motivo: String(ctx.corpo.motivo_km || '').trim() || null, ator: eu, ip: ctx.ip,
+        })
+      }
+    })
 
     const depois = buscarNaEmpresa(eu.empresa_id, antes.id)
     registrarEvento({

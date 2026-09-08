@@ -2371,6 +2371,76 @@ test('hodometro: as tres portas escrevem, e as tres deixam rastro no veiculo', a
     'leitura menor na oficina nao puxa o hodometro para tras')
 })
 
+test('atomicidade: edicao recusada nao deixa metade gravada', async () => {
+  // Erro tem que significar que NADA foi salvo. Se metade passa, a tela mostra
+  // a mensagem de recusa e o banco discorda dela — e quem le a tela nao tem como
+  // saber.
+  const frota = await entrar('frota.a@teste.local')
+  const veiculo = criarVeiculo(empresaA, 'AAA9X99', 'compacto_leve', 50000)
+
+  // Cadastro e hodometro na MESMA edicao, com o KM recusado: menor que o atual
+  // e sem motivo escrito. E' o caso comum de quem digitou errado.
+  const r = await chamar('PATCH', `/api/veiculos/${veiculo}`, {
+    token: frota,
+    corpo: { modelo: 'Nome Que Nao Pode Ficar', tipo: 'pickup', km_atual: 100 },
+  })
+  assert.equal(r.status, 400, 'KM menor sem motivo e recusado')
+
+  const linha = consultarUm('SELECT modelo, tipo, km_atual FROM veiculos WHERE id = ?', [veiculo])
+  assert.notEqual(linha.modelo, 'Nome Que Nao Pode Ficar',
+    'o cadastro nao pode ficar gravado quando a edicao foi recusada')
+  assert.notEqual(linha.tipo, 'pickup', 'nem o tipo')
+  assert.equal(linha.km_atual, 50000, 'e o hodometro nao mexeu')
+
+  // Controle: a mesma edicao COM o motivo passa inteira.
+  const ok = await chamar('PATCH', `/api/veiculos/${veiculo}`, {
+    token: frota,
+    corpo: { modelo: 'Agora Vale', tipo: 'pickup', km_atual: 100,
+      motivo_km: 'hodometro trocado na oficina' },
+  })
+  assert.equal(ok.status, 200, JSON.stringify(ok.dados))
+  const depois = consultarUm('SELECT modelo, tipo, km_atual FROM veiculos WHERE id = ?', [veiculo])
+  assert.deepEqual(
+    { modelo: depois.modelo, tipo: depois.tipo, km_atual: depois.km_atual },
+    { modelo: 'Agora Vale', tipo: 'pickup', km_atual: 100 },
+    'com motivo, a edicao inteira passa')
+})
+
+test('atomicidade: trocar os carros de uma categoria e um ato so', async () => {
+  // O `DELETE` seguido de N `INSERT` era feito solto. Se um insert falhasse no
+  // meio, a categoria ficava com a lista pela metade — ou VAZIA. Categoria
+  // vazia nao e' detalhe: e' o formulario de pedido do colaborador, e na
+  // liberacao e' dela que sai a lista de carros que atendem.
+  const frota = await entrar('frota.a@teste.local')
+  const a = criarVeiculo(empresaA, 'AAA9Y99')
+  const b = criarVeiculo(empresaA, 'AAA9Z99')
+
+  const categoria = (await chamar('POST', '/api/categorias', {
+    token: frota, corpo: { nome: 'Categoria da atomicidade', assentos: 5 },
+  })).dados.categoria
+
+  const quantos = () => consultarUm(
+    'SELECT COUNT(*) AS n FROM veiculo_categorias WHERE categoria_id = ?', [categoria.id]).n
+
+  await chamar('PUT', `/api/categorias/${categoria.id}/veiculos`,
+    { token: frota, corpo: { veiculos: [a, b] } })
+  assert.equal(quantos(), 2, 'controle: os dois entraram')
+
+  // Um veiculo de OUTRA empresa no meio da lista derruba o pedido inteiro. A
+  // lista anterior tem que sobreviver intacta — nao pode sobrar so o primeiro,
+  // nem esvaziar.
+  const invasor = await chamar('PUT', `/api/categorias/${categoria.id}/veiculos`, {
+    token: frota, corpo: { veiculos: [a, veiculoB] },
+  })
+  assert.equal(invasor.status, 404, 'veiculo de outra empresa nao entra')
+  assert.equal(quantos(), 2, 'e a lista que ja estava la nao pode ter sido tocada')
+
+  // Trocar por uma lista valida menor continua funcionando.
+  await chamar('PUT', `/api/categorias/${categoria.id}/veiculos`,
+    { token: frota, corpo: { veiculos: [b] } })
+  assert.equal(quantos(), 1, 'a substituicao valida vale')
+})
+
 test('cobranca: colaborador nao ve quem faltou', async () => {
   const vendas = await entrar('vendas.a@teste.local')
   const r = await chamar('GET', '/api/execucoes/faltando?dia=2026-09-03', { token: vendas })
