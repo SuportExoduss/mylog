@@ -3,7 +3,7 @@
 // O colaborador abre isto no patio, muitas vezes sem sinal. O caminho e' curto
 // de proposito: entrar -> ver o que tem para fazer -> executar -> devolver.
 import * as sincronia from './sincronia.js'
-import { fila, garantirPersistencia } from './armazem.js'
+import { contexto, fila, garantirPersistencia } from './armazem.js'
 import { elemento, executarChecklist } from './checklist.js'
 
 const raiz = document.getElementById('app')
@@ -109,6 +109,10 @@ function telaLogin(mensagem) {
           if (!resposta.ok) throw new Error(dados.mensagem || 'Nao foi possivel entrar.')
           estado.usuario = dados.usuario
           if (dados.usuario.deve_trocar_senha) return telaTrocaDeSenha()
+          // Credencial nova: tira o aviso de sessao vencida e tenta a fila
+          // agora, sem esperar o relogio de retentativa. Quem entrou de novo
+          // depois daquele aviso entrou POR CAUSA da fila.
+          sincronia.sessaoRenovada()
           await carregar()
         } catch (falha) {
           erro.textContent = falha.message
@@ -203,6 +207,12 @@ function telaInicio() {
     corpo.push(elemento('button', {
       classe: `tarefa${tarefa.atrasada ? ' tarefa--atrasada' : ''}`,
       type: 'button',
+      // Sem modelo liberado para o cargo, o cartao explica por escrito e o
+      // toque nao leva a lugar nenhum — `abrirTarefa` faz `if (!modelo) return`.
+      // Um botao que nao responde le-se como aplicativo quebrado, e nao como
+      // explicacao: a pessoa toca de novo, e de novo. Desabilitado, ele para de
+      // convidar o toque e o texto continua ali dizendo o porque.
+      disabled: !modelo,
       aoClick: () => abrirTarefa(tarefa),
     }, [
       elemento('div', { classe: 'tarefa-topo' }, [
@@ -240,6 +250,7 @@ function telaInicio() {
       corpo.push(elemento('button', {
         classe: `tarefa tarefa--preventiva${prev.status === 'vencida' ? ' tarefa--atrasada' : ''}`,
         type: 'button',
+        disabled: !modelo,     // mesmo motivo do cartao de tarefa
         aoClick: () => abrirPreventiva(prev),
       }, [
         elemento('div', { classe: 'tarefa-topo' }, [
@@ -276,6 +287,7 @@ function telaInicio() {
       corpo.push(elemento('button', {
         classe: 'tarefa tarefa--avulsa',
         type: 'button',
+        disabled: !modelo,     // mesmo motivo do cartao de tarefa
         aoClick: () => abrirAvulso(item),
       }, [
         elemento('div', { classe: 'tarefa-topo' }, [
@@ -291,7 +303,11 @@ function telaInicio() {
           ? elemento('div', { classe: 'tarefa-checklist',
               texto: `${modelo.nome} · ${modelo.estrutura.perguntas.length} perguntas`
                 + (modelo.horario_limite ? ` · ate ${modelo.horario_limite}` : '') })
-          : null,
+          // Sem modelo o cartao mostrava so a placa, sem uma palavra sobre por
+          // que nada acontece ao tocar. Os outros dois cartoes ja diziam; este
+          // ficava calado, que e' o pior dos tres jeitos de nao funcionar.
+          : elemento('div', { classe: 'tarefa-alerta',
+              texto: 'Nenhum checklist liberado para o seu cargo neste veiculo.' }),
       ].filter(Boolean)))
     }
   }
@@ -523,12 +539,26 @@ async function sair() {
     return telaFila()
   }
   try { await fetch('/api/auth/sair', { method: 'POST', credentials: 'same-origin' }) } catch { /* offline */ }
+  // O contexto baixado sai junto com a sessao.
+  //
+  // Ele guarda nome, cargo, placas e as tarefas de quem estava usando. Ficando
+  // no aparelho, a proxima abertura SEM REDE caia no caminho offline e
+  // devolvia essa tela inteira — sem pedir senha, para quem quer que estivesse
+  // com o aparelho na mao. O aparelho do patio passa de mao em mao; sair tem
+  // que significar sair.
+  //
+  // A fila fica: ela vive noutro deposito, e o que esta nela ja foi feito e
+  // precisa chegar ao servidor. So falta credencial, e a credencial volta no
+  // proximo login.
+  try { await contexto.limpar() } catch { /* deposito indisponivel */ }
   estado.usuario = null
   telaLogin()
 }
 
 async function carregar() {
-  const r = await sincronia.atualizarContexto()
+  // O id de quem esta na sessao viaja junto: se a rede cair e o contexto vier
+  // do cache, ele tem que ser DESTA pessoa. Ver `atualizarContexto`.
+  const r = await sincronia.atualizarContexto(estado.usuario?.id)
   if (r.erro === 'sessao') return telaLogin('Sua sessao expirou. Entre de novo.')
   if (r.erro === 'sem_contexto') return telaLogin('Sem dados baixados. Conecte-se uma vez para comecar.')
 
@@ -563,20 +593,20 @@ async function iniciar() {
     if (usuario.deve_trocar_senha) return telaTrocaDeSenha()
     await carregar()
   } catch {
-    // Sem rede mas com contexto baixado, o app abre mesmo assim.
-    const r = await sincronia.atualizarContexto()
-    if (r.dados?.usuario) {
-      estado.usuario = r.dados.usuario
-      estado.tarefas = r.dados.tarefas || []
-      estado.avulso = r.dados.avulso || []
-      estado.preventivas = r.dados.preventivas || []
-      estado.modelos = r.dados.modelos || []
-      estado.politicas = r.dados.politicas || {}
-      estado.doCache = true
-      estado.baixadoEm = r.dados.baixado_em
-      return telaInicio()
-    }
-    telaLogin()
+    // Sem rede mas com contexto baixado, o app abre mesmo assim — e quem sabe
+    // fazer isso e' `carregar`, a mesma porta de sempre.
+    //
+    // Aqui existia uma copia dela, e a copia estava errada de dois jeitos:
+    // marcava `doCache = true` FIXO, mesmo quando o contexto tinha acabado de
+    // chegar pela rede (basta o `/api/auth/eu` falhar sozinho, um soluco de
+    // sinal), e entao a tela dizia "sem conexao, mostrando o que foi baixado
+    // em algum momento" com dado fresco na mao. Quem le isso deixa de confiar
+    // no aviso — e o aviso e' o que separa "ja saiu do aparelho" de "ainda
+    // esta aqui".
+    //
+    // A copia tambem caia num `telaLogin()` mudo quando nao havia contexto,
+    // enquanto `carregar` explica o que fazer: conecte-se uma vez.
+    await carregar()
   }
 }
 

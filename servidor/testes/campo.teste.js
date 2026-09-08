@@ -912,6 +912,36 @@ test('contexto: as fotos de exemplo sao baixadas junto, e nao quando a pergunta 
   }
 })
 
+test('fila: entrar de novo tira o aviso e tenta a fila na hora', async () => {
+  // Fecha o ciclo que a D55 abriu. Ela fez a tira dizer "sua sessao expirou,
+  // toque para entrar de novo" — mas entrar de novo nao apagava o aviso nem
+  // tentava a fila. Quem entrou POR CAUSA da fila ficava olhando a mesma frase,
+  // e a proxima tentativa so viria com o relogio de retentativa, ate cinco
+  // minutos depois.
+  const navegadorAntes = Object.getOwnPropertyDescriptor(globalThis, 'navigator')
+  Object.defineProperty(globalThis, 'navigator',
+    { configurable: true, value: { onLine: true } })
+  const buscaAntes = globalThis.fetch
+  const pendentesAntes = filaReal.pendentes
+
+  sincronia.estado.sessaoExpirada = true
+  let tentativas = 0
+  filaReal.pendentes = async () => { tentativas += 1; return [] }
+  globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => ({}) })
+
+  try {
+    await sincronia.sessaoRenovada()
+    assert.equal(sincronia.estado.sessaoExpirada, false, 'o aviso sai assim que a sessao volta')
+    assert.ok(tentativas > 0, 'e a fila e tentada na hora, sem esperar o relogio')
+  } finally {
+    globalThis.fetch = buscaAntes
+    filaReal.pendentes = pendentesAntes
+    sincronia.estado.sessaoExpirada = false
+    if (navegadorAntes) Object.defineProperty(globalThis, 'navigator', navegadorAntes)
+    else delete globalThis.navigator
+  }
+})
+
 test('fila: nao arma relogio sem fila nem sem rede', () => {
   // Sem fila nao ha o que reenviar. Sem rede, quem acorda e o evento `online`,
   // que chega na hora certa e nao gasta nada esperando.

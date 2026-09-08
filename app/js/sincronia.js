@@ -273,6 +273,19 @@ async function enviarUma(item) {
   return { ok: false, permanente: false }
 }
 
+// A sessao voltou: quem entrou de novo avisa por aqui.
+//
+// Sem isto, o aviso de "sessao expirou" ficava na tira DEPOIS do login, e a
+// fila so era tentada de novo quando o relogio de retentativa disparasse — ate
+// cinco minutos. Alguem que entrou de propria vontade justamente para enviar a
+// fila ficava olhando a mesma frase, sem nada acontecer.
+export function sessaoRenovada() {
+  estado.sessaoExpirada = false
+  pararRetentativa()
+  avisar()
+  return sincronizar()
+}
+
 export async function sincronizar() {
   if (enviando || !navigator.onLine) return { enviadas: 0 }
   enviando = true
@@ -357,7 +370,18 @@ async function baixarFotosDeExemplo(modelos = []) {
 
 // Baixa o contexto do dia e guarda. Se nao houver rede, devolve o que ja tem
 // no armazem — e' o que permite abrir o app no patio sem sinal.
-export async function atualizarContexto() {
+// `dono` e' o id de quem esta na sessao AGORA. Ele so importa no caminho do
+// cache: o aparelho do patio e' compartilhado, e o contexto guardado tem nome,
+// cargo, placas e tarefas de uma pessoa so.
+//
+// Sem esta confirmacao, bastava a rede cair no instante seguinte ao login para
+// a pessoa que acabou de entrar receber a tela de QUEM USOU O APARELHO ANTES —
+// nome, cargo, veiculos, e os checklists dela para executar. O aviso "sem
+// conexao" aparecia; o nome trocado, ninguem repara.
+//
+// Sem `dono` (ninguem autenticado ainda) o cache vale como esta: e' a abertura
+// offline legitima, de quem ja entrou neste aparelho e voltou sem sinal.
+export async function atualizarContexto(dono) {
   try {
     const resposta = await fetch('/api/app/inicio', { credentials: 'same-origin' })
     if (resposta.status === 401) return { erro: 'sessao' }
@@ -371,6 +395,7 @@ export async function atualizarContexto() {
   } catch {
     const guardado = await contexto.ler()
     if (!guardado) return { erro: 'sem_contexto' }
+    if (dono && guardado.usuario?.id !== dono) return { erro: 'sem_contexto' }
     return { dados: guardado, doCache: true }
   }
 }

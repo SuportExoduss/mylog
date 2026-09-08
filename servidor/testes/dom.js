@@ -192,6 +192,18 @@ class No {
 
   remove() { this.parentNode?.removeChild(this) }
 
+  // Troca este no' por outro, no mesmo lugar. E' como a tira de conexao se
+  // atualiza sem redesenhar a tela inteira.
+  replaceWith(...nos) {
+    const pai = this.parentNode
+    if (!pai) return
+    const onde = pai.filhos.indexOf(this)
+    const novos = nos.filter((n) => n !== null && n !== undefined)
+    for (const n of novos) { n.parentNode?.removeChild(n); n.parentNode = pai }
+    pai.filhos.splice(onde, 1, ...novos)
+    this.parentNode = null
+  }
+
   replaceChildren(...nos) {
     for (const f of [...this.filhos]) this.removeChild(f)
     this._texto = ''
@@ -255,7 +267,16 @@ class No {
   }
 
   // Clicar num submit dispara o submit do formulario, como no navegador.
+  // Controle desabilitado nao dispara clique nenhum — e' o navegador que
+  // decide isso, nao o ouvinte. Sem esta linha, um teste que clica num botao
+  // travado veria a acao acontecer, e passaria PROVANDO O CONTRARIO do que
+  // acontece no aparelho: e' o tipo de teste que da confianca falsa.
+  static SEM_CLIQUE_QUANDO_TRAVADO = new Set([
+    'BUTTON', 'INPUT', 'SELECT', 'TEXTAREA', 'FIELDSET', 'OPTION', 'OPTGROUP',
+  ])
+
   click() {
+    if (this.disabled && No.SEM_CLIQUE_QUANDO_TRAVADO.has(this.tagName)) return
     this.dispatchEvent(new Evento('click'))
     if (this.tagName === 'BUTTON' && this.type === 'submit') {
       this.closest('form')?.dispatchEvent(new Evento('submit'))
@@ -319,28 +340,73 @@ export function montarDom({ ids = ['area-modal'] } = {}) {
     removeEventListener: (t, f) => corpo.removeEventListener(t, f),
   }
 
-  const janela = { innerHeight: 800, innerWidth: 1280 }
+  // A janela precisa ouvir de verdade: o aplicativo de campo escuta `online`
+  // nela e na raiz global, e a sincronia escuta `visibilitychange` no
+  // documento. Sem isto, `window.addEventListener` estoura na importacao.
+  const ouvintesDaJanela = new Map()
+  const janela = {
+    innerHeight: 800,
+    innerWidth: 1280,
+    addEventListener: (t, f) => {
+      if (!ouvintesDaJanela.has(t)) ouvintesDaJanela.set(t, [])
+      ouvintesDaJanela.get(t).push(f)
+    },
+    removeEventListener: (t, f) => {
+      const l = ouvintesDaJanela.get(t)
+      if (l) ouvintesDaJanela.set(t, l.filter((g) => g !== f))
+    },
+    dispatchEvent: (evento) => {
+      const ev = typeof evento === 'string' ? new Evento(evento) : evento
+      for (const fn of [...(ouvintesDaJanela.get(ev.type) || [])]) fn(ev)
+      return true
+    },
+  }
+  documento.visibilityState = 'visible'
+  documento.dispatchEvent = (evento) => corpo.dispatchEvent(evento)
+
+  // `navigator.onLine` decide a tira de conexao inteira. Comeca online: e' o
+  // caso comum, e cada teste que quer o outro troca por escrito.
+  const navegador = { onLine: true }
 
   const anteriores = {
     document: globalThis.document,
     Event: globalThis.Event,
     window: globalThis.window,
+    navigator: globalThis.navigator,
+    addEventListener: globalThis.addEventListener,
+    removeEventListener: globalThis.removeEventListener,
   }
   globalThis.document = documento
   globalThis.Event = Evento
   globalThis.window = janela
+  Object.defineProperty(globalThis, 'navigator', {
+    value: navegador, configurable: true, writable: true,
+  })
+  globalThis.addEventListener = janela.addEventListener
+  globalThis.removeEventListener = janela.removeEventListener
 
   return {
     documento,
     corpo,
     janela,
+    navegador,
     clicar: (no) => no.click(),
     // Clique solto na pagina: e' assim que um menu aberto se fecha.
     clicarFora: () => corpo.dispatchEvent(new Evento('click')),
+    // Cai a rede / volta a rede, como o navegador anuncia.
+    rede: (online) => {
+      navegador.onLine = online
+      janela.dispatchEvent(new Evento(online ? 'online' : 'offline'))
+    },
     desmontar: () => {
       globalThis.document = anteriores.document
       globalThis.Event = anteriores.Event
       globalThis.window = anteriores.window
+      Object.defineProperty(globalThis, 'navigator', {
+        value: anteriores.navigator, configurable: true, writable: true,
+      })
+      globalThis.addEventListener = anteriores.addEventListener
+      globalThis.removeEventListener = anteriores.removeEventListener
     },
   }
 }
