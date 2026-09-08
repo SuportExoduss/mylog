@@ -81,7 +81,16 @@ function mudarStatus(veiculo, recarregar) {
 //
 // Campos que nao interessam a quem le o historico de um carro ficam de fora: o
 // motivo ja aparece por extenso, e nao vale repetir a placa em toda linha.
-const OCULTOS = new Set(['motivo', 'placa', 'id', 'empresa_id'])
+//
+// Os carimbos de tempo saem tambem. Eles mudam em TODA escrita, entao apareciam
+// em toda linha — "atualizado_em: 2026-09-07T11:33:35.948Z →
+// 2026-09-08T04:29:14.385Z" ao lado de "km_atual: 41.200 → 42.700". A coluna
+// existe para dizer o que mudou de verdade, e a data ja esta na primeira
+// coluna.
+const OCULTOS = new Set([
+  'motivo', 'placa', 'id', 'empresa_id',
+  'atualizado_em', 'criado_em', 'publicado_em', 'aberta_em',
+])
 
 function descreverMudanca(evento) {
   const antes = evento.antes || {}
