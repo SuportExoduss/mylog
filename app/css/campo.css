@@ -113,7 +113,6 @@ button, input, textarea { font: inherit; color: inherit; }
   background: var(--superficie);
   border-top: 1px solid var(--borda);
 }
-.rodape-nota { font-size: 13px; color: var(--texto-fraco); }
 
 /* Tira de conexao: sem rede nao da para enviar checklist, e quem esta no patio
    precisa saber ANTES de comecar quarenta perguntas.
