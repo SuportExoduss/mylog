@@ -870,6 +870,55 @@ test('auditoria: nenhuma rota de escrita grava sem deixar rastro', () => {
   assert.deepEqual(orfas, [], `excecao de auditoria para rota que nao existe:\n${orfas.join('\n')}`)
 })
 
+// Duas coisas que toda notificacao precisa acertar, e que so quebram em
+// producao: nao avisar quem fez, e levar a algum lugar.
+//
+// Receber aviso do que voce mesmo acabou de fazer e' ruido, e ruido ensina a
+// ignorar o sino — depois disso o aviso que importa tambem passa batido. E
+// notificacao cujo `destino` nao e' uma tela existente vira um clique que nao
+// abre nada, no exato momento em que a pessoa foi atras do problema.
+test('notificacao: ninguem e avisado da propria acao, e todo aviso leva a uma tela', () => {
+  const raiz = path.join(import.meta.dirname, '..', '..')
+  const pasta = path.join(raiz, 'servidor', 'src', 'rotas')
+
+  // As telas que o painel conhece, lidas do proprio roteador.
+  const app = fs.readFileSync(path.join(raiz, 'web', 'js', 'app.js'), 'utf8')
+  const telas = new Set([...app.matchAll(/chave:\s*'([a-z]+)'/g)].map((m) => m[1]))
+  assert.ok(telas.size >= 8, `poucas telas lidas do app.js: ${[...telas]}`)
+
+  const semExceto = []
+  const destinoInvalido = []
+  let chamadas = 0
+
+  for (const arquivo of fs.readdirSync(pasta).filter((f) => f.endsWith('.js'))) {
+    const texto = fs.readFileSync(path.join(pasta, arquivo), 'utf8')
+    const linhas = texto.split('\n')
+    linhas.forEach((linha, i) => {
+      if (!/\bnotificar(Frota)?\(\{/.test(linha)) return
+      chamadas += 1
+      // O corpo da chamada vai ate a linha que fecha `})`.
+      let bloco = ''
+      for (let j = i; j < Math.min(i + 12, linhas.length); j += 1) {
+        bloco += `${linhas[j]}\n`
+        if (/^\s*\}\)/.test(linhas[j])) break
+      }
+      const onde = `${arquivo}:${i + 1}`
+      if (!/\bexceto:/.test(bloco)) semExceto.push(onde)
+      const destino = bloco.match(/destino:\s*'([a-z]+)'/)
+      if (!destino) destinoInvalido.push(`${onde} — sem destino`)
+      else if (!telas.has(destino[1])) {
+        destinoInvalido.push(`${onde} — destino '${destino[1]}' nao e uma tela do painel`)
+      }
+    })
+  }
+
+  assert.ok(chamadas >= 6, `poucas chamadas de notificacao achadas: ${chamadas}`)
+  assert.deepEqual(semExceto, [],
+    `notificacao que avisa quem fez a acao:\n${semExceto.join('\n')}`)
+  assert.deepEqual(destinoInvalido, [],
+    `notificacao que nao leva a lugar nenhum:\n${destinoInvalido.join('\n')}`)
+})
+
 // ------------------------- a hierarquia documental existe e nao mente
 
 // A regra e' "nao existe arquitetura paralela": cinco documentos, cada um com
