@@ -303,6 +303,17 @@ class No {
     }
   }
 
+  // `<form>.reset()` limpa os campos de dentro. O painel chama isso depois do
+  // logout, para nao deixar o email de quem saiu no formulario do proximo.
+  reset() {
+    for (const no of [this, ...this.descendentes()]) {
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(no.tagName)) {
+        no.value = ''
+        no.checked = false
+      }
+    }
+  }
+
   focus() { this.focado = true }
   select() { this.selecionado = true }
 
@@ -360,8 +371,11 @@ export function montarDom({ ids = ['area-modal'] } = {}) {
     createElementNS: (_ns, tag) => new No(tag),
     createTextNode: (t) => new Texto(t),
     getElementById: (id) => raiz.descendentes().find((n) => n.id === id) || null,
-    querySelector: (s) => corpo.querySelector(s),
-    querySelectorAll: (s) => corpo.querySelectorAll(s),
+    // A partir da RAIZ, e nao do corpo: a folha de estilo da marca mora no
+    // `head`, e `document.querySelector('#marca-em-previa')` tem que acha-la
+    // como acha no navegador.
+    querySelector: (s) => raiz.querySelector(s),
+    querySelectorAll: (s) => raiz.querySelectorAll(s),
     addEventListener: (t, f) => corpo.addEventListener(t, f),
     removeEventListener: (t, f) => corpo.removeEventListener(t, f),
   }
@@ -394,11 +408,80 @@ export function montarDom({ ids = ['area-modal'] } = {}) {
   // caso comum, e cada teste que quer o outro troca por escrito.
   const navegador = { onLine: true }
 
+  // A pergunta que o navegador faz ao sistema: o tema preferido e' escuro?
+  //
+  // O painel e a tela de configuracoes leem isto para decidir qual tema
+  // mostrar quando a pessoa nao escolheu nenhum. Sem `matchMedia` a tela de
+  // configuracoes nao montava — e o erro aparecia dentro dela, como texto,
+  // parecendo defeito da tela e nao falta do arcabouco.
+  //
+  // `preferirEscuro` deixa o teste dizer o que o sistema responde.
+  const midias = { escuro: false }
+  const consulta = (texto) => ({
+    media: texto,
+    matches: /prefers-color-scheme:\s*dark/.test(texto) ? midias.escuro : false,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    addListener: () => {},
+    removeListener: () => {},
+  })
+  janela.matchMedia = consulta
+
+  // Endereco e historico.
+  //
+  // O painel navega por hash e empilha estado com `pushState`, e le
+  // `location.hash` na abertura. Sem estes dois, `app.js` estourava com
+  // ReferenceError na inicializacao — e o `try/catch` do `iniciar` engolia o
+  // erro e mandava para o login, como se nao houvesse sessao. Um defeito
+  // grave (o painel nao abre) e um defeito de arcabouco (o DOM nao tem
+  // endereco) ficavam com a MESMA cara.
+  const pilha = [{ estado: null, url: '/' }]
+  let ondeEstou = 0
+  const endereco = {
+    get href() { return `http://localhost/${pilha[ondeEstou].url.replace(/^\//, '')}` },
+    get hash() {
+      const i = pilha[ondeEstou].url.indexOf('#')
+      return i === -1 ? '' : pilha[ondeEstou].url.slice(i)
+    },
+    get pathname() { return pilha[ondeEstou].url.split('#')[0] || '/' },
+  }
+  const historia = {
+    get length() { return pilha.length },
+    get state() { return pilha[ondeEstou].estado },
+    pushState: (estado, _titulo, url) => {
+      pilha.length = ondeEstou + 1
+      pilha.push({ estado, url: String(url ?? pilha[ondeEstou].url) })
+      ondeEstou = pilha.length - 1
+    },
+    replaceState: (estado, _titulo, url) => {
+      pilha[ondeEstou] = { estado, url: String(url ?? pilha[ondeEstou].url) }
+    },
+    back: () => {
+      if (ondeEstou === 0) return
+      ondeEstou -= 1
+      const ev = new Evento('popstate')
+      ev.state = pilha[ondeEstou].estado
+      janela.dispatchEvent(ev)
+    },
+    forward: () => {
+      if (ondeEstou >= pilha.length - 1) return
+      ondeEstou += 1
+      const ev = new Evento('popstate')
+      ev.state = pilha[ondeEstou].estado
+      janela.dispatchEvent(ev)
+    },
+  }
+  janela.location = endereco
+  janela.history = historia
+
   const anteriores = {
     document: globalThis.document,
     Event: globalThis.Event,
     window: globalThis.window,
     navigator: globalThis.navigator,
+    matchMedia: globalThis.matchMedia,
+    location: globalThis.location,
+    history: globalThis.history,
     addEventListener: globalThis.addEventListener,
     removeEventListener: globalThis.removeEventListener,
   }
@@ -410,12 +493,25 @@ export function montarDom({ ids = ['area-modal'] } = {}) {
   })
   globalThis.addEventListener = janela.addEventListener
   globalThis.removeEventListener = janela.removeEventListener
+  globalThis.matchMedia = consulta
+  Object.defineProperty(globalThis, 'location', {
+    value: endereco, configurable: true, writable: true,
+  })
+  Object.defineProperty(globalThis, 'history', {
+    value: historia, configurable: true, writable: true,
+  })
 
   return {
     documento,
     corpo,
     janela,
     navegador,
+    endereco,
+    historia,
+    // O sistema prefere tema escuro? E' o que `matchMedia` responde.
+    preferirEscuro: (sim) => { midias.escuro = Boolean(sim) },
+    // O botao Voltar do navegador, que e' o que o `popstate` do painel escuta.
+    voltar: () => historia.back(),
     clicar: (no) => no.click(),
     // Clique solto na pagina: e' assim que um menu aberto se fecha.
     clicarFora: () => corpo.dispatchEvent(new Evento('click')),
@@ -433,6 +529,13 @@ export function montarDom({ ids = ['area-modal'] } = {}) {
       })
       globalThis.addEventListener = anteriores.addEventListener
       globalThis.removeEventListener = anteriores.removeEventListener
+      globalThis.matchMedia = anteriores.matchMedia
+      Object.defineProperty(globalThis, 'location', {
+        value: anteriores.location, configurable: true, writable: true,
+      })
+      Object.defineProperty(globalThis, 'history', {
+        value: anteriores.history, configurable: true, writable: true,
+      })
     },
   }
 }

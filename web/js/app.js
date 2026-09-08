@@ -50,8 +50,19 @@ const TELAS = [
 
 const estado = { usuario: null, telaAtual: null, parametros: {} }
 
-// Devolvido pela tela que precisa desfazer algo ao sair. Ver `navegar`.
+// Devolvido pela tela que precisa desfazer algo ao sair. Ver `desmontarTela`.
 let desmontarTelaAtual = null
+
+// Desfaz o que a tela atual deixou FORA do proprio no'.
+//
+// Existe porque sair de uma tela nao e' so trocar o conteudo: a de
+// configuracoes pinta a PREVIA da marca numa folha de estilo no `<head>` e
+// leva o painel para o tema que esta sendo editado. Nada disso e' alcancado
+// por `limpar(conteudo)`.
+function desmontarTela() {
+  desmontarTelaAtual?.()
+  desmontarTelaAtual = null
+}
 
 const contexto = {
   get usuario() { return estado.usuario },
@@ -184,12 +195,9 @@ async function navegar(chave, parametros = {}, { voltando = false } = {}) {
   desenharNavegacao()
 
   const conteudo = document.getElementById('conteudo')
-  // A tela anterior pode ter deixado algo fora do seu proprio no' — a de
-  // configuracoes pinta a PREVIA da marca no elemento raiz, que nao e' limpo
-  // por `limpar(conteudo)`. Sem desfazer aqui, quem espia uma cor e navega
-  // para outra secao leva a cor nao publicada junto, e acha que salvou.
-  desmontarTelaAtual?.()
-  desmontarTelaAtual = null
+  // Sem desfazer aqui, quem espia uma cor e navega para outra secao leva a cor
+  // nao publicada junto, e acha que salvou.
+  desmontarTela()
   limpar(conteudo)
   try {
     const desmontar = await tela.montar(conteudo, contexto)
@@ -215,7 +223,19 @@ addEventListener('popstate', (evento) => {
 
 // ---------------------------------------------------------------- sessao
 
+// Trocar de tela SEMPRE desmonta o que estava no ar.
+//
+// O desmonte estava em `navegar`, e so la. Por isso o logout escapava: ele
+// troca a tela sem navegar. Quem espiasse uma cor na tela de configuracoes e
+// clicasse em "Sair" ia parar num login pintado com a cor NAO PUBLICADA da
+// empresa anterior, e com a preferencia de tema sequestrada — a folha de
+// previa e o `data-tema` forcado ficavam no `<head>` e no elemento raiz, que
+// `limpar(conteudo)` nao alcanca.
+//
+// Consertar so o logout deixaria a proxima porta aberta. Aqui dentro nao ha
+// porta: trocar de tela e desmontar viraram a mesma coisa.
 function mostrar(telaId) {
+  desmontarTela()
   for (const id of ['tela-login', 'tela-app']) {
     document.getElementById(id).classList.toggle('oculto', id !== telaId)
   }
