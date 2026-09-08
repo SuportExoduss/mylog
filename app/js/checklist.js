@@ -233,7 +233,20 @@ export function executarChecklist({ tarefa, modelo, aoConcluir, aoSair }) {
     return null
   }
 
-  async function fotos_remover(id) {
+  // O UNICO jeito de apagar uma foto daqui.
+  //
+  // Apagar do IndexedDB e' metade: o endereco de blob criado para MOSTRAR a
+  // foto na tela continua vivo enquanto ninguem o revoga, e com ele os bytes da
+  // imagem ficam presos na memoria ate a pagina fechar.
+  //
+  // Chamava-se `fotos_remover`, num arquivo inteiro em camelCase, e dos tres
+  // lugares que apagam foto so um usava. Os outros dois chamavam
+  // `fotos.remover` direto e vazavam — "tirar novamente" e o corte de fotos
+  // acima do limite, que sao justamente os dois que a pessoa repete. Num
+  // aparelho barato, oito checklists com repeticao viram memoria que nao volta.
+  //
+  // O nome novo e' o que se procura ao escrever a proxima chamada.
+  async function descartarFoto(id) {
     await fotos.remover(id)
     const url = enderecoDaFoto.get(id)
     if (url) { URL.revokeObjectURL(url); enderecoDaFoto.delete(id) }
@@ -278,7 +291,7 @@ export function executarChecklist({ tarefa, modelo, aoConcluir, aoSair }) {
           aoClick: async () => {
             const ids = respostas[pergunta.id].fotos_ids
             const removida = ids.pop()
-            if (removida) await fotos.remover(removida)
+            if (removida) await descartarFoto(removida)
             capturar({ pergunta, maximo, aoTerminar })
           },
         } : null,
@@ -396,7 +409,7 @@ export function executarChecklist({ tarefa, modelo, aoConcluir, aoSair }) {
     // vez de barrar a pessoa por algo que ela nao sabia ao tirar.
     if (jaTem > maximo) {
       const ids = respostas[pergunta.id].fotos_ids
-      while (ids.length > maximo) await fotos.remover(ids.pop())
+      while (ids.length > maximo) await descartarFoto(ids.pop())
     }
     avancar()
   }
@@ -652,7 +665,7 @@ export function executarChecklist({ tarefa, modelo, aoConcluir, aoSair }) {
             const ids = respostas[p.id].fotos_ids
             const removida = ids.pop()
             if (removida) {
-              await fotos_remover(removida)
+              await descartarFoto(removida)
             }
             capturarDireto(p, desenharManutencao)
           },

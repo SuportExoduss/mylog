@@ -1017,6 +1017,52 @@ test('contrato: o aplicativo manda exatamente os campos que a rota de checklist 
     `a rota le campo que o aplicativo nunca manda:\n${naoEnviados.join('\n')}`)
 })
 
+// Apagar foto passa por UM lugar so.
+//
+// Apagar do IndexedDB e' metade do trabalho: o endereco de blob criado para
+// mostrar a foto na tela continua vivo enquanto ninguem o revoga, e com ele os
+// bytes da imagem ficam presos na memoria ate a pagina fechar.
+//
+// O helper que faz as duas coisas existia — e se chamava `fotos_remover`, num
+// arquivo inteiro em camelCase. Dos tres lugares que apagam foto, so um o
+// usava; os outros dois chamavam `fotos.remover` direto e vazavam. E eram
+// justamente os dois que a pessoa repete: "tirar novamente" e o corte de fotos
+// acima do limite.
+//
+// Este teste nao mede memoria — mede o que da para medir de forma estavel: que
+// ninguem chama o deposito cru pelas costas do helper.
+test('aplicativo: apagar foto passa sempre pelo mesmo lugar', () => {
+  const raiz = path.join(import.meta.dirname, '..', '..')
+  const checklist = fs.readFileSync(path.join(raiz, 'app', 'js', 'checklist.js'), 'utf8')
+
+  // Fora dos comentarios: um comentario pode citar o nome cru para explicar.
+  const codigo = checklist
+    .split('\n')
+    .filter((linha) => !linha.trim().startsWith('//'))
+    .join('\n')
+
+  const cruas = [...codigo.matchAll(/\bfotos\.remover\(/g)]
+  assert.equal(cruas.length, 1,
+    `so o proprio helper pode chamar o deposito cru; achei ${cruas.length} chamadas`)
+
+  // E a chamada que sobra tem que estar DENTRO do helper.
+  const iHelper = codigo.indexOf('async function descartarFoto(')
+  assert.ok(iHelper > 0, 'o helper de descarte sumiu ou mudou de nome')
+  const fimHelper = codigo.indexOf('\n  }', iHelper)
+  const corpoHelper = codigo.slice(iHelper, fimHelper)
+  assert.match(corpoHelper, /fotos\.remover\(/,
+    'a unica chamada crua precisa ser a de dentro do helper')
+  assert.match(corpoHelper, /revokeObjectURL/,
+    'e o helper existe justamente para revogar o endereco junto')
+
+  // Todo lugar que descarta usa o helper. Tres hoje: "tirar novamente" do
+  // checklist padrao, o corte acima do limite, e "tirar novamente" da
+  // preventiva.
+  const pelosHelper = [...codigo.matchAll(/\bdescartarFoto\(/g)]
+  assert.ok(pelosHelper.length >= 4,
+    `poucos usos do helper (${pelosHelper.length}): a definicao mais os tres pontos de descarte`)
+})
+
 // ------------------------- a hierarquia documental existe e nao mente
 
 // A regra e' "nao existe arquitetura paralela": cinco documentos, cada um com
