@@ -13,6 +13,19 @@ const VERSAO = 1
 
 let promessaBanco = null
 
+// A promessa e' guardada para nao reabrir o banco a cada operacao — mas SO
+// quando ela da certo.
+//
+// Guardando tambem a rejeitada, uma falha passageira virava permanente: outra
+// aba segurando uma atualizacao do banco, o navegador sob pressao de espaco,
+// uma janela anonima. A primeira tentativa falhava, a promessa rejeitada ficava
+// no lugar, e TODA operacao seguinte recebia a mesma rejeicao — pelo resto da
+// vida da pagina. No patio isso e' o aplicativo que "parou de salvar" e so
+// volta se alguem lembrar de fechar e abrir.
+//
+// `onblocked` tambem existe agora: sem ele, uma aba antiga segurando o banco
+// deixava o pedido pendurado sem nunca resolver nem rejeitar, e a fila
+// silenciosamente parava.
 function abrir() {
   if (promessaBanco) return promessaBanco
   promessaBanco = new Promise((resolve, reject) => {
@@ -30,8 +43,12 @@ function abrir() {
       }
     }
     pedido.onsuccess = () => resolve(pedido.result)
-    pedido.onerror = () => reject(pedido.error)
+    pedido.onerror = () => reject(pedido.error || new Error('Nao consegui abrir o armazem local.'))
+    pedido.onblocked = () => reject(new Error(
+      'Outra aba do MyLog esta com o armazem aberto. Feche as outras abas e tente de novo.'))
   })
+  // Falha nao fica guardada: a proxima operacao tenta abrir de novo.
+  promessaBanco.catch(() => { promessaBanco = null })
   return promessaBanco
 }
 

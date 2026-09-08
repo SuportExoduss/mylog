@@ -476,6 +476,67 @@ test('fila: o desvio existe, e e pequeno', () => {
   assert.ok(cheio <= 15_000 * 1.2, `desvio grande demais: ${cheio}`)
 })
 
+test('armazem: falha ao abrir o banco local nao vira falha permanente', async () => {
+  // A promessa de abertura era guardada para nao reabrir o banco a cada
+  // operacao — mas era guardada TAMBEM quando dava errado. Uma falha passageira
+  // virava permanente: a primeira tentativa falhava, a promessa rejeitada ficava
+  // no lugar, e toda operacao seguinte recebia a mesma rejeicao pelo resto da
+  // vida da pagina.
+  //
+  // No patio isso e' o aplicativo que "parou de salvar" e so volta se alguem
+  // lembrar de fechar e abrir. E as causas sao banais: outra aba segurando uma
+  // atualizacao do banco, o navegador sob pressao de espaco, uma janela
+  // anonima.
+  //
+  // O modulo guarda a promessa em variavel de modulo, entao o teste importa uma
+  // COPIA fresca — com um `indexedDB` falso que falha na primeira e aceita na
+  // segunda.
+  const antes = Object.getOwnPropertyDescriptor(globalThis, 'indexedDB')
+  let tentativas = 0
+
+  const bancoDeMentira = {
+    objectStoreNames: { contains: () => true },
+    transaction: () => ({
+      objectStore: () => ({ get: () => ({}), put: () => ({}), getAll: () => ({}) }),
+      set oncomplete(fn) { setTimeout(fn, 0) },
+      set onerror(_) {},
+      set onabort(_) {},
+    }),
+  }
+
+  Object.defineProperty(globalThis, 'indexedDB', {
+    configurable: true,
+    value: {
+      open() {
+        tentativas += 1
+        const pedido = { result: bancoDeMentira, error: new Error('sem espaco') }
+        const falhaAgora = tentativas === 1
+        setTimeout(() => {
+          if (falhaAgora) pedido.onerror?.()
+          else pedido.onsuccess?.()
+        }, 0)
+        return pedido
+      },
+    },
+  })
+
+  try {
+    // `?v=` forca um modulo novo, com a variavel de modulo zerada.
+    const armazem = await import(`../../app/js/armazem.js?v=${Date.now()}`)
+
+    await assert.rejects(() => armazem.contexto.ler(),
+      'a primeira tentativa falha, e tem que falhar mesmo')
+
+    // A SEGUNDA precisa tentar de novo em vez de devolver a rejeicao guardada.
+    await armazem.contexto.ler()
+    assert.equal(tentativas, 2,
+      'o banco tem que ser reaberto depois de uma falha, e nao devolver a promessa rejeitada')
+  } finally {
+    if (antes) Object.defineProperty(globalThis, 'indexedDB', antes)
+    else delete globalThis.indexedDB
+  }
+})
+
 test('fila: sessao vencida e freio NAO apagam a evidencia do aparelho', () => {
   // A fila descartava a foto do aparelho em qualquer resposta 4xx, com a razao
   // "recusa por regra nao melhora tentando de novo". A razao esta certa; a

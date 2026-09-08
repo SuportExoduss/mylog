@@ -2001,6 +2001,33 @@ Pontos que ainda dependem de decisão da operação:
 9. **O filtro de período "igual ao do Fibra nos relatórios de O.S."** — desenhei
    como *de… até…* mais navegação por mês e atalhos (11.9). Se a tela do Fibra
    tem algo além disso, um print resolve.
+10. **Por quanto tempo as fotos de um checklist RECUSADO ficam no aparelho.**
+
+    Quando o servidor recusa uma inspeção por regra — solicitação que mudou de
+    estado, checklist que não existe mais —, o item fica na fila marcado como
+    `recusada`, com o motivo à vista. Isso é deliberado: nada some em silêncio,
+    e o motorista precisa saber que aquele checklist não entrou.
+
+    Mas as **fotos** dele também ficam, e ficam **para sempre**: só saem do
+    aparelho quando a inspeção é aceita. `limparEnviadasAntigas` toca apenas nas
+    enviadas.
+
+    A tensão é real dos dois lados. A D15 nomeia a cota de fotos como o risco
+    concentrado do offline — cada foto retida aproxima o navegador de despejar o
+    armazenamento e levar junto as fotos que *ainda não subiram*. E, do outro
+    lado, essas fotos são a única prova de que a pessoa fez o serviço que o
+    sistema diz não ter acontecido.
+
+    Três saídas possíveis, e a escolha é da operação:
+
+    - **manter para sempre** — o que acontece hoje, sem ter sido decidido;
+    - **apagar junto com as enviadas antigas** (7 dias), depois que a recusa já
+      foi vista;
+    - **deixar o motorista apagar**, com um botão que diz o que ele está
+      descartando.
+
+    Não implementei nenhuma: apagar evidência sem decisão explícita é
+    exatamente o defeito que a [D54](DECISOES.md) acabou de corrigir.
 
 ### Respondidos em 04/09/2026
 
