@@ -476,6 +476,78 @@ test('relatorios: texto hostil no banco nao vira marcacao em nenhuma das quatro 
   }
 })
 
+test('acervo: descartar um rascunho leva as fotos de exemplo junto', async () => {
+  // Descartar apagava a linha do banco e deixava as imagens no disco para
+  // sempre. Ninguem nunca as apagaria: elas nao aparecem em lista nenhuma, e o
+  // modelo que as citava deixou de existir. Um acervo que so cresce e' um
+  // acervo que ninguem consegue auditar.
+  //
+  // So vale para a imagem de MODELO. Evidencia de checklist nao se apaga — e'
+  // prova em acidente e em processo trabalhista.
+  const frota = await entrar('frota.a@rel.local')
+
+  const modelo = (await chamar('POST', '/api/templates', {
+    token: frota,
+    corpo: {
+      codigo: 'acervo-rascunho', nome: 'Modelo com foto', tipo_veiculo: 'compacto_leve',
+      cargos_liberados: ['*'], finalidade: 'padrao', estrutura: ESTRUTURA,
+    },
+  })).dados.template
+
+  const enviada = await chamar('POST', `/api/templates/${modelo.id}/imagem`, {
+    token: frota, corpo: { conteudo: PNG, tipo_mime: 'image/png' },
+  })
+  assert.equal(enviada.status, 200, JSON.stringify(enviada.dados))
+
+  // A imagem existe, e abre.
+  const antes = await bruto(enviada.dados.url, frota)
+  assert.equal(antes.status, 200, 'controle: a foto de exemplo abre antes do descarte')
+
+  const pasta = path.join(raizTemp, 'evidencias', empresaA, 'modelos', modelo.id)
+  assert.ok(fs.existsSync(pasta), 'controle: a pasta do modelo existe no disco')
+
+  await chamar('DELETE', `/api/templates/${modelo.id}`, { token: frota })
+
+  assert.ok(!fs.existsSync(pasta),
+    'a pasta do modelo descartado tem que sair do acervo junto com a linha')
+  const depois = await bruto(enviada.dados.url, frota)
+  assert.notEqual(depois.status, 200, 'e a URL nao pode mais entregar a imagem')
+})
+
+test('acervo: a guarda de raiz cobra a barra, e nao so o prefixo', async () => {
+  // `resolve(alvo).startsWith(raiz)` deixa passar `/dados/storage-antigo` quando
+  // a raiz e' `/dados/storage`: o texto comeca igual e a barra nunca e' cobrada.
+  //
+  // Hoje nada chega ate aqui capaz de explorar isso — os segmentos sao
+  // higienizados em `caminhoDe`, e o nome do arquivo de modelo passa por uma
+  // expressao regular. Mas esta e' a ULTIMA camada, e a razao de existir de uma
+  // ultima camada e' segurar quando a de cima falhar. Guarda que so funciona
+  // por acidente nao e' guarda.
+  const { gravar, ler, apagarRamo } = await import('../src/nucleo/storage.js')
+
+  const acervo = path.join(raizTemp, 'evidencias')
+  const vizinho = `${acervo}-vizinho`
+  fs.mkdirSync(vizinho, { recursive: true })
+  fs.writeFileSync(path.join(vizinho, 'segredo.txt'), 'nao devia sair daqui')
+
+  // O caminho relativo que sai do storage e cai no diretorio irmao.
+  const fuga = path.join('..', `${path.basename(acervo)}-vizinho`, 'segredo.txt')
+
+  assert.equal(ler(fuga), null, 'ler nao pode alcancar o diretorio irmao')
+  assert.throws(() => gravar(fuga, Buffer.from('invadido')),
+    /fora do storage/, 'gravar tem que recusar')
+  assert.equal(fs.readFileSync(path.join(vizinho, 'segredo.txt'), 'utf8'),
+    'nao devia sair daqui', 'e o arquivo do vizinho segue intacto')
+
+  // E `apagarRamo` nunca pode levar a raiz inteira, nem o vizinho.
+  apagarRamo(fuga)
+  assert.ok(fs.existsSync(path.join(vizinho, 'segredo.txt')), 'apagarRamo nao sai do storage')
+  apagarRamo('')
+  assert.ok(fs.existsSync(acervo), 'apagarRamo nunca apaga a raiz do acervo')
+
+  fs.rmSync(vizinho, { recursive: true, force: true })
+})
+
 test('cabecalhos: a politica de conteudo vale para TUDO que sai do servidor', async () => {
   // Nao adianta blindar a API e deixar o HTML do painel, o CSS e a imagem de
   // fora: e' justamente no documento que o script injetado rodaria.

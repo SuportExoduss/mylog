@@ -71,27 +71,52 @@ export function caminhoDeImagemModelo({ empresaId, templateId, mime }) {
   return path.join(seguro(empresaId), 'modelos', seguro(templateId), nome)
 }
 
-export function gravar(caminhoRelativo, buffer) {
-  const destino = path.join(config.storageCaminho, caminhoRelativo)
+// Dentro do storage — e "dentro" com a barra, nao so com o prefixo.
+//
+// A conferencia era `resolve(alvo).startsWith(raiz)`. Com a raiz em
+// `/dados/storage`, um caminho em `/dados/storage-antigo` PASSA: o texto comeca
+// igual e a barra nunca e' cobrada. Hoje nada chega aqui capaz de explorar isso
+// — todo segmento de caminho e' higienizado em `caminhoDe` e o nome do arquivo
+// da imagem de modelo passa por uma expressao regular. Mas esta funcao e' a
+// ULTIMA camada, e a razao de existir de uma ultima camada e' segurar quando a
+// de cima falhar. Uma guarda que so funciona por acidente nao e' guarda.
+function dentroDoStorage(caminhoRelativo) {
   const raiz = path.resolve(config.storageCaminho)
-  if (!path.resolve(destino).startsWith(raiz)) {
+  const alvo = path.resolve(path.join(config.storageCaminho, caminhoRelativo))
+  return alvo === raiz || alvo.startsWith(raiz + path.sep)
+}
+
+export function gravar(caminhoRelativo, buffer) {
+  if (!dentroDoStorage(caminhoRelativo)) {
     throw new Error('Caminho de evidencia fora do storage.')
   }
+  const destino = path.join(config.storageCaminho, caminhoRelativo)
   fs.mkdirSync(path.dirname(destino), { recursive: true })
   fs.writeFileSync(destino, buffer)
   return { bytes: buffer.length, hash: crypto.createHash('sha256').update(buffer).digest('hex') }
 }
 
 export function ler(caminhoRelativo) {
-  const origem = path.join(config.storageCaminho, caminhoRelativo)
-  const raiz = path.resolve(config.storageCaminho)
-  if (!path.resolve(origem).startsWith(raiz)) return null
-  try { return fs.readFileSync(origem) } catch { return null }
+  if (!dentroDoStorage(caminhoRelativo)) return null
+  try { return fs.readFileSync(path.join(config.storageCaminho, caminhoRelativo)) } catch { return null }
 }
 
 export function apagar(caminhoRelativo) {
-  const alvo = path.join(config.storageCaminho, caminhoRelativo)
+  if (!dentroDoStorage(caminhoRelativo)) return
+  try { fs.rmSync(path.join(config.storageCaminho, caminhoRelativo)) } catch { /* ja removido */ }
+}
+
+// Apaga um RAMO inteiro do acervo. Existe por um caso so, e um caso real:
+// descartar um rascunho de checklist apagava a linha do banco e deixava as
+// fotos de exemplo no disco para sempre. Ninguem nunca as apagaria — elas nao
+// aparecem em lista nenhuma, e o modelo que as citava deixou de existir.
+//
+// So para o que NAO e' evidencia. Foto de checklist nao se apaga: e' prova em
+// acidente e em processo trabalhista, e some junto com a empresa, nao antes.
+export function apagarRamo(caminhoRelativo) {
+  if (!dentroDoStorage(caminhoRelativo)) return
   const raiz = path.resolve(config.storageCaminho)
-  if (!path.resolve(alvo).startsWith(raiz)) return
-  try { fs.rmSync(alvo) } catch { /* ja removido */ }
+  const alvo = path.resolve(path.join(config.storageCaminho, caminhoRelativo))
+  if (alvo === raiz) return          // nunca a raiz inteira
+  try { fs.rmSync(alvo, { recursive: true, force: true }) } catch { /* ja removido */ }
 }

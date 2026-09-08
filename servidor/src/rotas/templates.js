@@ -4,9 +4,10 @@
 // versao que foi respondida, entao editar uma versao publicada reescreveria o
 // significado de inspecoes ja feitas. Editar cria a versao seguinte.
 import { consultar, consultarUm, executar, novoId, agora, transacao } from '../nucleo/banco.js'
+import path from 'node:path'
 import { erro } from '../nucleo/http.js'
 import {
-  caminhoDeImagemModelo, gravar, ler, tipoRealDe, LIMITE_BYTES,
+  caminhoDeImagemModelo, gravar, ler, apagarRamo, tipoRealDe, LIMITE_BYTES,
 } from '../nucleo/storage.js'
 import { registrarEvento } from '../nucleo/auditoria.js'
 import { exigirAutenticado } from '../seguranca/sessao.js'
@@ -425,6 +426,14 @@ export function registrarRotasTemplates(rotas) {
       throw erro.conflito('So rascunho pode ser descartado. Versao publicada faz parte do historico.')
     }
     executar('DELETE FROM templates WHERE id = ? AND empresa_id = ?', [template.id, eu.empresa_id])
+
+    // As fotos de exemplo vao junto. Descartar o rascunho apagava a linha do
+    // banco e deixava as imagens no acervo para sempre: ninguem nunca as
+    // apagaria, porque nao aparecem em lista nenhuma e o modelo que as citava
+    // deixou de existir.
+    //
+    // So vale para a imagem de MODELO. Evidencia de checklist nao se apaga.
+    apagarRamo(path.join(eu.empresa_id, 'modelos', template.id))
     registrarEvento({
       empresaId: eu.empresa_id, ator: eu, acao: 'checklist.rascunho_descartado',
       entidade: 'template', entidadeId: template.id,
