@@ -2907,6 +2907,71 @@ test('matriz: quem nao trocou a senha inicial nao alcanca mais nada', async () =
     `o pendente alcancou o que nao devia:\n${passaram.join('\n')}`)
 })
 
+// Toda rota com `:id`, atravessada pela Frota da outra empresa.
+//
+// As duas provas escritas a mao logo abaixo continuam valendo e sao mais
+// severas onde importa — elas conferem que o ALVO ficou intacto, e nao so que a
+// resposta foi 404. Mas cobrem quinze rotas. Esta cobre todas as que tem `:id`,
+// e cresce sozinha.
+//
+// 404 e nao 403, sempre: responder "sem permissao" a um id de outra empresa
+// confirmaria que o id existe. Para quem esta fora, o registro nao existe.
+function fotoDosAlvos() {
+  return {
+    veiculo: consultarUm('SELECT status, modelo, km_atual FROM veiculos WHERE id = ?', [veiculoA4]),
+    usuario: consultarUm('SELECT nome, status FROM usuarios WHERE id = ?', [frotaA]),
+    modelo: consultarUm('SELECT nome, status, versao FROM templates WHERE id = ?',
+      [modeloPreventivaA]),
+    categoria: consultarUm('SELECT nome, ativo FROM categorias_uso WHERE id = ?', [catA]),
+    cargo: consultarUm('SELECT nome, ativo FROM cargos WHERE id = ?', [cgMotoristaA]),
+    // As entidades de fluxo tambem: a travessia dispara PATCH, POST /status,
+    // /concluir, /aprovar, /cancelar e /devolver de verdade. Fotografar so os
+    // cadastros deixaria a metade mais perigosa sem conferencia.
+    ocorrencia: consultarUm('SELECT status, resolucao, responsavel_id FROM ocorrencias WHERE id = ?',
+      [globalThis.__algumaOcorrencia]),
+    preventiva: consultarUm('SELECT status, proximo_km, proxima_data FROM preventivas WHERE id = ?',
+      [globalThis.__preventivaA]),
+    solicitacao: consultarUm('SELECT status, veiculo_id, devolvido_em FROM solicitacoes WHERE id = ?',
+      [globalThis.__algumaSolicitacao]),
+    inspecao: consultarUm('SELECT status, resultado, km_informado FROM inspecoes WHERE id = ?',
+      [globalThis.__algumaInspecao]),
+  }
+}
+
+test('isolamento: toda rota com id atravessada pela outra empresa responde 404', async () => {
+  acharAlvosDaMatriz()
+  const invasor = await entrar('frota.b@teste.local')
+  const antes = fotoDosAlvos()
+
+  const erradas = []
+  const naoMontadas = []
+  let atravessadas = 0
+
+  for (const r of rotasDoCodigo()) {
+    if (!r.caminho.includes(':')) continue
+    const caminho = preencher(r.caminho)
+    if (caminho === null) { naoMontadas.push(`${r.metodo} ${r.caminho} (${r.onde})`); continue }
+
+    atravessadas += 1
+    const resposta = await chamar(r.metodo, caminho,
+      r.metodo === 'GET' ? { token: invasor } : { token: invasor, corpo: {} })
+    if (resposta.status !== 404) {
+      erradas.push(`${r.metodo} ${r.caminho} → ${resposta.status} (${r.onde})`)
+    }
+  }
+
+  assert.ok(atravessadas >= 25, `poucas rotas com id atravessadas: ${atravessadas}`)
+  assert.deepEqual(naoMontadas, [],
+    `caminho que a travessia nao soube montar — decida o que fazer:\n${naoMontadas.join('\n')}`)
+  assert.deepEqual(erradas, [],
+    `rota que nao respondeu 404 a um id de outra empresa:\n${erradas.join('\n')}`)
+
+  // Nao basta a resposta ser 404 se o efeito passou. As escritas acima foram
+  // disparadas de verdade; os alvos tem que estar como estavam.
+  assert.deepEqual(fotoDosAlvos(), antes,
+    'um registro da empresa A mudou durante a travessia da empresa B')
+})
+
 test('isolamento: a Frota de outra empresa nao le nada da empresa A', async () => {
   const invasor = await entrar('frota.b@teste.local')
   const alvo = alvosDaEmpresaA()
