@@ -922,3 +922,42 @@ está afirmando que o sistema distingue esses valores. Quando nenhuma linha lê 
 coluna, o comentário vira ficção documentada — e ficção documentada é pior que
 silêncio, porque alguém vai confiar nela. Toda enumeração no esquema precisa de
 pelo menos um leitor, ou de uma nota dizendo que ainda não tem.
+
+---
+
+## D52 — A matriz de acesso é declarada, não lida da própria guarda
+
+O sistema tem 73 rotas. A cobertura de permissão era escrita à mão: sete
+leituras e oito escritas na prova de isolamento entre empresas, mais alguns
+testes pontuais de nível. Quinze linhas para setenta e três rotas — e ninguém
+lembra de acrescentar a décima sexta ao criar a rota nova.
+
+A primeira versão da matriz gerada **lia a guarda do código** (`exigirFrota` /
+`exigirAutenticado`) e conferia se as rotas assim marcadas recusavam
+colaborador. Isso é tautologia, e a verificação mostrou exatamente isso:
+trocando `exigirFrota` por `exigirAutenticado` em `GET /api/preventivas`, a rota
+saía da lista que o teste examinava e a suíte continuava **verde**. Um teste que
+lê a resposta do código para depois conferir o código não confere nada.
+
+**A lista de níveis é a especificação, escrita à mão, e o código é conferido
+contra ela.** Quatro níveis: `aberta`, `pendente`, `colaborador`, `frota`.
+
+Lista escrita à mão apodrece — por isso são cinco testes e não um:
+
+| O teste | O que ele impede |
+|---|---|
+| A especificação cobre exatamente as rotas que existem | rota nova sem decisão de nível; rota morta ainda listada |
+| Nenhuma rota responde sem sessão, fora as duas que devem | guarda esquecida |
+| Nenhuma rota de Frota responde a colaborador | vazamento |
+| Nenhuma rota do colaborador foi fechada por engano | **aperto demais** — a direção que quase todo teste de permissão esquece |
+| Quem não trocou a senha inicial não alcança mais nada | o portão do primeiro acesso, rota a rota |
+
+Rota cujo caminho o teste não sabe montar **não é pulada em silêncio**: cai numa
+lista que o teste exige vazia. Criar uma rota com forma de caminho nova obriga a
+decidir o que fazer com ela — porque uma matriz que pula é uma matriz que mente
+sobre a própria cobertura.
+
+**O que a matriz exerce com segurança são os níveis sem privilégio.** A guarda
+roda antes de qualquer efeito, então chamar um `POST` de Frota com credencial de
+colaborador recusa sem gravar nada. É de propósito que ela não exerce o nível de
+Frota: fazer isso mutaria o banco e quebraria os vizinhos.

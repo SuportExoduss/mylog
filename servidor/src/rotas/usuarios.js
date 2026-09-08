@@ -75,8 +75,13 @@ function contarFrotaAtiva(empresaId, exceto) {
 
 export function registrarRotasUsuarios(rotas) {
   // ------------------------------------------------------------------ cargos
+  // So a Frota. O colaborador nao precisa da lista de cargos da empresa: o
+  // cargo DELE vem em `/api/auth/eu`, e o formulario de pedido dele e'
+  // `/api/categorias`, que continua aberto. Esta rota devolve todo cargo da
+  // empresa mais quantas pessoas ha em cada um — organograma, e o unico cliente
+  // que a chama e' o painel, que ja e' de Frota.
   rotas.get('/api/cargos', async (ctx) => {
-    const eu = exigirAutenticado(ctx)
+    const eu = exigirFrota(exigirAutenticado(ctx))
     return {
       cargos: consultar(
         `SELECT c.id, c.nome, c.ativo, c.criado_em,

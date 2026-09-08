@@ -306,6 +306,7 @@ test('login: sem token nenhuma rota de dados responde', async () => {
 // --------------------------------------------- criterio: primeiro acesso
 
 test('primeiro acesso: a troca de senha e obrigatoria e so depois o usuario fica ativo', async () => {
+  acharAlvosDaMatriz()
   const token = await entrar('pendente.a@teste.local')
   assert.ok(token, 'usuario pendente precisa conseguir entrar para trocar a senha')
 
@@ -2508,6 +2509,403 @@ function alvosDaEmpresaA() {
 
   return { ocorrencia, inspecao, evidencia, notificacao, modelo }
 }
+
+// Um caminho concreto para uma rota com parametro.
+//
+// O que interessa a matriz e' a GUARDA, que roda antes de qualquer busca — e
+// por isso um id existente e um inventado dao a mesma resposta para quem nao
+// tem credencial. Ainda assim vale usar ids REAIS: com id inventado, uma rota
+// sem guarda nenhuma responderia 404 e passaria por bem-guardada.
+//
+// `null` quer dizer "nao sei montar", e nao "pode pular": quem chama poe numa
+// lista que o teste exige vazia.
+function preencher(molde) {
+  if (!molde.includes(':')) return molde
+
+  const alvos = [
+    [/^\/api\/veiculos\/:id/,        () => veiculoA4],
+    [/^\/api\/usuarios\/:id/,        () => frotaA],
+    [/^\/api\/templates\/:id/,       () => modeloPreventivaA],
+    [/^\/api\/categorias\/:id/,      () => catA],
+    [/^\/api\/cargos\/:id/,          () => cgMotoristaA],
+    [/^\/api\/inspecoes\/:id/,       () => globalThis.__algumaInspecao],
+    [/^\/api\/solicitacoes\/:id/,    () => globalThis.__algumaSolicitacao],
+    [/^\/api\/ocorrencias\/:id/,     () => globalThis.__algumaOcorrencia],
+    [/^\/api\/preventivas\/:id/,     () => globalThis.__preventivaA],
+    [/^\/api\/evidencias\/:id/,      () => globalThis.__algumaEvidencia],
+    [/^\/api\/evidencia\/:id/,       () => globalThis.__algumaEvidencia],
+    [/^\/relatorio\/inspecao\/:id/,  () => globalThis.__algumaInspecao],
+    [/^\/relatorio\/solicitacao\/:id/, () => globalThis.__algumaSolicitacao],
+    [/^\/relatorio\/preventiva\/:id/,  () => globalThis.__preventivaA],
+    [/^\/imagens\/modelo\/:template\/:arquivo/,
+      () => [modeloPreventivaA, 'nao-existe.jpg']],
+  ]
+
+  for (const [padrao, achar] of alvos) {
+    if (!padrao.test(molde)) continue
+    const valor = achar()
+    const pecas = Array.isArray(valor) ? valor : [valor]
+    if (pecas.some((x) => !x)) return null
+    let i = 0
+    return molde.replace(/:[a-zA-Z]+/g, () => pecas[i++])
+  }
+  return null
+}
+
+// Alvos que so existem depois que os testes anteriores rodaram. A matriz corre
+// no fim do arquivo de proposito: se ela rodasse antes, metade dos caminhos
+// viria vazia e a varredura mediria muito menos do que anuncia.
+function acharAlvosDaMatriz() {
+  const um = (sql, params = [empresaA]) => consultarUm(sql, params)?.id || null
+  globalThis.__algumaInspecao = globalThis.__algumaInspecao
+    || um('SELECT id FROM inspecoes WHERE empresa_id = ? LIMIT 1')
+  globalThis.__algumaSolicitacao = globalThis.__algumaSolicitacao
+    || um('SELECT id FROM solicitacoes WHERE empresa_id = ? LIMIT 1')
+  globalThis.__algumaOcorrencia = globalThis.__algumaOcorrencia
+    || um('SELECT id FROM ocorrencias WHERE empresa_id = ? LIMIT 1')
+  globalThis.__algumaEvidencia = globalThis.__algumaEvidencia
+    || um('SELECT id FROM evidencias WHERE empresa_id = ? LIMIT 1')
+  globalThis.__preventivaA = globalThis.__preventivaA
+    || um('SELECT id FROM preventivas WHERE empresa_id = ? LIMIT 1')
+
+  // A evidencia da empresa A nasce aqui se ainda nao existir: as fotos sao
+  // testadas em relatorios.teste.js, e sem uma linha na tabela a matriz nao
+  // conseguiria montar `/api/evidencias/:id` — e uma rota que a matriz nao
+  // monta e' uma rota que ela nao guarda.
+  if (!globalThis.__algumaEvidencia && globalThis.__algumaInspecao) {
+    const insp = consultarUm('SELECT * FROM inspecoes WHERE id = ?', [globalThis.__algumaInspecao])
+    const id = novoId('evidencia')
+    const ts = agora()
+    executar(
+      `INSERT INTO evidencias (id, empresa_id, veiculo_id, inspecao_id, pergunta_id,
+                               usuario_id, tipo_mime, caminho, bytes, capturado_em, criado_em)
+       VALUES (?, ?, ?, ?, 'lataria', ?, 'image/png', 'nao-existe/foto.png', 1, ?, ?)`,
+      [id, empresaA, insp.veiculo_id, insp.id, insp.usuario_id, ts, ts])
+    globalThis.__algumaEvidencia = id
+  }
+}
+
+// ===================== a matriz de acesso, lida do proprio codigo =========
+//
+// As duas provas de isolamento logo abaixo sao escritas a mao: sete leituras e
+// oito escritas. Estavam certas e continuam valendo — mas sao quinze linhas de
+// uma lista que hoje tem mais de setenta rotas, e ninguem lembra de acrescentar
+// a decima sexta ao criar a decima sexta rota.
+//
+// Este bloco varre `servidor/src/rotas/` e monta a matriz sozinho. Rota nova
+// entra na conta no dia em que nasce, sem ninguem editar teste nenhum. E rota
+// cujo parametro este arquivo nao sabe preencher NAO e' pulada em silencio: ela
+// cai numa lista que o teste exige vazia, entao criar uma rota com forma de
+// caminho nova obriga a decidir o que fazer com ela.
+//
+// O que a matriz consegue exercer com seguranca sao os niveis SEM privilegio —
+// e' exatamente onde os buracos moram. A guarda roda antes de qualquer efeito,
+// entao chamar um POST de Frota com credencial de colaborador recusa sem
+// gravar nada.
+
+function rotasDoCodigo() {
+  const raiz = path.join(import.meta.dirname, '..', 'src', 'rotas')
+  const achadas = []
+  for (const arquivo of fs.readdirSync(raiz).filter((f) => f.endsWith('.js'))) {
+    const linhas = fs.readFileSync(path.join(raiz, arquivo), 'utf8').split('\n')
+    const inicios = []
+    linhas.forEach((linha, i) => {
+      const m = linha.match(/rotas\.(get|post|put|patch|delete)\(\s*'([^']+)'/)
+      if (m) inicios.push({ i, metodo: m[1].toUpperCase(), caminho: m[2] })
+    })
+    inicios.forEach((r, k) => {
+      // O corpo vai ate a PROXIMA rota, e nao ate uma quantidade fixa de
+      // linhas. Com uma janela fixa, o `exigirFrota` da rota seguinte era lido
+      // como se fosse desta: `GET /api/cargos`, que so exige sessao, aparecia
+      // como rota de Frota. Guarda lida errado esconde buraco nos dois
+      // sentidos — este acusou um que nao existia, e o simetrico deixaria
+      // passar um que existe.
+      const fim = k + 1 < inicios.length ? inicios[k + 1].i : linhas.length
+      const corpo = linhas.slice(r.i, fim).join('\n')
+      const guarda = corpo.includes('exigirFrota') ? 'frota'
+        : corpo.includes('exigirAutenticado') ? 'sessao'
+          : corpo.includes('exigirSessao') ? 'sessao_crua' : 'sem_guarda'
+      achadas.push({
+        metodo: r.metodo, caminho: r.caminho, guarda,
+        onde: `${arquivo}:${r.i + 1}`,
+      })
+    })
+  }
+  return achadas
+}
+
+// As unicas rotas que respondem sem sessao nenhuma, e o motivo de cada uma.
+// Qualquer outra que apareca aqui e' um buraco, nao uma escolha.
+const SEM_SESSAO = new Map([
+  ['POST /api/auth/login', 'e a porta: exigir sessao para entrar seria um circulo'],
+  ['POST /api/auth/sair',  'sair sem sessao e um nao-evento, e responder 401 a quem ja saiu confunde'],
+])
+
+// `exigirSessao` (e nao `exigirAutenticado`) e' o que o usuario PENDENTE
+// alcanca: a sessao dele vale, mas so para trocar a senha inicial.
+const PENDENTE_ALCANCA = new Set([
+  'GET /api/auth/eu',
+  'POST /api/auth/senha',
+  'POST /api/auth/sair',
+  'POST /api/auth/login',
+])
+
+test('matriz: nenhuma rota responde sem sessao, fora as duas que devem', async () => {
+  acharAlvosDaMatriz()
+  const rotas = rotasDoCodigo()
+  assert.ok(rotas.length > 60, `varredura pobre demais: ${rotas.length} rotas`)
+
+  const abertas = []
+  const naoCobertas = []
+
+  for (const r of rotas) {
+    const chave = `${r.metodo} ${r.caminho}`
+    const caminho = preencher(r.caminho)
+    if (caminho === null) { naoCobertas.push(`${chave} (${r.onde})`); continue }
+
+    const opcoes = r.metodo === 'GET' ? {} : { corpo: {} }
+    const resposta = await chamar(r.metodo, caminho, opcoes)
+    const deveriaAbrir = SEM_SESSAO.has(chave)
+
+    if (deveriaAbrir) {
+      assert.notEqual(resposta.status, 401,
+        `${chave} devia responder sem sessao (${SEM_SESSAO.get(chave)}) e devolveu 401`)
+    } else if (resposta.status !== 401) {
+      abertas.push(`${chave} → ${resposta.status} (${r.onde}, guarda lida: ${r.guarda})`)
+    }
+  }
+
+  assert.deepEqual(abertas, [],
+    `rota respondendo sem sessao nenhuma:\n${abertas.join('\n')}`)
+  assert.deepEqual(naoCobertas, [],
+    `a matriz nao soube montar o caminho destas — decida o que fazer com elas:\n${naoCobertas.join('\n')}`)
+})
+
+// O NIVEL DE CADA ROTA, declarado — e nao lido da propria guarda.
+//
+// A primeira versao deste teste lia `exigirFrota` do codigo e conferia se as
+// rotas assim marcadas recusavam colaborador. Isso e' tautologia: trocando
+// `exigirFrota` por `exigirAutenticado` numa rota, ela saia da lista e o teste
+// continuava verde. Verifiquei injetando exatamente isso em
+// `GET /api/preventivas` — passou.
+//
+// Entao a lista abaixo e' a ESPECIFICACAO, escrita a mao, e o codigo e' conferido
+// contra ela. Lista escrita a mao apodrece — por isso o teste tambem exige que
+// ela cubra exatamente as rotas que existem: rota nova sem decisao de nivel
+// derruba a suite no dia em que nasce.
+//
+//   aberta      — responde sem sessao nenhuma
+//   pendente    — a sessao de quem ainda nao trocou a senha inicial alcanca
+//   colaborador — qualquer sessao ativa
+//   frota       — so quem tem acessa_painel
+const NIVEL = new Map([
+  ['POST /api/auth/login', 'aberta'],
+  ['POST /api/auth/sair', 'aberta'],
+  ['GET /api/auth/eu', 'pendente'],
+  ['POST /api/auth/senha', 'pendente'],
+
+  // O formulario de pedido do colaborador: categoria e quantos carros atendem,
+  // sem placa nenhuma (roadmap 10.3).
+  ['GET /api/categorias', 'colaborador'],
+  ['POST /api/categorias', 'frota'],
+  ['PATCH /api/categorias/:id', 'frota'],
+  ['DELETE /api/categorias/:id', 'frota'],
+  // Esta mostra placa. Por isso e' da Frota, ao contrario da de cima.
+  ['GET /api/categorias/:id/veiculos', 'frota'],
+  ['PUT /api/categorias/:id/veiculos', 'frota'],
+
+  // O aplicativo de campo inteiro. Cada uma filtra por autor por dentro.
+  ['GET /api/app/inicio', 'colaborador'],
+  ['POST /api/inspecoes', 'colaborador'],
+  ['GET /api/inspecoes', 'colaborador'],
+  ['GET /api/inspecoes/:id', 'colaborador'],
+  ['POST /api/inspecoes/:id/evidencias', 'colaborador'],
+  ['GET /api/inspecoes/:id/evidencias', 'colaborador'],
+  ['GET /api/evidencias/:id', 'colaborador'],
+  ['GET /api/execucoes', 'colaborador'],
+  ['GET /api/notificacoes', 'colaborador'],
+  ['POST /api/notificacoes/lidas', 'colaborador'],
+  ['GET /api/usuarios/:id/historico', 'colaborador'],
+  // A foto de exemplo da pergunta: o app precisa mostrar COMO fotografar.
+  ['GET /imagens/modelo/:template/:arquivo', 'colaborador'],
+
+  // O pedido e' dele; a liberacao e' da Frota.
+  ['GET /api/solicitacoes', 'colaborador'],
+  ['GET /api/solicitacoes/:id', 'colaborador'],
+  ['POST /api/solicitacoes', 'colaborador'],
+  ['POST /api/solicitacoes/:id/cancelar', 'colaborador'],
+  ['GET /api/solicitacoes/:id/devolucao', 'colaborador'],
+  ['POST /api/solicitacoes/:id/devolver', 'colaborador'],
+  ['GET /api/solicitacoes/disponiveis', 'frota'],
+  ['POST /api/solicitacoes/:id/aprovar', 'frota'],
+  ['POST /api/solicitacoes/:id/recusar', 'frota'],
+
+  // Cobranca: quem faltou e' assunto de supervisao.
+  ['GET /api/execucoes/faltando', 'frota'],
+  ['GET /api/execucoes.csv', 'frota'],
+
+  ['GET /api/ocorrencias', 'frota'],
+  ['GET /api/ocorrencias/:id', 'frota'],
+  ['POST /api/ocorrencias/:id/status', 'frota'],
+  ['POST /api/ocorrencias/:id/atribuir', 'frota'],
+  ['GET /api/auditoria', 'frota'],
+  ['GET /api/painel', 'frota'],
+
+  ['GET /api/preventivas', 'frota'],
+  ['GET /api/preventivas/:id', 'frota'],
+  ['POST /api/preventivas', 'frota'],
+  ['PATCH /api/preventivas/:id', 'frota'],
+  ['POST /api/preventivas/:id/concluir', 'frota'],
+
+  ['GET /relatorio/inspecao/:id', 'frota'],
+  ['GET /relatorio/solicitacao/:id', 'frota'],
+  ['GET /relatorio/preventiva/:id', 'frota'],
+  ['GET /relatorio/frota', 'frota'],
+
+  ['GET /api/templates', 'frota'],
+  ['GET /api/templates/:id', 'frota'],
+  ['POST /api/templates', 'frota'],
+  ['PUT /api/templates/:id', 'frota'],
+  ['POST /api/templates/:id/publicar', 'frota'],
+  ['POST /api/templates/:id/imagem', 'frota'],
+  ['POST /api/templates/:id/versao', 'frota'],
+  ['DELETE /api/templates/:id', 'frota'],
+  ['POST /api/templates/conferir', 'frota'],
+
+  // Organograma da empresa. O cargo DA PESSOA vem em /api/auth/eu.
+  ['GET /api/cargos', 'frota'],
+  ['POST /api/cargos', 'frota'],
+  ['PATCH /api/cargos/:id', 'frota'],
+  ['DELETE /api/cargos/:id', 'frota'],
+
+  ['GET /api/usuarios', 'frota'],
+  ['POST /api/usuarios', 'frota'],
+  ['GET /api/usuarios/:id', 'frota'],
+  ['PATCH /api/usuarios/:id', 'frota'],
+  ['POST /api/usuarios/:id/status', 'frota'],
+  ['POST /api/usuarios/:id/senha', 'frota'],
+
+  // Placa, ano, km, status e o MOTIVO do status. Nada disso e' do colaborador.
+  ['GET /api/veiculos', 'frota'],
+  ['POST /api/veiculos', 'frota'],
+  ['GET /api/veiculos/:id', 'frota'],
+  ['PATCH /api/veiculos/:id', 'frota'],
+  ['POST /api/veiculos/:id/status', 'frota'],
+  ['GET /api/veiculos/:id/historico', 'frota'],
+])
+
+test('matriz: a especificacao de nivel cobre exatamente as rotas que existem', () => {
+  const noCodigo = new Set(rotasDoCodigo().map((r) => `${r.metodo} ${r.caminho}`))
+  const declaradas = new Set(NIVEL.keys())
+
+  const semDecisao = [...noCodigo].filter((c) => !declaradas.has(c))
+  const fantasmas = [...declaradas].filter((c) => !noCodigo.has(c))
+
+  assert.deepEqual(semDecisao, [],
+    `rota nova sem nivel declarado — decida antes de seguir:\n${semDecisao.join('\n')}`)
+  assert.deepEqual(fantasmas, [],
+    `a especificacao cita rota que nao existe mais:\n${fantasmas.join('\n')}`)
+})
+
+test('matriz: nenhuma rota de Frota responde a colaborador', async () => {
+  acharAlvosDaMatriz()
+  const token = await entrar('motorista.a@teste.local')
+  const vazadas = []
+  let conferidas = 0
+
+  for (const r of rotasDoCodigo()) {
+    const chave = `${r.metodo} ${r.caminho}`
+    if (NIVEL.get(chave) !== 'frota') continue
+    const caminho = preencher(r.caminho)
+    if (caminho === null) continue   // a cobertura e' cobrada em outro teste
+
+    conferidas += 1
+    const resposta = await chamar(r.metodo, caminho,
+      r.metodo === 'GET' ? { token } : { token, corpo: {} })
+    // 403 e' o certo. 404 serve quando o id do caminho nao existe para este
+    // tenant — o que importa e' nunca ter FEITO o que foi pedido.
+    if (resposta.status !== 403 && resposta.status !== 404) {
+      vazadas.push(`${chave} → ${resposta.status} (${r.onde}, guarda no codigo: ${r.guarda})`)
+    }
+  }
+
+  assert.ok(conferidas >= 40, `poucas rotas de Frota exercidas: ${conferidas}`)
+  assert.deepEqual(vazadas, [],
+    `rota que a especificacao diz ser de Frota, alcancada por colaborador:\n${vazadas.join('\n')}`)
+})
+
+test('matriz: e nenhuma rota do colaborador foi fechada por engano', async () => {
+  // A direcao contraria, que quase todo teste de permissao esquece: apertar
+  // demais tambem quebra. Se `GET /api/categorias` virasse rota de Frota, o
+  // formulario de pedido do aplicativo pararia — e um teste que so procura
+  // vazamento acharia isso otimo.
+  //
+  // So as rotas SEM `:id` no caminho: nelas um 403 so pode significar recusa de
+  // NIVEL. Onde ha um id, o 403 pode ser "este registro e de outra pessoa",
+  // que e' outra regra, com testes proprios.
+  acharAlvosDaMatriz()
+  const token = await entrar('motorista.a@teste.local')
+  const fechadas = []
+  let conferidas = 0
+
+  for (const r of rotasDoCodigo()) {
+    const chave = `${r.metodo} ${r.caminho}`
+    if (NIVEL.get(chave) !== 'colaborador' || r.caminho.includes(':')) continue
+
+    conferidas += 1
+    const resposta = await chamar(r.metodo, r.caminho,
+      r.metodo === 'GET' ? { token } : { token, corpo: {} })
+    if (resposta.status === 403) {
+      fechadas.push(`${chave} → 403 "${resposta.dados?.mensagem || ''}" (${r.onde})`)
+    }
+  }
+
+  assert.ok(conferidas >= 6, `poucas rotas de colaborador exercidas: ${conferidas}`)
+  assert.deepEqual(fechadas, [],
+    `rota que o aplicativo precisa, recusada por nivel:\n${fechadas.join('\n')}`)
+})
+
+test('matriz: quem nao trocou a senha inicial nao alcanca mais nada', async () => {
+  // A sessao do pendente vale, mas so para trocar a senha. O comentario do
+  // `usuarioDaSessao` chamava esse portao de `exigirSenhaTrocada()` — funcao
+  // que nao existe em lugar nenhum do repositorio. Ela nao precisa existir: o
+  // portao esta dentro do proprio `exigirAutenticado`. Mas nenhum teste cobria
+  // isso rota a rota, e comentario que aponta para o vazio e' como se lia.
+  // Conta propria: `pendente.a@teste.local` ja TROCOU a senha num teste
+  // anterior, e com ela a matriz media um usuario ativo achando que media um
+  // pendente — passaria verde sem nunca exercer o portao que diz cobrir.
+  criarUsuario(empresaA, 'Pendente da matriz', '30281709032',
+    'pendente.matriz@teste.local', cgMotoristaA, false, 'pendente')
+  const token = await entrar('pendente.matriz@teste.local')
+  assert.ok(token, 'controle: o pendente PRECISA conseguir entrar, ou nunca troca a senha')
+
+  const eu = await chamar('GET', '/api/auth/eu', { token })
+  assert.equal(eu.status, 200, 'ele precisa ler o proprio perfil para a tela saber o que mostrar')
+  assert.equal(eu.dados.usuario.deve_trocar_senha, true)
+
+  const passaram = []
+  for (const r of rotasDoCodigo()) {
+    const chave = `${r.metodo} ${r.caminho}`
+    if (PENDENTE_ALCANCA.has(chave)) continue
+    // So GET: um POST de rota `sessao` seria executado de verdade.
+    if (r.metodo !== 'GET' && r.guarda !== 'frota') continue
+    const caminho = preencher(r.caminho)
+    if (caminho === null) continue
+
+    const resposta = await chamar(r.metodo, caminho,
+      r.metodo === 'GET' ? { token } : { token, corpo: {} })
+    if (resposta.status !== 403 && resposta.status !== 404) {
+      passaram.push(`${chave} → ${resposta.status} (${r.onde})`)
+    } else if (resposta.status === 403 && resposta.dados?.erro
+      && resposta.dados.erro !== 'troca_de_senha_obrigatoria'
+      && resposta.dados.erro !== 'sem_permissao') {
+      passaram.push(`${chave} → 403 com erro "${resposta.dados.erro}"`)
+    }
+  }
+
+  assert.deepEqual(passaram, [],
+    `o pendente alcancou o que nao devia:\n${passaram.join('\n')}`)
+})
 
 test('isolamento: a Frota de outra empresa nao le nada da empresa A', async () => {
   const invasor = await entrar('frota.b@teste.local')

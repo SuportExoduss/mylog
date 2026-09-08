@@ -44,7 +44,9 @@ export function usuarioDaSessao(token) {
   if (linha.revogado_em) return null
   if (linha.expira_em <= agora()) return null
   // "pendente" ainda nao trocou a senha inicial: a sessao vale, mas so para a
-  // troca de senha. Quem barra as demais rotas e' exigirSenhaTrocada().
+  // troca de senha. Quem barra as demais rotas e' o proprio
+  // `exigirAutenticado`, logo abaixo — este comentario chamava o portao de
+  // `exigirSenhaTrocada()`, funcao que nunca existiu no repositorio.
   if (linha.status !== 'ativo' && linha.status !== 'pendente') return null
   // A empresa tambem tem status, com o vocabulario escrito no esquema desde o
   // primeiro dia: `ativa | suspensa`. Ele era gravado na criacao e nunca lido —
