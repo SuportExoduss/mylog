@@ -6,7 +6,7 @@
 import { api } from './api.js'
 import {
   elemento, cabecalhoTela, tabela, selo, vazio, notificar, numero,
-  ROTULO_PRIORIDADE, TOM_PRIORIDADE,
+  ROTULO_PRIORIDADE, TOM_PRIORIDADE, ORDEM_PRIORIDADE,
 } from './ui.js'
 
 const DIA = 86400000
@@ -194,7 +194,7 @@ export async function telaExecucoes(raiz, contexto) {
           elemento('div', { classe: 'card-detalhe' },
             e.total_problemas === 0
               ? [selo(`${e.total_conformes} conformes`, 's-ok')]
-              : ['critica', 'alta', 'media', 'baixa']
+              : ORDEM_PRIORIDADE
                   .filter((p) => e[`prioridade_${p}`] > 0)
                   .map((p) => selo(`${e[`prioridade_${p}`]} ${ROTULO_PRIORIDADE[p].toLowerCase()}`,
                     TOM_PRIORIDADE[p]))),

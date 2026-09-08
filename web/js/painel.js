@@ -6,6 +6,7 @@ import {
   ROTULO_STATUS_PREVENTIVA, TOM_STATUS_PREVENTIVA,
   ROTULO_STATUS_USUARIO, TOM_STATUS_USUARIO,
   ROTULO_PRIORIDADE, TOM_PRIORIDADE,
+  ORDEM_STATUS_VEICULO, ORDEM_PRIORIDADE, ORDEM_STATUS_PREVENTIVA, ORDEM_STATUS_USUARIO,
 } from './ui.js'
 
 function card(titulo, valor, detalhes = [], aoClick) {
@@ -70,7 +71,7 @@ export async function telaPainel(raiz, contexto) {
 
   cards.push(card('Frota', dados.frota.total, selosDe(
     dados.frota.por_status, ROTULO_STATUS_VEICULO, TOM_STATUS_VEICULO,
-    ['bloqueado', 'com_pendencia', 'manutencao', 'disponivel'],
+    ORDEM_STATUS_VEICULO,
     (status) => contexto.irPara('veiculos', { status }),
   ), () => contexto.irPara('veiculos')))
 
@@ -102,7 +103,7 @@ export async function telaPainel(raiz, contexto) {
 
   cards.push(card('Ocorrencias abertas', dados.ocorrencias.abertas, selosDe(
     dados.ocorrencias.por_prioridade, ROTULO_PRIORIDADE, TOM_PRIORIDADE,
-    ['critica', 'alta', 'media', 'baixa'],
+    ORDEM_PRIORIDADE,
     // Prioridade, nao status: e' o filtro que a tela de ocorrencias tem para
     // esta contagem.
     (prioridade) => contexto.irPara('ocorrencias', { prioridade }),
@@ -111,13 +112,13 @@ export async function telaPainel(raiz, contexto) {
   const prev = dados.preventivas.por_status
   cards.push(card('Preventivas vencidas', prev.vencida || 0, selosDe(
     prev, ROTULO_STATUS_PREVENTIVA, TOM_STATUS_PREVENTIVA,
-    ['muito_proxima', 'proxima', 'em_dia'],
+    ORDEM_STATUS_PREVENTIVA,
     (status) => contexto.irPara('preventivas', { status }),
   ), () => contexto.irPara('preventivas', { status: 'vencida' })))
 
   cards.push(card('Usuarios', Object.values(dados.usuarios.por_status).reduce((a, b) => a + b, 0),
     selosDe(dados.usuarios.por_status, ROTULO_STATUS_USUARIO, TOM_STATUS_USUARIO,
-      ['pendente', 'bloqueado', 'suspenso', 'ativo'],
+      ORDEM_STATUS_USUARIO,
       (status) => contexto.irPara('usuarios', { status })),
     () => contexto.irPara('usuarios')))
 

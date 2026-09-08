@@ -6,6 +6,8 @@
 // o que a tela faz, nao o que a rota devolve.
 import test, { beforeEach, afterEach, mock } from 'node:test'
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
+import path from 'node:path'
 import { montarDom } from './dom.js'
 
 let tela
@@ -884,6 +886,64 @@ test('vocabulario: todo status e prioridade do dominio tem rotulo e tom', () => 
       assert.deepEqual(semTom, [], `${nome} sem tom na tela: ${semTom.join(', ')}`)
     }
   }
+})
+
+// A ordem dos selos do painel e' especificacao, e nao decoracao.
+//
+// `selosDe` percorre a lista de ordem e IGNORA tudo que nao esta nela. Um
+// status novo no dominio ganharia rotulo — ha varredura para isso, logo acima
+// — e sumiria do quadro em silencio, com o total continuando a conta-lo. O
+// quadro diria 12 e os selos somariam 11.
+//
+// Por isso a lista do que fica DE FORA e' declarada junto: acrescentar um
+// status ao dominio quebra este teste ate alguem decidir se ele entra no
+// quadro. A decisao pode ser "nao entra" — o que nao pode e' ninguem decidir.
+test('painel: a ordem dos selos cobre todo o vocabulario, ou declara a ausencia', () => {
+  const pares = [
+    ['status de veiculo', veiculosSrv.STATUS_VEICULO,
+      uiDoTeste.ORDEM_STATUS_VEICULO, uiDoTeste.FORA_STATUS_VEICULO],
+    ['prioridade', motor.PRIORIDADES,
+      uiDoTeste.ORDEM_PRIORIDADE, uiDoTeste.FORA_PRIORIDADE],
+    ['status de preventiva', preventivas.STATUS_PREVENTIVA,
+      uiDoTeste.ORDEM_STATUS_PREVENTIVA, uiDoTeste.FORA_STATUS_PREVENTIVA],
+    ['status de credencial', usuariosSrv.STATUS_CREDENCIAL,
+      uiDoTeste.ORDEM_STATUS_USUARIO, uiDoTeste.FORA_STATUS_USUARIO],
+  ]
+
+  for (const [nome, vocabulario, ordem, fora] of pares) {
+    assert.ok(Array.isArray(ordem), `${nome}: ordem nao declarada`)
+    assert.ok(Array.isArray(fora), `${nome}: ausencias nao declaradas`)
+
+    const cobertos = new Set([...ordem, ...fora])
+    const esquecidos = vocabulario.filter((v) => !cobertos.has(v))
+    assert.deepEqual(esquecidos, [],
+      `${nome}: status sem decisao — entra no quadro ou entra na lista de fora?\n${esquecidos.join(', ')}`)
+
+    const inventados = [...cobertos].filter((v) => !vocabulario.includes(v))
+    assert.deepEqual(inventados, [],
+      `${nome}: a ordem cita status que o dominio nao tem:\n${inventados.join(', ')}`)
+
+    const repetidos = ordem.filter((v) => fora.includes(v))
+    assert.deepEqual(repetidos, [],
+      `${nome}: status ao mesmo tempo dentro e fora do quadro:\n${repetidos.join(', ')}`)
+  }
+})
+
+// O painel conta usuarios com `status <> 'desativado'`, e a ordem dos selos
+// omite `desativado` pelo mesmo motivo. Sao dois lugares dizendo a mesma
+// coisa: se um mudar sozinho, o total e os selos param de bater — o quadro
+// diria um numero que os selos nao explicam.
+test('painel: o que o servidor nao conta e o que a tela nao mostra', () => {
+  const raiz = path.join(import.meta.dirname, '..', '..')
+  const rota = fs.readFileSync(path.join(raiz, 'servidor', 'src', 'rotas', 'painel.js'), 'utf8')
+
+  const consulta = rota.slice(rota.indexOf('const usuarios = contarPorChave'))
+    .slice(0, 400)
+  const excluidos = [...consulta.matchAll(/status <> '([a-z_]+)'/g)].map((m) => m[1])
+  assert.ok(excluidos.length, 'nao achei a exclusao na consulta de usuarios do painel')
+
+  assert.deepEqual(excluidos.sort(), [...uiDoTeste.FORA_STATUS_USUARIO].sort(),
+    'o que a consulta do painel exclui tem que ser exatamente o que o quadro nao mostra')
 })
 
 test('vocabulario: os estados de execucao que o motor produz sao os que a tela conhece', () => {

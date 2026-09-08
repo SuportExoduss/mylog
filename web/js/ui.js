@@ -509,3 +509,35 @@ export function descreverMudanca(evento, { ocultos = CAMPOS_DE_RUIDO, limite = 0
   if (motivo) return mudou.length ? `${mudou.join(' · ')}${corte} — ${motivo}` : String(motivo)
   return mudou.length ? mudou.join(' · ') + corte : '—'
 }
+
+// ------------------------------------------- a ordem em que os selos aparecem
+
+// Os quadros do painel mostram a repartição de um total em selos, e a ORDEM
+// importa: o que exige acao vem primeiro, porque e' o que a pessoa precisa ver
+// sem procurar.
+//
+// Estavam escritas dentro do `painel.js`, como literais soltos no meio da
+// chamada. O risco nao era a ordem — era a OMISSAO: `selosDe` percorre a lista
+// e ignora tudo que nao esta nela, entao um status novo no dominio ganhava
+// rotulo (ha varredura para isso) e sumia do quadro em silencio, com o total
+// continuando a conta-lo.
+//
+// Declaradas aqui, e com o que fica DE FORA declarado junto, elas viram
+// especificacao: acrescentar um status ao dominio quebra o teste ate alguem
+// decidir se ele entra no quadro ou nao.
+export const ORDEM_STATUS_VEICULO = ['bloqueado', 'com_pendencia', 'manutencao', 'disponivel']
+export const FORA_STATUS_VEICULO = []
+
+export const ORDEM_PRIORIDADE = ['critica', 'alta', 'media', 'baixa']
+export const FORA_PRIORIDADE = []
+
+// `vencida` e' o NUMERO do quadro, nao um selo dele; `realizada` ja saiu do
+// ciclo e nao e' pendencia de ninguem.
+export const ORDEM_STATUS_PREVENTIVA = ['muito_proxima', 'proxima', 'em_dia']
+export const FORA_STATUS_PREVENTIVA = ['vencida', 'realizada']
+
+// `desativado` nao entra porque o servidor nao o conta: a consulta do painel
+// tem `status <> 'desativado'`. Some do selo E do total, junto — e' o que
+// mantem os dois de acordo.
+export const ORDEM_STATUS_USUARIO = ['pendente', 'bloqueado', 'suspenso', 'ativo']
+export const FORA_STATUS_USUARIO = ['desativado']
