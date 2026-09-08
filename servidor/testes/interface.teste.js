@@ -579,6 +579,95 @@ test('painel: o alerta leva para onde o SERVIDOR disse, nao para um mapa local',
   }
 })
 
+// TODO quadro do painel leva a alguma area, e leva ao que o NUMERO conta.
+//
+// Sao dois defeitos diferentes num teste so, porque sao a mesma regra vista de
+// dois angulos:
+//
+//   - "Checklists hoje" nao levava a lugar nenhum. Numero na tela, clique morto.
+//   - Os outros diziam "Solicitacoes PENDENTES", mostravam a contagem de
+//     pendentes, e abriam a lista INTEIRA — a pessoa procurava de novo
+//     exatamente os registros que o quadro acabara de contar.
+//
+// Frota e Usuarios contam o TOTAL, entao esses abrem sem filtro. Nao e'
+// excecao: e' a mesma regra, porque o numero deles e' o total.
+const DESTINO_DO_QUADRO = [
+  ['Frota',                  'veiculos',     {}],
+  ['Solicitacoes pendentes', 'solicitacoes', { status: 'pendente' }],
+  ['Checklists hoje',        'execucoes',    {}],
+  ['Ocorrencias abertas',    'ocorrencias',  { status: 'em_aberto' }],
+  ['Preventivas vencidas',   'preventivas',  { status: 'vencida' }],
+  ['Usuarios',               'usuarios',     {}],
+]
+
+test('painel: todo quadro leva a uma area, e ao que o numero dele conta', async () => {
+  const { raiz, chamadas } = await montarPainel(() => {})
+  try {
+    const quadros = raiz.querySelectorAll('.card')
+    assert.equal(quadros.length, DESTINO_DO_QUADRO.length,
+      'a lista deste teste precisa cobrir todos os quadros que o painel desenha')
+
+    const mortos = quadros
+      .filter((c) => !c.classList.contains('clicavel'))
+      .map((c) => c.querySelector('.card-titulo')?.textContent)
+    assert.deepEqual(mortos, [],
+      `quadro que nao leva a lugar nenhum: ${mortos.join(', ')}`)
+  } finally {
+    chamadas.restaurar()
+  }
+
+  // Um clique por quadro, cada um na sua montagem: o painel e' remontado a cada
+  // caso para que um clique nao herde o estado do anterior.
+  const errados = []
+  for (const [titulo, destino, filtro] of DESTINO_DO_QUADRO) {
+    let foi = null
+    const { raiz: r, chamadas: c } = await montarPainel((d) => { foi = d })
+    try {
+      const quadro = r.querySelectorAll('.card')
+        .find((n) => n.querySelector('.card-titulo')?.textContent === titulo)
+      assert.ok(quadro, `o quadro "${titulo}" sumiu do painel`)
+
+      quadro.click()
+      if (foi?.chave !== destino) {
+        errados.push(`"${titulo}" abriu "${foi?.chave}" e devia abrir "${destino}"`)
+      } else if (JSON.stringify(foi?.params ?? {}) !== JSON.stringify(filtro)) {
+        errados.push(`"${titulo}" abriu ${destino} com `
+          + `${JSON.stringify(foi?.params ?? {})} e devia ser ${JSON.stringify(filtro)}`)
+      }
+    } finally {
+      c.restaurar()
+    }
+  }
+
+  assert.deepEqual(errados, [],
+    `o clique nao leva ao que o numero conta:\n${errados.join('\n')}`)
+})
+
+test('painel: o selo avulso tambem leva, e nao arrasta o quadro junto', async () => {
+  // "1 veiculo(s) na rua" e "1 devolucao atrasada" eram etiquetas mortas — o
+  // quadro em volta era clicavel, elas nao. Agora levam, e param a propagacao
+  // como os selos de contagem ja faziam: sem isso o quadro abriria a lista
+  // inteira POR CIMA da filtrada.
+  const navegacoes = []
+  const { raiz, chamadas } = await montarPainel((d) => navegacoes.push(d))
+  try {
+    const naRua = raiz.querySelectorAll('.selo')
+      .find((n) => /na rua|veiculo\(s\)/.test(n.textContent))
+    assert.ok(naRua, 'o selo de veiculos na rua precisa existir')
+    assert.ok(naRua.classList.contains('clicavel'), 'e precisa ser clicavel')
+    assert.equal(naRua.getAttribute('role'), 'button')
+    assert.equal(naRua.getAttribute('tabindex'), '0',
+      'role=button sem teclado e pior que nenhum: o leitor de tela anuncia um botao que nao responde')
+
+    naRua.click()
+    assert.equal(navegacoes.length, 1, 'um clique, uma navegacao — o quadro nao vai junto')
+    assert.equal(navegacoes[0].chave, 'solicitacoes')
+    assert.deepEqual(navegacoes[0].params, { status: 'em_uso' })
+  } finally {
+    chamadas.restaurar()
+  }
+})
+
 test('painel: clicar no selo abre a lista JA filtrada por aquele status', async () => {
   // As telas de destino sempre souberam ler o filtro; era o painel que nunca
   // mandava. "3 bloqueados" abria a frota inteira e a pessoa procurava os tres
