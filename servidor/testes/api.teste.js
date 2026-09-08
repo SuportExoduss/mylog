@@ -3762,6 +3762,135 @@ test('filtro invalido nunca devolve mais do que o padrao', async () => {
     `filtro que ninguem entende alargou a lista:\n${alargaram.join('\n')}`)
 })
 
+// TODA combinacao (de, para) de cada maquina de estado, pela API.
+//
+// Ja havia um teste conferindo que a tela e o servidor concordam sobre quais
+// transicoes EXISTEM. Ele le os dois objetos `TRANSICOES` e compara — util, e
+// insuficiente: dois objetos iguais nao provam que a rota obedece a nenhum dos
+// dois. A rota podia aceitar `encerrada -> aberta` e os dois objetos
+// continuariam identicos.
+//
+// Esta varredura dirige o estado do registro para CADA situacao de origem e
+// tenta CADA destino, inclusive os que a tabela nao declara. As duas metades
+// importam: a declarada precisa passar, e a nao declarada precisa ser recusada
+// SEM MEXER no registro — recusar com 409 e gravar assim mesmo seria o pior dos
+// dois mundos.
+function tabelaDeTransicoes(arquivo) {
+  const texto = fs.readFileSync(
+    path.join(import.meta.dirname, '..', 'src', 'rotas', arquivo), 'utf8')
+  const m = texto.match(/const TRANSICOES = \{([\s\S]*?)\n\}/)
+  assert.ok(m, `${arquivo}: nao achei o objeto TRANSICOES`)
+  const mapa = {}
+  for (const linha of m[1].split('\n')) {
+    const l = linha.match(/^\s*(\w+):\s*\[([^\]]*)\]/)
+    if (l) mapa[l[1]] = [...l[2].matchAll(/'([^']+)'/g)].map((x) => x[1])
+  }
+  assert.ok(Object.keys(mapa).length >= 4, `${arquivo}: tabela lida pela metade`)
+  return mapa
+}
+
+async function varrerMaquina({ tabela, situacaoAtual, porNaSituacao, tentar }) {
+  const aceitouDemais = []
+  const recusouDeMais = []
+  const mexeuMesmoRecusando = []
+
+  const situacoes = Object.keys(tabela)
+  for (const de of situacoes) {
+    for (const para of situacoes) {
+      if (de === para) continue        // "ja esta neste status" tem regra propria
+      porNaSituacao(de)
+      const permitida = tabela[de].includes(para)
+      const r = await tentar(para)
+      const ficou = situacaoAtual()
+
+      if (permitida && r.status !== 200) {
+        recusouDeMais.push(`${de} -> ${para}: ${r.status} ${r.dados?.mensagem || ''}`)
+      }
+      if (permitida && r.status === 200 && ficou !== para) {
+        recusouDeMais.push(`${de} -> ${para}: respondeu 200 e o registro ficou em "${ficou}"`)
+      }
+      if (!permitida && r.status === 200) {
+        aceitouDemais.push(`${de} -> ${para}: aceita, e a tabela nao declara`)
+      }
+      if (!permitida && ficou !== de) {
+        mexeuMesmoRecusando.push(`${de} -> ${para}: recusou com ${r.status} e mudou para "${ficou}"`)
+      }
+    }
+  }
+  return { aceitouDemais, recusouDeMais, mexeuMesmoRecusando, pares: situacoes.length ** 2 - situacoes.length }
+}
+
+test('estados: a ocorrencia so anda pelas transicoes que a tabela declara', async () => {
+  const frota = await entrar('frota.a@teste.local')
+  const tabela = tabelaDeTransicoes('ocorrencias.js')
+
+  // Registro descartavel: a varredura empurra o estado dele dezenas de vezes.
+  const veiculo = criarVeiculo(empresaA, 'AAA9T99')
+  const id = novoId('ocorrencia')
+  executar(
+    `INSERT INTO ocorrencias (id, empresa_id, veiculo_id, pergunta_id, descricao,
+                              prioridade, status, aberta_em)
+     VALUES (?, ?, ?, 'varredura', 'Ocorrencia da varredura', 'baixa', 'aberta', ?)`,
+    [id, empresaA, veiculo, agora()])
+
+  const r = await varrerMaquina({
+    tabela,
+    porNaSituacao: (situacao) => executar(
+      'UPDATE ocorrencias SET status = ?, resolucao = NULL WHERE id = ?', [situacao, id]),
+    situacaoAtual: () => consultarUm('SELECT status FROM ocorrencias WHERE id = ?', [id]).status,
+    tentar: (para) => chamar('POST', `/api/ocorrencias/${id}/status`, {
+      token: frota, corpo: { status: para, resolucao: 'texto da varredura' },
+    }),
+  })
+
+  assert.ok(r.pares >= 12, `poucos pares exercidos: ${r.pares}`)
+  assert.deepEqual(r.aceitouDemais, [],
+    `a rota aceita transicao que a tabela nao declara:\n${r.aceitouDemais.join('\n')}`)
+  assert.deepEqual(r.recusouDeMais, [],
+    `a rota recusa transicao que a tabela declara:\n${r.recusouDeMais.join('\n')}`)
+  assert.deepEqual(r.mexeuMesmoRecusando, [],
+    `recusou e gravou assim mesmo:\n${r.mexeuMesmoRecusando.join('\n')}`)
+})
+
+test('estados: o usuario so anda pelas transicoes que a tabela declara', async () => {
+  const frota = await entrar('frota.a@teste.local')
+  const tabela = tabelaDeTransicoes('usuarios.js')
+
+  // Colaborador descartavel, e nao alguem da Frota: desativar o ultimo da
+  // equipe tem regra propria, e a varredura tropecaria nela achando que achou
+  // um defeito.
+  const id = criarUsuario(empresaA, 'Cobaia de estados', '12345678909',
+    'estados@teste.local', cgMotoristaA, false)
+
+  const r = await varrerMaquina({
+    tabela,
+    porNaSituacao: (situacao) => executar(
+      'UPDATE usuarios SET status = ? WHERE id = ?', [situacao, id]),
+    situacaoAtual: () => consultarUm('SELECT status FROM usuarios WHERE id = ?', [id]).status,
+    tentar: (para) => chamar('POST', `/api/usuarios/${id}/status`, {
+      token: frota, corpo: { status: para, motivo: 'varredura de estados' },
+    }),
+  })
+
+  assert.ok(r.pares >= 20, `poucos pares exercidos: ${r.pares}`)
+  assert.deepEqual(r.aceitouDemais, [],
+    `a rota aceita transicao que a tabela nao declara:\n${r.aceitouDemais.join('\n')}`)
+  assert.deepEqual(r.recusouDeMais, [],
+    `a rota recusa transicao que a tabela declara:\n${r.recusouDeMais.join('\n')}`)
+  assert.deepEqual(r.mexeuMesmoRecusando, [],
+    `recusou e gravou assim mesmo:\n${r.mexeuMesmoRecusando.join('\n')}`)
+
+  // E o estado terminal e' terminal de verdade: desativado nao sai de la.
+  executar("UPDATE usuarios SET status = 'desativado' WHERE id = ?", [id])
+  for (const para of ['ativo', 'pendente', 'bloqueado', 'suspenso']) {
+    const resposta = await chamar('POST', `/api/usuarios/${id}/status`, {
+      token: frota, corpo: { status: para, motivo: 'ressuscitar' },
+    })
+    assert.notEqual(resposta.status, 200, `desativado -> ${para} nao pode passar`)
+  }
+  assert.equal(consultarUm('SELECT status FROM usuarios WHERE id = ?', [id]).status, 'desativado')
+})
+
 test('limite da consulta: numero que nao da para ler vira o padrao', async () => {
   // `Math.min(Number(bruto || 100), 500)` parecia bastar e nao bastava:
   // `Number('lixo')` da NaN, `Math.min(NaN, 500)` da NaN, e `LIMIT NaN` derruba
