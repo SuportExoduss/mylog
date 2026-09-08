@@ -1007,3 +1007,40 @@ evidência na inspeção de outra pessoa, "para corrigir". Isso é mexer num
 registro que existe para prestar contas, e não havia nenhuma linha dizendo quem
 mexeu. A informação até existia — a evidência guarda `usuario_id` — mas não no
 lugar onde alguém vai procurar.
+
+---
+
+## D54 — Nem todo 4xx é definitivo, e tratar como se fosse apaga evidência
+
+A fila offline descartava a foto do aparelho em **qualquer** resposta 4xx, com a
+razão escrita ao lado: *"recusa por regra não melhora tentando de novo; a foto
+só ocuparia espaço para sempre"*.
+
+A razão está certa. A conta de quais respostas são recusa por regra, não estava.
+
+`401` é 4xx e **não** é recusa por regra — é credencial vencida. A sessão do PWA
+dura 12 horas: quem termina o dia no pátio e sincroniza na manhã seguinte cai
+exatamente aí. A inspeção já estava no servidor; a prova dela sumia do aparelho
+e deixava de existir em qualquer lugar.
+
+`429` é o freio — literalmente um pedido para tentar mais tarde, respondido com
+o descarte da foto. `408` e `425` idem.
+
+**A regra agora tem nome e um lugar só:** `recusaDefinitiva(status)`. Definitivo
+é o 4xx que sobra depois de tirar `401`, `408`, `425` e `429`.
+
+O mesmo valia para a inspeção inteira, com outra cara: um `401` de madrugada
+marcava o checklist do dia como `recusada`, com a mensagem "Sessão ausente ou
+expirada" na tela do motorista. Ele via uma reprovação que nunca existiu, e a
+fila parava de tentar.
+
+**Por que isto foi tocado com o PWA congelado (D46).** A D46 abre exceção para o
+que "estiver impedindo a homologação em aparelho real", e a D15 nomeia a perda
+de fotos como o critério que decide se o nativo volta à mesa. Perder evidência
+por expiração de sessão é esse critério acontecendo — e por nossa causa, não do
+navegador.
+
+**E é sobretudo uma lição de contrato.** O app Android vai reescrever esta fila
+do zero, lendo a [`API.md`](API.md) — que agora traz a tabela de quais status
+repetir. A regra é mais fácil de errar do que de acertar: "4xx não repete" é o
+que qualquer pessoa escreveria primeiro.

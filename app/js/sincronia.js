@@ -40,6 +40,31 @@ function pararRetentativa() {
   tentativaAtual = 0
 }
 
+// Nem todo 4xx e' definitivo, e tratar como se fosse APAGA EVIDENCIA.
+//
+// A fila descartava a foto do aparelho em qualquer resposta 4xx, com a razao
+// "recusa por regra nao melhora tentando de novo". A razao esta certa; a
+// conta de quais respostas sao recusa por regra, nao estava.
+//
+//   401  a sessao venceu. A do PWA dura 12 horas: quem termina o dia e
+//        sincroniza na manha seguinte cai exatamente aqui. Nao e' recusa —
+//        e' credencial vencida, e basta entrar de novo.
+//   429  o freio de tentativas. Literalmente um pedido para tentar MAIS TARDE.
+//   408  o servidor desistiu de esperar o corpo.
+//
+// Nos tres, apagar a foto perde para sempre a prova de um checklist que o
+// servidor ja aceitou. O roadmap 28 diz "fila que nunca apaga item em
+// silencio", e era exatamente isso que acontecia.
+//
+// O resto do 4xx continua definitivo: imagem que nao e' imagem, inspecao de
+// outra pessoa, pergunta que nao existe. Insistir nesses so gastaria bateria e
+// espaco.
+const NAO_DEFINITIVOS = new Set([401, 408, 425, 429])
+
+export function recusaDefinitiva(status) {
+  return status >= 400 && status < 500 && !NAO_DEFINITIVOS.has(status)
+}
+
 // A decisao, separada do relogio. Sem fila nao ha o que reenviar; sem rede,
 // quem acorda e' o evento `online`, que chega na hora certa e nao gasta nada
 // esperando. Separada porque decisao se testa; `setTimeout`, nao.
@@ -125,9 +150,9 @@ async function enviarFotos(clienteUuid, inspecaoId) {
       if (resposta.ok) {
         // Confirmada no servidor: sai da cota do aparelho.
         await fotos.remover(foto.id)
-      } else if (resposta.status >= 400 && resposta.status < 500) {
+      } else if (recusaDefinitiva(resposta.status)) {
         // Recusa por regra nao melhora tentando de novo; a foto so ocuparia
-        // espaco para sempre.
+        // espaco para sempre. Sessao vencida e freio NAO entram aqui.
         await fotos.remover(foto.id)
       } else {
         restantes += 1
@@ -184,10 +209,13 @@ async function enviarUma(item) {
     return { ok: true, dados }
   }
 
-  // 4xx nao adianta repetir: o servidor recusou por regra, nao por rede.
-  // Fica marcada como "recusada" para o motorista ver o motivo — nunca some
-  // em silencio.
-  if (resposta.status >= 400 && resposta.status < 500) {
+  // Recusa por regra nao adianta repetir. Fica marcada como "recusada" para o
+  // motorista ver o motivo — nunca some em silencio.
+  //
+  // Sessao vencida e freio ficam de fora: marcar o checklist do dia como
+  // "recusada" porque a credencial expirou de madrugada mostraria ao motorista
+  // uma reprovacao que nunca existiu, e pararia de tentar.
+  if (recusaDefinitiva(resposta.status)) {
     await fila.marcar(item.cliente_uuid, {
       estado: 'recusada',
       erro: dados.mensagem || 'O servidor recusou esta inspecao.',

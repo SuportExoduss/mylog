@@ -476,6 +476,52 @@ test('fila: o desvio existe, e e pequeno', () => {
   assert.ok(cheio <= 15_000 * 1.2, `desvio grande demais: ${cheio}`)
 })
 
+test('fila: sessao vencida e freio NAO apagam a evidencia do aparelho', () => {
+  // A fila descartava a foto do aparelho em qualquer resposta 4xx, com a razao
+  // "recusa por regra nao melhora tentando de novo". A razao esta certa; a
+  // conta de quais respostas sao recusa por regra, nao estava.
+  //
+  // A sessao do PWA dura 12 horas. Quem termina o dia no patio e sincroniza na
+  // manha seguinte recebe 401 — e recebia com ele a exclusao de TODA foto
+  // pendente. A inspecao ja estava no servidor; a prova dela sumia do aparelho
+  // e nao existia em lugar nenhum.
+  //
+  // O roadmap 28 diz "fila que nunca apaga item em silencio". Era exatamente
+  // isso que acontecia, e sem nenhuma mensagem.
+  const TRANSITORIOS = [
+    [401, 'a sessao venceu; basta entrar de novo'],
+    [429, 'o freio pediu para tentar mais tarde — literalmente'],
+    [408, 'o servidor desistiu de esperar o corpo'],
+    [425, 'cedo demais; o proprio nome do status pede espera'],
+  ]
+  for (const [status, porque] of TRANSITORIOS) {
+    assert.equal(sincronia.recusaDefinitiva(status), false,
+      `${status} nao pode apagar evidencia: ${porque}`)
+  }
+
+  // E o que E' recusa por regra continua sendo. Insistir nesses so gastaria
+  // bateria e espaco no aparelho de quem esta no patio.
+  const DEFINITIVOS = [
+    [400, 'o arquivo nao e uma imagem'],
+    [403, 'a inspecao e de outra pessoa'],
+    [404, 'a inspecao nao existe'],
+    [409, 'a solicitacao mudou de estado'],
+    [413, 'a imagem passa do limite'],
+    [422, 'o corpo nao faz sentido'],
+  ]
+  for (const [status, porque] of DEFINITIVOS) {
+    assert.equal(sincronia.recusaDefinitiva(status), true,
+      `${status} e recusa por regra: ${porque}`)
+  }
+
+  // Fora da faixa 4xx nada e' definitivo: 5xx e' problema do servidor, e 2xx
+  // nem chega aqui.
+  for (const status of [200, 201, 301, 500, 502, 503, 504]) {
+    assert.equal(sincronia.recusaDefinitiva(status), false,
+      `${status} nao e recusa por regra do cliente`)
+  }
+})
+
 test('fila: nao arma relogio sem fila nem sem rede', () => {
   // Sem fila nao ha o que reenviar. Sem rede, quem acorda e o evento `online`,
   // que chega na hora certa e nao gasta nada esperando.

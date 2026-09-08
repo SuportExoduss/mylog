@@ -510,6 +510,29 @@ Checklist de outra pessoa na mesma empresa dá **403**; de outra empresa dá
 | 409 | `conflito` | Estado mudou no servidor → recarregar e mostrar `mensagem` |
 | 429 | `muitas_tentativas` | Freio de tentativas. A `mensagem` diz em quantos minutos volta — **não** tente de novo em seguida |
 
+### O que a fila offline pode descartar, e o que ela nunca pode
+
+A regra que parece óbvia e está errada: **"4xx é recusa por regra, não adianta
+repetir"**. A razão está certa; a conta de quais respostas são recusa por regra,
+não.
+
+| Status | Repetir? | Por quê |
+|---|---|---|
+| `401` | **sim, depois de entrar de novo** | A sessão venceu. Não é recusa — é credencial vencida |
+| `408` · `425` | **sim** | O servidor desistiu de esperar, ou pediu para chegar mais tarde |
+| `429` | **sim, respeitando a espera** | É literalmente um pedido para tentar depois |
+| `400` `403` `404` `409` `413` `422` | não | O servidor recusou por regra: repetir dá o mesmo resultado |
+| `5xx` | **sim** | Problema do servidor, não do pedido |
+
+**O item nunca some em silêncio.** Numa recusa definitiva ele fica na fila,
+marcado, com a mensagem do servidor à vista — quem executou precisa saber que
+aquele checklist não entrou, e por quê.
+
+**E uma foto nunca é apagada do aparelho por um `401`.** Esse é o caso que
+custa caro: a sessão do PWA dura 12 horas, então quem termina o dia no pátio e
+sincroniza na manhã seguinte cai exatamente nele. A inspeção já está no
+servidor; apagar a foto deixaria a prova dela sem existir em lugar nenhum.
+
 As mensagens são em português e escritas para o usuário final. Mostrá-las é
 melhor do que traduzir para "erro ao salvar".
 
