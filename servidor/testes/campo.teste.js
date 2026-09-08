@@ -181,6 +181,41 @@ test('campo: dois toques em OK nao empilham a folha de foto opcional', () => {
 
 // ------------------------------------------------------------- ocorrencia
 
+test('campo: relatorio curto demais avisa, e nao apaga o que a pessoa escreveu', () => {
+  // O relatorio e' a saida para "nenhuma opcao descreve o que eu vi". Se o
+  // texto for curto demais, a folha era REABERTA VAZIA e sem uma palavra de
+  // explicacao: a pessoa digitava, tocava em Confirmar, e a tela voltava ao
+  // ponto de partida. No patio, sem saber o que houve, o proximo movimento e'
+  // desistir do relatorio — e o que se perde e' justamente o caso que nenhuma
+  // opcao cobria.
+  const raiz = montarChecklist()
+  comecar(raiz)
+
+  abrirProblema(raiz)
+  botao(folha(raiz), 'Escrever relatorio').click()
+
+  const area = folha(raiz).querySelector('textarea')
+  assert.ok(area, 'a folha de relatorio precisa ter onde escrever')
+  area.value = 'ok'
+  botao(folha(raiz), 'Confirmar').click()
+
+  const depois = folha(raiz)
+  // Este asserto vem antes de qualquer leitura: com o minimo errado a folha
+  // FECHA, e ler dela estouraria num `null` sem dizer o que aconteceu.
+  assert.ok(depois,
+    'a folha tem que continuar aberta — "ok" e curto demais para um relatorio')
+  assert.ok(depois.querySelector('textarea'), 'e continuar tendo onde escrever')
+  assert.equal(depois.querySelector('textarea').value, 'ok',
+    'o que a pessoa escreveu tem que continuar la')
+  assert.match(depois.textContent, /pelo menos/i,
+    'e a recusa tem que dizer o que falta')
+
+  // E com texto suficiente, passa.
+  depois.querySelector('textarea').value = 'Trinco da porta nao fecha'
+  botao(depois, 'Confirmar').click()
+  assert.ok(!folha(raiz), 'a folha fecha quando o relatorio serve')
+})
+
 test('campo: escolher o problema carrega a prioridade configurada', () => {
   const raiz = montarChecklist()
   comecar(raiz)

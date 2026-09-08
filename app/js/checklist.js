@@ -444,24 +444,39 @@ export function executarChecklist({ tarefa, modelo, aoConcluir, aoSair }) {
     avancar()
   }
 
-  function escreverRelatorio(pergunta) {
+  // `texto` volta preenchido quando a folha e' reaberta por texto curto: quem
+  // escreveu tres palavras nao pode perde-las por causa da recusa.
+  function escreverRelatorio(pergunta, { texto = '', avisar = false } = {}) {
     const area = elemento('textarea', {
       classe: 'relatorio', rows: 5,
       placeholder: 'Descreva o que voce encontrou.',
+      value: texto,
     })
     const fundo = folha({
       titulo: 'Escrever relatorio',
-      texto: 'Use quando nenhuma opcao descrever o que voce viu.',
+      // A recusa DIZ o que falta. Antes ela apenas reabria a folha, vazia e
+      // calada: a pessoa digitava "ok", tocava em Confirmar, e a tela voltava
+      // ao ponto de partida sem o texto e sem explicacao. Recusa silenciosa e'
+      // a que mais custa no patio, porque nao da nem para adivinhar.
+      texto: avisar
+        ? `Escreva pelo menos ${MINIMO_RELATORIO} caracteres — quem le o relatorio nao esteve la.`
+        : 'Use quando nenhuma opcao descrever o que voce viu.',
       filhos: [area],
       acoes: [
         { rotulo: 'Voltar as opcoes', suave: true, aoClick: () => escolherProblema(pergunta) },
         {
           rotulo: 'Confirmar',
           aoClick: () => {
-            const texto = area.value.trim()
-            if (texto.length < 5) return escreverRelatorio(pergunta)
+            const escrito = area.value.trim()
+            // O minimo vem do MOTOR, e nao de um numero repetido aqui. Era um
+            // `5` escrito a mao ao lado de uma constante ja importada: mudar a
+            // regra no motor deixaria esta tela para tras, aceitando o que o
+            // servidor recusa.
+            if (escrito.length < MINIMO_RELATORIO) {
+              return escreverRelatorio(pergunta, { texto: escrito, avisar: true })
+            }
             respostas[pergunta.id].opcao_id = null
-            respostas[pergunta.id].relatorio = texto
+            respostas[pergunta.id].relatorio = escrito
             avancar()
           },
         },
