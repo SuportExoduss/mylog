@@ -119,9 +119,51 @@ export async function telaConfiguracoes(raiz, contexto) {
     if (valor) rascunho[tema][chave] = valor
     else delete rascunho[tema][chave]
     // Mostra o tema que esta sendo mexido: previa que nao aparece nao e previa.
-    if (temaNaTela() !== tema) { verTema(tema); desenhar() }
+    //
+    // `atualizarSelosDeTema`, e NAO `desenhar`.
+    //
+    // `<input type="color">` dispara `input` a cada movimento dentro do
+    // seletor do sistema. Reconstruindo a tela no primeiro movimento, o campo
+    // que a pessoa esta segurando e' trocado por outro: o seletor aberto fica
+    // preso a um no' que saiu da arvore, e o resto do arrasto nao chega em
+    // lugar nenhum. Ficava gravada so a primeira cor tocada — e ela quase
+    // nunca e' a escolhida.
+    //
+    // Acontecia exatamente quando a pessoa edita o tema que NAO esta na tela,
+    // que e' o caso de quem entra no painel claro e vai ajustar o escuro.
+    //
+    // O que muda com a troca de tema e' so o selo "na tela" e a moldura do
+    // bloco. E' isso que se atualiza.
+    if (temaNaTela() !== tema) { verTema(tema); atualizarSelosDeTema() }
     prever()
     redesenharAvisos()
+  }
+
+  // Atualiza so quem depende de qual tema esta na tela, sem tocar nos campos.
+  function atualizarSelosDeTema() {
+    for (const secao of corpo.querySelectorAll('.config-bloco')) {
+      const seuTema = secao.dataset.tema
+      const naTela = temaNaTela() === seuTema
+      secao.classList.toggle('config-bloco--na-tela', naTela)
+      const lugar = secao.querySelector('.config-bloco-selo')
+      if (lugar) lugar.replaceChildren(seloDoTema(seuTema, naTela))
+    }
+  }
+
+  // O selo de um bloco: "na tela" quando e' o tema mostrado, e o convite para
+  // olha-lo quando nao e'.
+  function seloDoTema(tema, naTela) {
+    if (naTela) {
+      return elemento('span', { classe: 'config-origem config-origem--sua', texto: 'na tela' })
+    }
+    // Sem isto, quem edita o tema que nao esta na tela nao ve nada acontecer.
+    // O botao existe para o caso de querer olhar antes de mexer; mexer ja
+    // troca sozinho.
+    return elemento('button', {
+      classe: 'botao botao--suave botao--mini', type: 'button',
+      texto: 'Ver este tema',
+      aoClick: () => { verTema(tema); atualizarSelosDeTema(); prever(); redesenharAvisos() },
+    })
   }
 
   // --------------------------------------------------------------- campos
@@ -190,20 +232,16 @@ export async function telaConfiguracoes(raiz, contexto) {
 
     const naTela = temaNaTela() === tema
 
-    return elemento('section', { classe: `config-bloco${naTela ? ' config-bloco--na-tela' : ''}` }, [
+    return elemento('section', {
+      classe: `config-bloco${naTela ? ' config-bloco--na-tela' : ''}`,
+      // O bloco diz de que tema e': e' por aqui que `atualizarSelosDeTema` o
+      // encontra sem reconstruir nada.
+      'data-tema': tema,
+    }, [
       elemento('header', { classe: 'config-bloco-topo' }, [
         elemento('div', { classe: 'config-bloco-titulo' }, [
           elemento('h2', { texto: ROTULO_TEMA[tema] }),
-          naTela
-            ? elemento('span', { classe: 'config-origem config-origem--sua', texto: 'na tela' })
-            // Sem isto, quem edita o tema que nao esta na tela nao ve nada
-            // acontecer. O botao existe para o caso de querer olhar antes de
-            // mexer; mexer ja troca sozinho.
-            : elemento('button', {
-                classe: 'botao botao--suave botao--mini', type: 'button',
-                texto: 'Ver este tema',
-                aoClick: () => { verTema(tema); desenhar(); prever(); redesenharAvisos() },
-              }),
+          elemento('span', { classe: 'config-bloco-selo' }, [seloDoTema(tema, naTela)]),
         ]),
         elemento('button', {
           classe: 'botao botao--suave botao--mini', type: 'button',

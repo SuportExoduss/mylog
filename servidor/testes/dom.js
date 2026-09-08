@@ -80,6 +80,39 @@ class Evento {
   stopPropagation() { this.propagacaoParada = true }
 }
 
+// `data-nome-composto` vira `dataset.nomeComposto`, como no navegador.
+const emCamelo = (s) => s.replace(/-([a-z])/g, (_, c) => c.toUpperCase())
+const emTraco = (s) => s.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)
+
+// `dataset` e' uma VISTA sobre os atributos `data-*`, nao uma copia.
+//
+// No navegador os dois sao o mesmo estado, nos dois sentidos: escrever
+// `el.dataset.tema` muda o atributo, e `setAttribute('data-tema', ...)` muda o
+// dataset. Como objeto puro, o dataset so recebia — e um codigo que ESCREVE
+// pelo dataset (`documentElement.dataset.tema = 'escuro'`) e um teste que LE
+// pelo atributo enxergavam mundos diferentes. O teste falhava apontando para
+// a tela, com a tela certa.
+function fazerDataset(no) {
+  return new Proxy({}, {
+    get: (_, chave) => (typeof chave === 'string'
+      ? no.atributos.get(`data-${emTraco(chave)}`)
+      : undefined),
+    set: (_, chave, valor) => {
+      no.atributos.set(`data-${emTraco(String(chave))}`, String(valor))
+      return true
+    },
+    deleteProperty: (_, chave) => {
+      no.atributos.delete(`data-${emTraco(String(chave))}`)
+      return true
+    },
+    has: (_, chave) => no.atributos.has(`data-${emTraco(String(chave))}`),
+    ownKeys: () => [...no.atributos.keys()]
+      .filter((k) => k.startsWith('data-'))
+      .map((k) => emCamelo(k.slice(5))),
+    getOwnPropertyDescriptor: () => ({ enumerable: true, configurable: true }),
+  })
+}
+
 class No {
   constructor(tag) {
     this.tagName = String(tag).toUpperCase()
@@ -87,7 +120,7 @@ class No {
     this.parentNode = null
     this.atributos = new Map()
     this.ouvintes = new Map()
-    this.dataset = {}
+    this.dataset = fazerDataset(this)
     this.style = {}
     this._texto = ''
     this._valor = ''

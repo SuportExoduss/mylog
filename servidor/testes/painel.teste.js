@@ -212,3 +212,62 @@ test('marca: navegar para outra secao tambem descarta a previa', async () => {
   assert.equal(folhaDePrevia(), null, 'a previa saiu ao navegar')
   assert.equal(temaForcado(), null, 'e o tema tambem')
 })
+
+// ============================================ mexer na cor nao arranca o campo
+test('marca: editar o tema que NAO esta na tela nao troca o campo por baixo', async () => {
+  // `<input type="color">` dispara `input` a cada movimento dentro do seletor
+  // do sistema. A tela reconstruia tudo no PRIMEIRO movimento — para mostrar o
+  // tema que estava sendo mexido — e o campo que a pessoa segurava era trocado
+  // por outro: o seletor aberto ficava preso a um no' fora da arvore, e o
+  // resto do arrasto nao chegava em lugar nenhum. Ficava gravada so a primeira
+  // cor tocada, que quase nunca e a escolhida.
+  //
+  // Acontecia exatamente com quem entra no painel claro e vai ajustar o
+  // escuro, que e o caminho normal.
+  tela.preferirEscuro(false)
+  await abrirPainel()
+  botaoDeTexto('Configuracoes').click()
+  await assentar()
+
+  const blocoEscuro = tela.corpo.querySelectorAll('.config-bloco')
+    .find((b) => b.dataset.tema === 'escuro')
+  assert.ok(blocoEscuro, 'controle: o bloco do tema escuro esta identificado')
+  assert.equal(temaForcado(), null, 'controle: o painel esta no tema claro')
+
+  const cor = blocoEscuro.querySelectorAll('.config-cor')[0]
+  assert.ok(cor, 'controle: o bloco escuro tem seletor de cor')
+
+  // Primeiro movimento do arrasto: e aqui que a tela trocava tudo.
+  cor.value = '#112233'
+  cor.dispatchEvent(new Evento('input'))
+  await assentar()
+
+  assert.equal(temaForcado(), 'escuro', 'o painel foi para o tema que esta sendo mexido')
+
+  const depois = tela.corpo.querySelectorAll('.config-bloco')
+    .find((b) => b.dataset.tema === 'escuro')
+    .querySelectorAll('.config-cor')[0]
+  assert.equal(depois, cor,
+    'e o campo continua sendo O MESMO no — trocar arranca o seletor da mao de quem mexe')
+
+  // Segundo e terceiro movimentos: continuam chegando, que e o ponto.
+  cor.value = '#445566'
+  cor.dispatchEvent(new Evento('input'))
+  await assentar()
+  cor.value = '#778899'
+  cor.dispatchEvent(new Evento('input'))
+  await assentar()
+
+  assert.equal(tela.corpo.querySelectorAll('.config-bloco')
+    .find((b) => b.dataset.tema === 'escuro')
+    .querySelectorAll('.config-cor')[0], cor,
+    'o campo segue o mesmo depois do arrasto inteiro')
+
+  // E o selo trocou de lado, que e o unico motivo do redesenho existir.
+  assert.match(blocoEscuro.textContent, /na tela/,
+    'o bloco escuro se anuncia como o que esta na tela')
+  const blocoClaro = tela.corpo.querySelectorAll('.config-bloco')
+    .find((b) => b.dataset.tema === 'claro')
+  assert.match(blocoClaro.textContent, /Ver este tema/,
+    'e o claro passa a oferecer o convite para ve-lo')
+})
