@@ -241,6 +241,16 @@ async function entrar(email, senha = SENHA) {
   return r.dados.token
 }
 
+// O vocabulario inteiro da solicitacao, para a varredura de estados nao
+// depender de uma lista escrita duas vezes.
+const STATUS_SOLICITACAO_TESTE = [
+  'pendente', 'aprovada', 'recusada', 'em_uso',
+  'devolvida', 'devolvida_com_atraso', 'cancelada',
+]
+let veiculoSolicitacaoLivre = null
+
+const STATUS_VEICULO_TESTE = ['disponivel', 'com_pendencia', 'manutencao', 'bloqueado']
+
 const daquiAHoras = (h) => new Date(Date.now() + h * 3600000).toISOString()
 
 // AAAA-MM-DD no fuso de quem roda o teste — a mesma conta que o servidor faz.
@@ -3889,6 +3899,164 @@ test('estados: o usuario so anda pelas transicoes que a tabela declara', async (
     assert.notEqual(resposta.status, 200, `desativado -> ${para} nao pode passar`)
   }
   assert.equal(consultarUm('SELECT status FROM usuarios WHERE id = ?', [id]).status, 'desativado')
+})
+
+// A solicitacao nao tem tabela de transicoes: ela anda por ACOES nomeadas —
+// aprovar, recusar, cancelar, devolver — e cada uma guarda por dentro o estado
+// que aceita. Sem tabela, a unica forma de ver a maquina inteira e' escrever o
+// que se espera e conferir a rota contra isso.
+//
+// A coluna da esquerda e' a ESPECIFICACAO. A varredura tenta cada acao a partir
+// de cada um dos sete estados — 28 tentativas — e cobra as duas direcoes.
+const ACOES_DA_SOLICITACAO = [
+  { acao: 'aprovar',  aceita: ['pendente'],
+    corpo: () => ({ veiculo_id: veiculoSolicitacaoLivre }) },
+  { acao: 'recusar',  aceita: ['pendente'],
+    corpo: () => ({ motivo: 'motivo da varredura de estados' }) },
+  // Cancelar vale ate a retirada: depois que o carro saiu, quem encerra e' a
+  // devolucao.
+  { acao: 'cancelar', aceita: ['pendente', 'aprovada'], corpo: () => ({}) },
+  { acao: 'devolver', aceita: ['em_uso'],
+    corpo: () => ({ motivo_atraso: 'motivo da varredura de estados' }) },
+]
+
+test('estados: cada acao da solicitacao so vale nos estados que a aceitam', async () => {
+  const frota = await entrar('frota.a@teste.local')
+
+  // Pedido e carro proprios: a varredura empurra o estado 28 vezes, e aprovar
+  // de verdade amarra um veiculo a uma janela.
+  const veiculo = criarVeiculo(empresaA, 'AAA9S99')
+  // Ele precisa ATENDER a categoria do pedido: liberar carro de fora da
+  // categoria e' permitido, mas exige justificativa escrita — outra regra, com
+  // teste proprio. A varredura aqui e' sobre ESTADO, e nao sobre categoria.
+  executar('INSERT INTO veiculo_categorias (empresa_id, veiculo_id, categoria_id) VALUES (?, ?, ?)',
+    [empresaA, veiculo, catA])
+  veiculoSolicitacaoLivre = veiculo
+
+  const id = novoId('solicitacao')
+  const ts = agora()
+  executar(
+    `INSERT INTO solicitacoes (id, empresa_id, numero, solicitante_id, categoria_id,
+                               janela_inicio, janela_fim, motivo, status, criado_em, atualizado_em)
+     VALUES (?, ?, 9001, ?, ?, ?, ?, 'Pedido da varredura de estados', 'pendente', ?, ?)`,
+    [id, empresaA, frotaA, catA, daquiAHoras(4000), daquiAHoras(4004), ts, ts])
+
+  const situacao = () => consultarUm('SELECT status FROM solicitacoes WHERE id = ?', [id]).status
+  const por = (estado) => executar(
+    'UPDATE solicitacoes SET status = ?, veiculo_id = NULL, devolvido_em = NULL WHERE id = ?',
+    [estado, id])
+
+  const aceitouDemais = []
+  const recusouDeMais = []
+  const mexeuRecusando = []
+  let tentativas = 0
+
+  for (const { acao, aceita, corpo } of ACOES_DA_SOLICITACAO) {
+    for (const estado of STATUS_SOLICITACAO_TESTE) {
+      por(estado)
+      // `devolver` precisa de um carro amarrado para ter o que devolver.
+      if (estado === 'em_uso') {
+        executar('UPDATE solicitacoes SET veiculo_id = ? WHERE id = ?', [veiculo, id])
+      }
+      tentativas += 1
+
+      const r = await chamar('POST', `/api/solicitacoes/${id}/${acao}`,
+        { token: frota, corpo: corpo() })
+      const permitida = aceita.includes(estado)
+      const ficou = situacao()
+
+      if (permitida && r.status !== 200) {
+        recusouDeMais.push(`${acao} em "${estado}": ${r.status} ${r.dados?.mensagem || ''}`)
+      }
+      if (!permitida && r.status === 200) {
+        aceitouDemais.push(`${acao} em "${estado}": aceita, e nao devia`)
+      }
+      if (!permitida && ficou !== estado) {
+        mexeuRecusando.push(`${acao} em "${estado}": recusou com ${r.status} e virou "${ficou}"`)
+      }
+    }
+  }
+
+  assert.ok(tentativas >= 24, `poucas tentativas: ${tentativas}`)
+  assert.deepEqual(aceitouDemais, [],
+    `acao aceita num estado que nao devia aceitar:\n${aceitouDemais.join('\n')}`)
+  assert.deepEqual(recusouDeMais, [],
+    `acao recusada num estado em que devia valer:\n${recusouDeMais.join('\n')}`)
+  assert.deepEqual(mexeuRecusando, [],
+    `recusou e gravou assim mesmo:\n${mexeuRecusando.join('\n')}`)
+})
+
+// O veiculo tem a maquina mais aberta das tres: a Frota pode pos-lo em qualquer
+// dos quatro estados, porque isso e' decisao dela. A regra unica e' de SAIDA —
+// tirar um carro de BLOQUEADO sempre exige motivo escrito, inclusive quando o
+// bloqueio veio de uma ocorrencia critica e um diagnostico concluiu que o carro
+// pode rodar (roadmap 9.3).
+//
+// Regra de uma linha so, e por isso mesmo facil de perder numa refatoracao: as
+// dezesseis combinacoes sao exercidas com e sem motivo.
+test('estados: soltar veiculo bloqueado exige motivo, e so isso', async () => {
+  const frota = await entrar('frota.a@teste.local')
+  const veiculo = criarVeiculo(empresaA, 'AAA9E99')
+
+  const situacao = () => consultarUm('SELECT status, motivo_status FROM veiculos WHERE id = ?',
+    [veiculo])
+  const por = (estado) => executar(
+    'UPDATE veiculos SET status = ?, motivo_status = ? WHERE id = ?',
+    [estado, estado === 'bloqueado' ? 'motivo original do bloqueio' : null, veiculo])
+
+  const semMotivoPassou = []
+  const comMotivoFalhou = []
+  const mexeuRecusando = []
+  let pares = 0
+
+  for (const de of STATUS_VEICULO_TESTE) {
+    for (const para of STATUS_VEICULO_TESTE) {
+      if (de === para) continue
+      pares += 1
+
+      // Sem motivo.
+      por(de)
+      const seco = await chamar('POST', `/api/veiculos/${veiculo}/status`,
+        { token: frota, corpo: { status: para } })
+      const precisaMotivo = de === 'bloqueado'
+      const depoisSeco = situacao()
+
+      if (precisaMotivo && seco.status === 200) {
+        semMotivoPassou.push(`${de} -> ${para}: soltou sem motivo`)
+      }
+      if (precisaMotivo && depoisSeco.status !== de) {
+        mexeuRecusando.push(`${de} -> ${para}: recusou e mudou para "${depoisSeco.status}"`)
+      }
+      if (!precisaMotivo && seco.status !== 200) {
+        comMotivoFalhou.push(`${de} -> ${para} sem motivo: ${seco.status} ${seco.dados?.mensagem || ''}`)
+      }
+
+      // Com motivo, tem que passar sempre.
+      por(de)
+      const comMotivo = await chamar('POST', `/api/veiculos/${veiculo}/status`,
+        { token: frota, corpo: { status: para, motivo: 'decisao da varredura' } })
+      if (comMotivo.status !== 200) {
+        comMotivoFalhou.push(`${de} -> ${para} COM motivo: ${comMotivo.status} ${comMotivo.dados?.mensagem || ''}`)
+      } else if (situacao().status !== para) {
+        comMotivoFalhou.push(`${de} -> ${para}: respondeu 200 e ficou em "${situacao().status}"`)
+      }
+    }
+  }
+
+  assert.ok(pares >= 12, `poucos pares exercidos: ${pares}`)
+  assert.deepEqual(semMotivoPassou, [],
+    `carro bloqueado solto sem motivo escrito:\n${semMotivoPassou.join('\n')}`)
+  assert.deepEqual(comMotivoFalhou, [],
+    `transicao que devia passar e nao passou:\n${comMotivoFalhou.join('\n')}`)
+  assert.deepEqual(mexeuRecusando, [],
+    `recusou e gravou assim mesmo:\n${mexeuRecusando.join('\n')}`)
+
+  // Bloqueado para bloqueado nao e' saida de bloqueio: trocar o motivo do
+  // proprio bloqueio nao precisa passar pela mesma exigencia.
+  por('bloqueado')
+  const mesmo = await chamar('POST', `/api/veiculos/${veiculo}/status`,
+    { token: frota, corpo: { status: 'bloqueado' } })
+  assert.equal(mesmo.status, 200, 'reafirmar o bloqueio nao e solta-lo')
 })
 
 test('limite da consulta: numero que nao da para ler vira o padrao', async () => {
