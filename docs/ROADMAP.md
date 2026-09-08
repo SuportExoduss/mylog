@@ -1359,6 +1359,7 @@ Valem para todas as telas de lista:
 | Checklist | Modelos versionados por cargo e tipo de veículo, periodicidade e horário limite, execução com foto, saída e retorno |
 | Checklists feitos | Tela com filtro de período (padrão hoje) e por cargo, e exportação em planilha |
 | Ocorrências | Prioridade, evidência, fluxo de tratamento, bloqueio por crítica |
+| Aparência | White label por empresa: nome, logo e cores da marca, claro e escuro em separado, com co-branding MyLog obrigatório |
 | Solicitações | Pedido por categoria de uso, liberação com escolha da placa, veículo visível ao solicitante, retirada, devolução e atraso justificado |
 | Preventivas | KM/data, próxima regra e alerta no painel |
 | Painel | Frota, checklists, solicitações, ocorrências e preventivas |
@@ -1378,6 +1379,7 @@ Valem para todas as telas de lista:
 | F3 — Aplicativo de campo | Login, checklist, evidências | **feita** — reescrita na v3.0; offline removido na v3.2 (D58) |
 | F4 — Regras | Prioridade, bloqueio, ocorrências | **feita** |
 | F4.1 — v3.1 | Categoria de uso, checklist diário avulso, ritmo do modelo, checklists feitos e planilha | **feita** |
+| F4.2 — v3.2 | Remoção do offline (D58) e White Label por empresa (D59) | **feita** |
 | F5 — Preventivas | Agenda por KM/data, reagendamento, alertas | **feita** |
 | F6 — Relatórios | Dossiês de impressão, comparativo, frota | **feita** |
 | F6.1 — v3.2 | Checklist de preventiva, dossie antes x depois, upload de imagem, notificacoes, cobranca de nao realizado | **feita** |

@@ -13,6 +13,7 @@ import {
   cabecalhoCookie, cabecalhoCookieVazio, exigirSessao,
 } from '../seguranca/sessao.js'
 import { perfilPublico } from '../seguranca/nivel.js'
+import { marcaDaEmpresa } from './marca.js'
 import { conferirFreio, contarFalha, contarAlvo, limparFreio, LIMITES } from '../seguranca/freio.js'
 
 const MOTIVO_STATUS = {
@@ -101,7 +102,14 @@ export function registrarRotasAutenticacao(rotas) {
       empresaId: usuario.empresa_id, ator: usuario, alvoId: usuario.id, acao: 'login.sucesso',
       entidade: 'usuario', entidadeId: usuario.id, depois: { origem }, ip: ctx.ip,
     })
-    return { usuario: perfilPublico(usuario), token, expira_em: expira }
+    // A marca viaja junto com a sessao (roadmap 7). Ela chega no MESMO
+    // pacote que diz quem a pessoa e, e por isso nao ha instante em que a
+    // tela esta logada mostrando a marca de outra empresa: quem tem dono e' o
+    // contexto, e a marca vem dentro dele.
+    return {
+      usuario: perfilPublico(usuario), token, expira_em: expira,
+      marca: marcaDaEmpresa(usuario.empresa_id),
+    }
   })
 
   rotas.post('/api/auth/sair', async (ctx) => {
@@ -120,7 +128,10 @@ export function registrarRotasAutenticacao(rotas) {
   // saber disso para mandar a pessoa para a tela certa.
   rotas.get('/api/auth/eu', async (ctx) => {
     const usuario = exigirSessao(ctx)
-    return { usuario: perfilPublico(usuario) }
+    return {
+      usuario: perfilPublico(usuario),
+      marca: marcaDaEmpresa(usuario.empresa_id),
+    }
   })
 
   // Troca de senha. Serve tanto para o primeiro acesso quanto para a troca
@@ -175,6 +186,9 @@ export function registrarRotasAutenticacao(rotas) {
       acao: primeiroAcesso ? 'primeiro_acesso' : 'senha.alterada',
       entidade: 'usuario', entidadeId: usuario.id, ip: ctx.ip,
     })
-    return { usuario: perfilPublico(atualizado), token, expira_em: expira }
+    return {
+      usuario: perfilPublico(atualizado), token, expira_em: expira,
+      marca: marcaDaEmpresa(atualizado.empresa_id),
+    }
   })
 }

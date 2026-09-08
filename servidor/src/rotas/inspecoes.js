@@ -7,6 +7,7 @@
 // checklist e' o que bloqueia ou libera um caminhao.
 import { consultar, consultarUm, executar, novoId, agora, transacao } from '../nucleo/banco.js'
 import { erro } from '../nucleo/http.js'
+import { marcaDaEmpresa } from './marca.js'
 import { registrarEvento } from '../nucleo/auditoria.js'
 import { notificarFrota } from '../nucleo/notificacoes.js'
 import { exigirAutenticado } from '../seguranca/sessao.js'
@@ -208,6 +209,10 @@ export function registrarRotasInspecoes(rotas) {
         id: eu.id, nome: eu.nome, cargo_id: eu.cargo_id, cargo_nome: eu.cargo_nome,
         usa_veiculo_diario: Boolean(eu.usa_veiculo_diario),
       },
+      // Co-branding vale no patio tambem (roadmap 7). A marca vem DENTRO do
+      // contexto, que tem dono: nao existe momento em que o aplicativo mostra
+      // a marca de uma empresa e as tarefas de outra.
+      marca: marcaDaEmpresa(eu.empresa_id),
       tarefas,
       preventivas,
       avulso,

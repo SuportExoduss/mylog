@@ -192,6 +192,12 @@ para uma nuvem em UTC deslocaria todo limite de dia em três horas sem gerar um
 
 ## 7. White Label
 
+> **Implementado em 08/09/2026** ([D59](DECISOES.md#d59--white-label-muda-a-marca-e-só-a-marca)).
+> Tela **Configurações**, ao pé da lateral do painel. O motor é
+> `compartilhado/marca.js` + `compartilhado/contraste.js`, usados iguais pelo
+> servidor e pelo painel. Persistência na tabela `marcas`; a logo no storage.
+> Falta migrar para Firestore/R2 junto com o resto (etapa 2).
+
 Personalização por empresa com **co-branding obrigatório**: a marca MyLog
 permanece ao lado da marca do contratante. Uma empresa nunca altera a aparência
 de outra, e branding não toca em regra, permissão, dado nem histórico.
@@ -208,11 +214,15 @@ Configuração e tokens no Firestore, arquivos no R2, ambos escopados ao tenant.
 cliente de campo **nunca** troca silenciosamente para a marca de outra
 empresa — o branding chega junto com o contexto, e o contexto tem dono.
 
-> A camada que isso exige já existe no CSS: `web/css/estilo.css` separa paleta
+> A camada que isso exige já existia no CSS: `web/css/estilo.css` separa paleta
 > primitiva de tokens semânticos (`--fundo`, `--superficie`, `--texto`,
 > `--marca`, `--ok`, `--critico`…), com claro e escuro declarados em blocos
-> independentes. Falta o mecanismo de sobreposição por empresa, não a
-> arquitetura.
+> independentes. O mecanismo de sobreposição por empresa é uma folha de estilo
+> montada em `web/js/marca.js`, que espelha essa mesma cascata.
+>
+> **Personalizável é a família da marca, e só ela.** As cores de estado ficam
+> de fora por decisão registrada: elas dizem o que a tela *significa*, não como
+> ela se parece. Ver [D59](DECISOES.md#d59--white-label-muda-a-marca-e-só-a-marca).
 
 ---
 

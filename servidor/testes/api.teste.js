@@ -2839,6 +2839,9 @@ function preencher(molde) {
     [/^\/relatorio\/preventiva\/:id/,  () => globalThis.__preventivaA],
     [/^\/imagens\/modelo\/:template\/:arquivo/,
       () => [modeloPreventivaA, 'nao-existe.jpg']],
+    // A logo e' enderecada pela EMPRESA, e nao por um id de registro: a
+    // travessia aqui e' pedir a logo da empresa A estando logado na B.
+    [/^\/imagens\/marca\/:empresa/, () => empresaA],
   ]
 
   for (const [padrao, achar] of alvos) {
@@ -3029,6 +3032,10 @@ const NIVEL = new Map([
   // A foto de exemplo da pergunta: o app precisa mostrar COMO fotografar.
   ['GET /imagens/modelo/:template/:arquivo', 'colaborador'],
 
+  // A logo da empresa aparece no aplicativo de campo tambem — co-branding
+  // vale nas duas telas. Quem a CONFIGURA e' a Frota; quem a VE e' todo mundo.
+  ['GET /imagens/marca/:empresa', 'colaborador'],
+
   // O pedido e' dele; a liberacao e' da Frota.
   ['GET /api/solicitacoes', 'colaborador'],
   ['GET /api/solicitacoes/:id', 'colaborador'],
@@ -3068,6 +3075,13 @@ const NIVEL = new Map([
   ['PUT /api/templates/:id', 'frota'],
   ['POST /api/templates/:id/publicar', 'frota'],
   ['POST /api/templates/:id/imagem', 'frota'],
+
+  // White label (roadmap 7). Configurar a marca e' cadastro, e cadastro e' da
+  // Frota — o colaborador VE a marca, mas nao a escolhe.
+  ['GET /api/marca', 'frota'],
+  ['PUT /api/marca', 'frota'],
+  ['POST /api/marca/logo', 'frota'],
+  ['DELETE /api/marca/logo', 'frota'],
   ['POST /api/templates/:id/versao', 'frota'],
   ['DELETE /api/templates/:id', 'frota'],
   ['POST /api/templates/conferir', 'frota'],
@@ -5084,4 +5098,257 @@ test('freio: atras de proxy declarado, o endereco vem da direita', async () => {
   } finally {
     config.proxiesConfiaveis = original
   }
+})
+
+
+// ============================================================== white label
+//
+// Roadmap 7. O que estes testes protegem nao e' cor bonita: e' que a
+// personalizacao nao vire um jeito de injetar estilo, de mudar o que a tela
+// SIGNIFICA, de deixar o painel ilegivel, ou de tirar o MyLog de perto da
+// marca do contratante.
+
+test('marca: colaborador nao configura a marca da empresa', async () => {
+  // Cargo nao e' permissao, e aparencia da empresa e' cadastro. Quem VE a marca
+  // e' todo mundo; quem a escolhe e' a Frota.
+  const colaborador = await entrar('vendas.a@teste.local')
+  for (const [metodo, caminho] of [
+    ['GET', '/api/marca'], ['PUT', '/api/marca'],
+    ['POST', '/api/marca/logo'], ['DELETE', '/api/marca/logo'],
+  ]) {
+    const r = await chamar(metodo, caminho,
+      metodo === 'GET' ? { token: colaborador } : { token: colaborador, corpo: {} })
+    assert.equal(r.status, 403, `${metodo} ${caminho} devia recusar colaborador`)
+  }
+})
+
+test('marca: o que a empresa nao definiu volta como padrao MyLog', async () => {
+  const frota = await entrar('frota.a@teste.local')
+  const r = await chamar('GET', '/api/marca', { token: frota })
+  assert.equal(r.status, 200)
+  // Sem nada configurado, `definidos` e' vazio e `efetivos` vem completo: e' a
+  // diferenca entre "escolhi branco" e "nao escolhi", e e' ela que faz o botao
+  // "voltar ao padrao" ter sentido.
+  assert.deepEqual(r.dados.marca.definidos.claro, {})
+  assert.equal(Object.keys(r.dados.marca.efetivos.claro).length, 4)
+  assert.equal(r.dados.contraste.ok, true, 'o proprio padrao MyLog passa no contraste')
+})
+
+test('marca: publica, e o que volta e o que foi guardado', async () => {
+  const frota = await entrar('frota.a@teste.local')
+  const r = await chamar('PUT', '/api/marca', {
+    token: frota,
+    corpo: {
+      nome_exibicao: '  Transportes   Silva  ',
+      tokens_claro: { marca: '#1A5C2E' },
+    },
+  })
+  assert.equal(r.status, 200)
+  assert.equal(r.dados.marca.nome_exibicao, 'Transportes Silva', 'espaco sobrando e aparado')
+  assert.equal(r.dados.marca.definidos.claro.marca, '#1a5c2e', 'a cor e normalizada')
+  assert.deepEqual(r.dados.marca.definidos.escuro, {}, 'o escuro nao foi tocado')
+  assert.equal(r.dados.marca.efetivos.escuro.marca, '#6f8fd6', 'e segue no padrao MyLog')
+})
+
+test('marca: PUT parcial nao apaga o que nao veio', async () => {
+  const frota = await entrar('frota.a@teste.local')
+  await chamar('PUT', '/api/marca', {
+    token: frota, corpo: { nome_exibicao: 'Empresa Um', tokens_claro: { marca: '#1a5c2e' } },
+  })
+  // So o tema escuro desta vez.
+  const r = await chamar('PUT', '/api/marca', {
+    token: frota, corpo: { tokens_escuro: { marca: '#9fd0ff' } },
+  })
+  assert.equal(r.status, 200)
+  assert.equal(r.dados.marca.nome_exibicao, 'Empresa Um', 'o nome ficou')
+  assert.equal(r.dados.marca.definidos.claro.marca, '#1a5c2e', 'o tema claro ficou')
+  assert.equal(r.dados.marca.definidos.escuro.marca, '#9fd0ff')
+})
+
+test('marca: um tema volta ao padrao sozinho', async () => {
+  const frota = await entrar('frota.a@teste.local')
+  await chamar('PUT', '/api/marca', {
+    token: frota,
+    corpo: { tokens_claro: { marca: '#1a5c2e' }, tokens_escuro: { marca: '#9fd0ff' } },
+  })
+  const r = await chamar('PUT', '/api/marca', { token: frota, corpo: { tokens_claro: null } })
+  assert.equal(r.status, 200)
+  assert.deepEqual(r.dados.marca.definidos.claro, {}, 'o claro voltou ao padrao')
+  assert.equal(r.dados.marca.definidos.escuro.marca, '#9fd0ff',
+    'e o escuro, que ninguem pediu para voltar, ficou')
+})
+
+test('marca: contraste insuficiente e recusado pelo SERVIDOR', async () => {
+  // A tela avisa enquanto a pessoa escolhe; o servidor decide. Um cliente
+  // desatualizado, ou um curl, nao pode deixar o painel ilegivel.
+  const frota = await entrar('frota.a@teste.local')
+  const r = await chamar('PUT', '/api/marca', {
+    token: frota,
+    corpo: { tokens_claro: { marca: '#fff8b0', 'marca-contraste': '#ffffff' } },
+  })
+  assert.equal(r.status, 400)
+  assert.match(r.dados.mensagem, /Contraste insuficiente/)
+  assert.match(r.dados.mensagem, /Texto sobre a marca/, 'diz QUAL par esta ruim')
+  assert.match(r.dados.mensagem, /\d+(\.\d+)?:1/, 'e com o numero medido')
+})
+
+test('marca: cor de estado e CSS livre nao entram, e voltam nomeados', async () => {
+  const frota = await entrar('frota.a@teste.local')
+  const r = await chamar('PUT', '/api/marca', {
+    token: frota,
+    corpo: {
+      tokens_claro: {
+        marca: '#1a5c2e',
+        critico: '#00ff00',
+        'background-image': 'url(javascript:alert(1))',
+        'marca-forte': 'red; content: "x"',
+      },
+    },
+  })
+  assert.equal(r.status, 200)
+  assert.deepEqual(r.dados.marca.definidos.claro, { marca: '#1a5c2e' },
+    'so a chave da lista, e so cor valida')
+  const chaves = r.dados.recusadas.map((x) => x.chave).sort()
+  assert.deepEqual(chaves, ['background-image', 'critico', 'marca-forte'])
+  const doEstado = r.dados.recusadas.find((x) => x.chave === 'critico')
+  assert.match(doEstado.motivo, /significa/i,
+    'a recusa da cor de estado explica que e significado, nao aparencia')
+})
+
+test('marca: publicar deixa rastro na auditoria, com o que mudou', async () => {
+  const frota = await entrar('frota.a@teste.local')
+  await chamar('PUT', '/api/marca', { token: frota, corpo: { tokens_claro: null } })
+  await chamar('PUT', '/api/marca', {
+    token: frota, corpo: { nome_exibicao: 'Marca Auditada', tokens_claro: { marca: '#1a5c2e' } },
+  })
+  const r = await chamar('GET', '/api/auditoria?acao=marca.publicada', { token: frota })
+  assert.equal(r.status, 200)
+  const evento = r.dados.eventos?.[0]
+  assert.ok(evento, 'a publicacao virou evento')
+  // D53: guarda o que MUDOU, e nao que mudou. Sem isso a pergunta "quem deixou
+  // isso assim?" fica sem resposta meses depois.
+  assert.equal(evento.depois.nome_exibicao, 'Marca Auditada')
+  assert.equal(evento.depois.tokens_claro.marca, '#1a5c2e')
+  assert.notDeepEqual(evento.antes, evento.depois)
+})
+
+test('marca: a empresa B nao ve nem muda a marca da empresa A', async () => {
+  const frotaA = await entrar('frota.a@teste.local')
+  await chamar('PUT', '/api/marca', {
+    token: frotaA, corpo: { nome_exibicao: 'So Da A', tokens_claro: { marca: '#1a5c2e' } },
+  })
+
+  const frotaB = await entrar('frota.b@teste.local')
+  const lida = await chamar('GET', '/api/marca', { token: frotaB })
+  assert.equal(lida.status, 200)
+  assert.equal(lida.dados.marca.nome_exibicao, null,
+    'a marca da B e da B, e ela nao tem nenhuma')
+
+  // E escrever na B nao encosta na A.
+  await chamar('PUT', '/api/marca', { token: frotaB, corpo: { nome_exibicao: 'Da B' } })
+  const aDeNovo = await chamar('GET', '/api/marca', { token: frotaA })
+  assert.equal(aDeNovo.dados.marca.nome_exibicao, 'So Da A')
+})
+
+test('marca: a sessao leva a marca junto, nas tres portas', async () => {
+  // A marca chega no MESMO pacote que diz quem a pessoa e'. E' assim que nao ha
+  // instante em que a tela esta logada mostrando a marca de outra empresa.
+  const login = await chamar('POST', '/api/auth/login',
+    { corpo: { email: 'frota.a@teste.local', senha: SENHA } })
+  assert.ok(login.dados.marca, 'login')
+  assert.ok(login.dados.marca.tokens.claro.marca, 'com os tokens ja mesclados')
+
+  const eu = await chamar('GET', '/api/auth/eu', { token: login.dados.token })
+  assert.ok(eu.dados.marca, '/api/auth/eu')
+
+  const contexto = await chamar('GET', '/api/app/inicio', { token: login.dados.token })
+  assert.ok(contexto.dados.marca, 'contexto do aplicativo de campo')
+  assert.deepEqual(Object.keys(contexto.dados.marca.tokens).sort(), ['claro', 'escuro'])
+})
+
+test('marca: nao existe caminho para tirar o MyLog do lado', async () => {
+  // Co-branding e' obrigatorio (arquitetura 7). A garantia nao e' uma validacao
+  // que alguem afrouxa depois: e' a AUSENCIA do campo. Se um dia alguem
+  // acrescentar `esconder_mylog`, este teste cai.
+  const frota = await entrar('frota.a@teste.local')
+  const r = await chamar('PUT', '/api/marca', {
+    token: frota,
+    corpo: {
+      esconder_mylog: true, ocultar_mylog: true, co_branding: false,
+      tokens_claro: { esconder_mylog: '#000000' },
+    },
+  })
+  assert.equal(r.status, 200)
+  const depois = await chamar('GET', '/api/marca', { token: frota })
+  assert.deepEqual(depois.dados.marca.definidos.claro, {}, 'nada disso entrou como token')
+  assert.equal('esconder_mylog' in depois.dados.marca, false)
+  assert.equal('co_branding' in depois.dados.marca, false)
+})
+
+test('marca: nome de exibicao nao passa do limite do cabecalho', async () => {
+  const frota = await entrar('frota.a@teste.local')
+  const r = await chamar('PUT', '/api/marca', {
+    token: frota, corpo: { nome_exibicao: 'N'.repeat(200) },
+  })
+  assert.equal(r.status, 200)
+  assert.equal(r.dados.marca.nome_exibicao.length, 32,
+    'a lateral tem 236px: nome sem limite empurraria o MyLog para fora')
+})
+
+test('marca: logo — remover o que nao existe nao inventa sucesso', async () => {
+  const frota = await entrar('frota.a@teste.local')
+  await chamar('DELETE', '/api/marca/logo', { token: frota })
+  const semLogo = await chamar('DELETE', '/api/marca/logo', { token: frota })
+  assert.equal(semLogo.status, 404)
+})
+
+test('marca: logo — o tipo sai dos BYTES, nao do que foi declarado', async () => {
+  // Um SVG seria pior que inutil aqui: SVG carrega script, e a logo e' servida
+  // dentro do painel.
+  const frota = await entrar('frota.a@teste.local')
+  const texto = Buffer.from('<svg onload=alert(1)></svg>').toString('base64')
+  const r = await chamar('POST', '/api/marca/logo', {
+    token: frota, corpo: { conteudo: `data:image/png;base64,${texto}` },
+  })
+  assert.equal(r.status, 400)
+  assert.match(r.dados.mensagem, /JPEG, PNG ou WebP/)
+})
+
+test('marca: logo — sobe, e serve so para quem e da empresa', async () => {
+  // AS DUAS empresas ganham logo, e isso NAO e' zelo: e' o que faz o teste
+  // testar alguma coisa.
+  //
+  // A primeira versao so dava logo para a A. Tirando a conferencia de tenant
+  // da rota, ela passava a servir a marca de QUEM PEDIU — e a B, sem logo,
+  // tomava 404 do mesmo jeito. O teste ficava verde com a guarda arrancada:
+  // o 404 vinha pelo motivo errado. Foi conferido reintroduzindo o defeito, e
+  // a suite nao piscou.
+  //
+  // Com logo nos dois lados, a falta da guarda vira o que ela e' de verdade:
+  // um 200 devolvendo a imagem ERRADA, num endereco que diz outra empresa.
+  const png = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+    'base64').toString('base64')
+
+  const frotaA = await entrar('frota.a@teste.local')
+  const daA = await chamar('POST', '/api/marca/logo', { token: frotaA, corpo: { conteudo: png } })
+  assert.equal(daA.status, 200)
+  assert.ok(daA.dados.marca.logo_url, 'a URL volta para a tela usar')
+
+  const frotaB = await entrar('frota.b@teste.local')
+  const daB = await chamar('POST', '/api/marca/logo', { token: frotaB, corpo: { conteudo: png } })
+  assert.equal(daB.status, 200)
+  assert.notEqual(daA.dados.marca.logo_url, daB.dados.marca.logo_url,
+    'controle: os dois enderecos sao diferentes')
+
+  // A dona ve a dela.
+  assert.equal((await chamar('GET', daA.dados.marca.logo_url, { token: frotaA })).status, 200)
+
+  // A B pedindo o endereco da A: 404. Nao a logo da B com 200 — isso seria a
+  // URL mentindo — e nao 403, que confirmaria que a empresa A existe.
+  const invadida = await chamar('GET', daA.dados.marca.logo_url, { token: frotaB })
+  assert.equal(invadida.status, 404)
+
+  // E sem sessao nenhuma, tambem nao: link vazado nao vira acesso.
+  assert.equal((await chamar('GET', daA.dados.marca.logo_url)).status, 401)
 })

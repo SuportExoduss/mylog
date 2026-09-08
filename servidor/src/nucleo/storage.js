@@ -71,6 +71,21 @@ export function caminhoDeImagemModelo({ empresaId, templateId, mime }) {
   return path.join(seguro(empresaId), 'modelos', seguro(templateId), nome)
 }
 
+// Logo da empresa (roadmap 7). Ramo proprio, fora de veiculo e de modelo:
+// pertence a EMPRESA e sobrevive a tudo que ela cadastrar.
+//
+//   empresa/marca/arquivo.png
+//
+// Nome sorteado, e nao fixo: trocar a logo grava um arquivo NOVO e so depois
+// aponta o banco para ele. Um nome fixo obrigaria a sobrescrever — e um
+// upload que falha no meio deixaria a empresa sem logo valida, que e'
+// exatamente o que a arquitetura proibe.
+export function caminhoDeLogo({ empresaId, mime }) {
+  const seguro = (v) => String(v || 'sem').replace(/[^A-Za-z0-9_-]/g, '')
+  const nome = `${crypto.randomBytes(8).toString('hex')}.${EXTENSAO[mime] || 'bin'}`
+  return path.join(seguro(empresaId), 'marca', nome)
+}
+
 // Dentro do storage — e "dentro" com a barra, nao so com o prefixo.
 //
 // A conferencia era `resolve(alvo).startsWith(raiz)`. Com a raiz em

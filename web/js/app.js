@@ -11,6 +11,8 @@ import { telaExecucoes } from './execucoes.js'
 import { telaCategorias } from './categorias.js'
 import { montarSino } from './sino.js'
 import { telaUsuarios } from './usuarios.js'
+import { telaConfiguracoes } from './configuracoes.js'
+import { guardarMarca, marcaComEmpresa, pintar } from './marca.js'
 
 // Todas as telas sao da Frota: o painel nao admite quem foi cadastrado como
 // somente aplicativo, e a recusa acontece no login (rotas/autenticacao.js).
@@ -37,9 +39,19 @@ const TELAS = [
   { chave: 'categorias', rotulo: 'Categorias de uso', quem: 'frota', montar: telaCategorias, oculto: true },
   { chave: 'usuarios', rotulo: 'Usuarios', quem: 'frota', montar: telaUsuarios },
   { chave: 'auditoria', rotulo: 'Auditoria', quem: 'frota', montar: telaAuditoria },
+
+  // No FIM da lista, e' de proposito, e com separacao visual: tudo acima e'
+  // operacao, aberta todo dia. Configuracoes e' aparencia da empresa, mexida
+  // uma vez e revisitada raramente. Misturar as duas coisas na mesma altura da
+  // lateral faria a pessoa procurar "Frota" e ler "Configuracoes" no caminho.
+  { chave: 'configuracoes', rotulo: 'Configuracoes', quem: 'frota',
+    montar: telaConfiguracoes, aoPe: true },
 ]
 
 const estado = { usuario: null, telaAtual: null, parametros: {} }
+
+// Devolvido pela tela que precisa desfazer algo ao sair. Ver `navegar`.
+let desmontarTelaAtual = null
 
 const contexto = {
   get usuario() { return estado.usuario },
@@ -49,6 +61,16 @@ const contexto = {
   // O sino descobre a sessao vencida antes de qualquer tela, porque ele bate
   // no servidor sozinho a cada minuto. Quando descobre, avisa por aqui.
   aoExpirarSessao: () => encerrarSessao(),
+  // A tela de configuracoes avisa quando publicou: a lateral redesenha com a
+  // marca nova sem recarregar a pagina.
+  marcaMudou: () => desenharMarcaLateral(),
+}
+
+function desenharMarcaLateral() {
+  const alvo = document.getElementById('app-marca')
+  if (!alvo) return
+  limpar(alvo)
+  alvo.append(marcaComEmpresa())
 }
 
 // ------------------------------------------------------------- navegacao
@@ -73,6 +95,16 @@ function desenharNavegacao() {
 
   for (const tela of telasVisiveis()) {
     if (tela.oculto) continue
+    // `aoPe` empurra o item para baixo de tudo, com uma linha antes. E' a
+    // separacao entre operacao e cadastro de aparencia.
+    if (tela.aoPe) {
+      nav.append(elemento('button', {
+        classe: `nav-ao-pe${tela.chave === estado.telaAtual ? ' ativo' : ''}`,
+        texto: tela.rotulo,
+        aoClick: () => navegar(tela.chave),
+      }))
+      continue
+    }
 
     const filhos = filhosVisiveis(tela)
     // Uma linha so quando o submenu nao acrescenta nada: item com um unico
@@ -152,9 +184,16 @@ async function navegar(chave, parametros = {}, { voltando = false } = {}) {
   desenharNavegacao()
 
   const conteudo = document.getElementById('conteudo')
+  // A tela anterior pode ter deixado algo fora do seu proprio no' — a de
+  // configuracoes pinta a PREVIA da marca no elemento raiz, que nao e' limpo
+  // por `limpar(conteudo)`. Sem desfazer aqui, quem espia uma cor e navega
+  // para outra secao leva a cor nao publicada junto, e acha que salvou.
+  desmontarTelaAtual?.()
+  desmontarTelaAtual = null
   limpar(conteudo)
   try {
-    await tela.montar(conteudo, contexto)
+    const desmontar = await tela.montar(conteudo, contexto)
+    if (typeof desmontar === 'function') desmontarTelaAtual = desmontar
   } catch (falha) {
     if (falha instanceof ErroApi && falha.status === 401) { await encerrarSessao(); return }
     if (falha instanceof ErroApi && falha.codigo === 'troca_de_senha_obrigatoria') {
@@ -252,10 +291,15 @@ function portaErrada(usuario) {
   // porta com a credencial certa.
 }
 
-function entrarNoApp(usuario) {
+function entrarNoApp(usuario, marca) {
   if (!usuario.acessa_painel) return portaErrada(usuario)
 
   estado.usuario = usuario
+  // A marca chega no MESMO pacote que diz quem a pessoa e', e e' aplicada
+  // antes de qualquer tela montar: nao existe instante em que o painel mostra
+  // a marca de uma empresa e os dados de outra.
+  guardarMarca(marca)
+  desenharMarcaLateral()
   document.getElementById('perfil-nome').textContent = usuario.nome
   document.getElementById('perfil-papel').textContent =
     `${ROTULO_NIVEL[usuario.nivel]}${usuario.cargo_nome ? ' · ' + usuario.cargo_nome : ''}`
@@ -276,6 +320,11 @@ async function encerrarSessao() {
   sino = null
   estado.usuario = null
   estado.telaAtual = null
+  // A tela de login nao e' de empresa nenhuma. Deixar a marca da ultima
+  // empresa ali diria, para quem pega o computador depois, quem esteve
+  // logado — e pintaria o login de uma empresa para alguem de outra.
+  guardarMarca(null)
+  desenharMarcaLateral()
   mostrar('tela-login')
   document.getElementById('form-login').reset()
 }
@@ -290,11 +339,11 @@ document.getElementById('form-login').addEventListener('submit', async (evento) 
   botao.disabled = true
   botao.textContent = 'Entrando...'
   try {
-    const { usuario } = await api.login(
+    const { usuario, marca } = await api.login(
       document.getElementById('login-email').value.trim(),
       document.getElementById('login-senha').value,
     )
-    entrarNoApp(usuario)
+    entrarNoApp(usuario, marca)
   } catch (falha) {
     aviso.textContent = falha.message
     aviso.classList.remove('oculto')
@@ -316,13 +365,14 @@ document.getElementById('botao-tema').addEventListener('click', () => {
 // ------------------------------------------------------------- inicio
 
 // A marca e' desenhada, nao escrita no HTML: um lugar so define o simbolo.
+// O login mostra so o MyLog: quem ainda nao entrou nao tem empresa.
 document.getElementById('login-marca').append(marca({ grande: true }))
-document.getElementById('app-marca').append(marca())
+desenharMarcaLateral()
 
 async function iniciar() {
   try {
-    const { usuario } = await api.eu()
-    entrarNoApp(usuario)
+    const { usuario, marca } = await api.eu()
+    entrarNoApp(usuario, marca)
   } catch {
     mostrar('tela-login')
     document.getElementById('login-email').focus()

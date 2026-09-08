@@ -16,6 +16,30 @@ CREATE TABLE IF NOT EXISTS empresas (
   atualizado_em TEXT NOT NULL
 );
 
+-- ------------------------------------------------------------------ marcas
+-- White label (roadmap 7). Uma linha por empresa, criada na primeira gravacao.
+--
+-- Fica em tabela propria, e nao dentro de `empresas.politicas`, porque sao
+-- coisas de natureza diferente: politica e' REGRA (bloqueio por critica,
+-- retencao), marca e' APARENCIA. A arquitetura diz que branding nao toca em
+-- regra; guardar os dois no mesmo JSON e' o primeiro passo para que toque.
+--
+-- Os tokens vao como JSON de uma lista FECHADA de chaves, validada em
+-- compartilhado/marca.js. Nunca CSS, nunca HTML, nunca script.
+--
+-- Claro e escuro sao colunas separadas porque cada tema volta ao padrao MyLog
+-- sozinho: `{}` num deles nao arrasta o outro.
+CREATE TABLE IF NOT EXISTS marcas (
+  empresa_id     TEXT PRIMARY KEY REFERENCES empresas(id),
+  nome_exibicao  TEXT,                          -- ao LADO do MyLog, nunca no lugar
+  logo_caminho   TEXT,                          -- no storage; NULL = so o MyLog
+  logo_mime      TEXT,
+  tokens_claro   TEXT NOT NULL DEFAULT '{}',    -- JSON, chaves de marca.js
+  tokens_escuro  TEXT NOT NULL DEFAULT '{}',
+  atualizado_em  TEXT NOT NULL,
+  atualizado_por TEXT
+);
+
 -- ------------------------------------------------------------------ cargos
 -- Funcao da pessoa na empresa (RH, Tecnico de campo, Motorista).
 -- NAO concede permissao de sistema — serve para identificar quem e' a pessoa

@@ -144,6 +144,17 @@ button, input, textarea { font: inherit; color: inherit; }
   border-top: 1px solid var(--borda);
 }
 
+/* Co-branding no aplicativo (roadmap 7): a marca da empresa acima da do MyLog,
+   na tela de entrada. Nunca uma no lugar da outra. */
+.login-empresa {
+  display: flex; flex-direction: column; align-items: center; gap: var(--e-2);
+  margin-bottom: var(--e-4);
+}
+.login-empresa-logo { max-height: 56px; max-width: 200px; object-fit: contain; }
+.login-empresa-nome {
+  font-size: 18px; font-weight: 700; text-align: center;
+}
+
 .vazio {
   padding: var(--e-6) var(--e-4);
   text-align: center; color: var(--texto-fraco);

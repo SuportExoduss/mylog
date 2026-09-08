@@ -1188,9 +1188,21 @@ test('documentos: nenhum documento cita arquivo que nao existe', () => {
   }
   varrer(raiz)
 
+  // O LEIA-ME entra pelo caminho dele, e nao por `docs/`: ele fica na raiz.
+  //
+  // Ficou de fora ate a remocao do offline deixar `sw.js` na arvore de arquivos
+  // dele por um dia inteiro, com o arquivo ja apagado. E' o documento que
+  // alguem le PRIMEIRO ao chegar no projeto — e o unico que descrevia uma
+  // pasta que nao existe mais.
+  const documentos = [
+    ...['ARQUITETURA', 'ROADMAP', 'DECISOES', 'API', 'DESIGN']
+      .map((d) => [d, path.join(raiz, 'docs', `${d}.md`)]),
+    ['LEIA-ME', path.join(raiz, 'LEIA-ME.md')],
+  ]
+
   const citados = []
-  for (const doc of ['ARQUITETURA', 'ROADMAP', 'DECISOES', 'API', 'DESIGN']) {
-    const texto = fs.readFileSync(path.join(raiz, 'docs', `${doc}.md`), 'utf8')
+  for (const [doc, caminho] of documentos) {
+    const texto = fs.readFileSync(caminho, 'utf8')
     // Uma decisao revogada descreve um mundo que nao existe mais: e' o que a
     // nota no topo dela avisa.
     const blocos = texto.split(/^## /m)
@@ -1278,6 +1290,11 @@ test('painel: nenhuma tela carrega estilo embutido, como o DESIGN.md afirma', ()
   for (const arquivo of fs.readdirSync(pasta).filter((f) => f.endsWith('.js'))) {
     const texto = fs.readFileSync(path.join(pasta, arquivo), 'utf8')
     texto.split(/\r?\n/).forEach((linha, i) => {
+      // Comentario nao e' codigo. Um comentario que EXPLICA por que NAO se usa
+      // `.style.` era acusado de usar — e' a terceira vez, neste projeto, que
+      // uma varredura le comentario como se fosse contrato.
+      const cru = linha.trim()
+      if (cru.startsWith('//') || cru.startsWith('*') || cru.startsWith('/*')) return
       // As duas portas: a propriedade `style:` do `elemento()` e a escrita
       // direta em `.style.` de um no ja montado.
       if (/(^|[^a-zA-Z])style\s*:/.test(linha) || /\.style\.[a-zA-Z]/.test(linha)) {

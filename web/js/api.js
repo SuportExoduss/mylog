@@ -43,6 +43,12 @@ export const api = {
 
   painel: () => pedir('GET', '/api/painel'),
 
+  // ----------------------------------------------------------- white label
+  marca: () => pedir('GET', '/api/marca'),
+  publicarMarca: (dados) => pedir('PUT', '/api/marca', dados),
+  enviarLogo: (conteudo) => pedir('POST', '/api/marca/logo', { conteudo }),
+  removerLogo: () => pedir('DELETE', '/api/marca/logo'),
+
   // ------------------------------------------------------------- usuarios
   usuarios: (filtros) => pedir('GET', comQuery('/api/usuarios', filtros)),
   criarUsuario: (dados) => pedir('POST', '/api/usuarios', dados),

@@ -65,13 +65,15 @@ cd servidor && npm run testar
 ```
 compartilhado/
   template.js     motor de checklist — roda no servidor E no aplicativo
+  marca.js        white label: tokens permitidos e padroes do MyLog
+  contraste.js    razao de contraste da WCAG, usada pelos dois lados
 servidor/
   src/
     nucleo/       config, banco, roteador http, auditoria,
                   motor de preventivas, motor de checklist
     seguranca/    senha (scrypt), sessao revogavel, tabela de permissoes
     rotas/        autenticacao, painel, usuarios, veiculos, templates,
-                  preventivas, tickets, ocorrencias, auditoria
+                  preventivas, solicitacoes, ocorrencias, auditoria, marca
     dados/        esquema.sql e semente de desenvolvimento
   testes/         regras que nao podem quebrar em silencio
 web/
@@ -80,7 +82,6 @@ web/
   js/             api, ui, e uma tela por arquivo
 app/              aplicativo de campo (Web, exige internet)
   index.html      shell
-  sw.js           service worker: guarda a casca, nunca resposta de API
   js/             envio (rede), checklist (execucao), app (telas)
 docs/
   DECISOES.md     registro de decisoes tecnicas
@@ -97,6 +98,7 @@ docs/
 | F3 — Aplicativo de campo | **feita** — checklist com foto, saida e retorno; offline removido na v3.2 (D58) |
 | F4 — Regras | **feita** — prioridade, bloqueio por critica, ocorrencias |
 | F5 — Preventivas | **feita** — KM/data, ciclo de conclusao, alertas |
+| F5.1 — White label | **feita** — nome, logo e cores da marca por empresa, com co-branding MyLog (D59) |
 | F6 — Relatorios | pendente |
 | F7 — Piloto | pendente |
 

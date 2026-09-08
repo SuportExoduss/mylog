@@ -339,8 +339,13 @@ class Texto extends No {
 // seu: estado de tela nao pode vazar de um teste para o outro.
 export function montarDom({ ids = ['area-modal'] } = {}) {
   const raiz = new No('html')
+  // O `head` existe porque o documento de verdade tem um, e o codigo usa: e'
+  // onde a folha de estilo da marca da empresa e' pendurada. Sem ele, o
+  // aplicativo estourava na abertura e dezoito testes caiam de uma vez —
+  // apontando para o DOM de mentira, e nao para o codigo.
+  const cabeca = new No('head')
   const corpo = new No('body')
-  raiz.append(corpo)
+  raiz.append(cabeca, corpo)
   for (const id of ids) {
     const alvo = new No('div')
     alvo.id = id
@@ -349,11 +354,12 @@ export function montarDom({ ids = ['area-modal'] } = {}) {
 
   const documento = {
     documentElement: raiz,
+    head: cabeca,
     body: corpo,
     createElement: (tag) => new No(tag),
     createElementNS: (_ns, tag) => new No(tag),
     createTextNode: (t) => new Texto(t),
-    getElementById: (id) => corpo.descendentes().find((n) => n.id === id) || null,
+    getElementById: (id) => raiz.descendentes().find((n) => n.id === id) || null,
     querySelector: (s) => corpo.querySelector(s),
     querySelectorAll: (s) => corpo.querySelectorAll(s),
     addEventListener: (t, f) => corpo.addEventListener(t, f),

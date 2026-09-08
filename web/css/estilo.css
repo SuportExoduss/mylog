@@ -331,6 +331,49 @@ a { color: var(--marca); }
 .marca-nome span { color: var(--marca); }
 .marca-nome--grande { font-size: var(--t-titulo); }
 
+/* Co-branding (roadmap 7): a marca do contratante em cima, a do MyLog embaixo,
+   menor e com um "por" que diz o que ela e'. Nunca uma no lugar da outra.
+
+   A hierarquia e' deliberada: quem abre o painel trabalha NA empresa dele, e a
+   marca dele e' que orienta. O MyLog fica legivel e permanente, sem disputar. */
+.co-marca { display: flex; flex-direction: column; gap: var(--e-2); }
+
+.marca-empresa {
+  display: flex; align-items: center; gap: var(--e-2);
+  min-width: 0;
+}
+
+.marca-empresa-logo {
+  /* Altura fixa e largura livre: logo de empresa vem em qualquer proporcao, e
+     esticar a de alguem para caber num quadrado e' pior que nao mostrar. */
+  height: 28px; width: auto; max-width: 150px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+.co-marca--grande .marca-empresa-logo { height: 40px; max-width: 200px; }
+
+.marca-empresa-nome {
+  font-size: var(--t-base);
+  font-weight: var(--peso-forte);
+  line-height: var(--entrelinha-apertada);
+  /* Nome longo nao empurra o MyLog para fora da lateral de 236px. */
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.co-marca--grande .marca-empresa-nome { font-size: var(--t-grande); }
+
+.co-marca-por { display: flex; align-items: center; gap: var(--e-2); }
+.co-marca-rotulo {
+  font-size: var(--t-micro);
+  text-transform: uppercase; letter-spacing: .08em;
+  color: var(--texto-fraco);
+}
+/* Ao lado de uma marca de empresa, a do MyLog entra em escala menor — presente
+   e legivel, sem competir. */
+.co-marca .marca-simbolo { width: 20px; height: 20px; }
+.co-marca .marca-nome { font-size: var(--t-base); }
+.co-marca--grande .marca-simbolo { width: 24px; height: 24px; }
+.co-marca--grande .marca-nome { font-size: var(--t-grande); }
+
 /* ---------------------------------------------------------------------------
    6. LOGIN
    ------------------------------------------------------------------------ */
@@ -486,7 +529,12 @@ a { color: var(--marca); }
 }
 .lateral-marca { padding: 0 var(--e-2); }
 
-.nav { display: flex; flex-direction: column; gap: 2px; }
+.nav {
+  display: flex; flex-direction: column; gap: 2px;
+  /* Cresce para ocupar a lateral: e' o que faz o `margin-top: auto` do item
+     ao pe ter para onde empurrar. */
+  flex: 1; min-height: 0;
+}
 .nav button {
   display: flex;
   align-items: center;
@@ -504,6 +552,15 @@ a { color: var(--marca); }
               color var(--mov-rapido) var(--mov-curva);
 }
 .nav button:hover { background: var(--superficie-3); color: var(--texto); }
+
+/* Configuracoes vai ao PE da lateral, empurrada para baixo e separada por uma
+   linha. Tudo acima e' operacao, aberta todo dia; isto e' cadastro de
+   aparencia, mexido uma vez. A distancia diz isso sem precisar de rotulo. */
+.nav-ao-pe {
+  margin-top: auto;
+  padding-top: var(--e-3);
+  border-top: 1px solid var(--borda);
+}
 
 /* A aba ativa ganha uma barra na cor da marca, nao um bloco pintado: o realce
    fica legivel sem consumir a unica cor forte que a tela tem. */
@@ -1135,3 +1192,128 @@ tbody tr:hover { background: var(--superficie-2); }
   .card, .tabela-caixa { box-shadow: none; break-inside: avoid; }
   body { background: #fff; color: #000; }
 }
+
+/* ---------------------------------------------------------------------------
+   CONFIGURACOES — White Label (roadmap 7)
+   ------------------------------------------------------------------------ */
+
+.config-explica {
+  max-width: 70ch;
+  color: var(--texto-medio);
+  line-height: var(--entrelinha-base);
+  margin-bottom: var(--e-5);
+}
+
+.config-avisos { display: flex; flex-direction: column; gap: var(--e-3); }
+.config-avisos:not(:empty) { margin-bottom: var(--e-5); }
+.config-aviso-linha { margin-top: var(--e-1); font-size: var(--t-base); }
+
+.config-corpo {
+  display: grid;
+  /* Duas colunas quando cabe, uma quando nao: os dois temas lado a lado e' o
+     que deixa comparar claro e escuro sem rolar a pagina. */
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: var(--e-5);
+  align-items: start;
+}
+
+.config-bloco {
+  background: var(--superficie);
+  border: 1px solid var(--borda);
+  border-radius: var(--r-3);
+  padding: var(--e-5);
+  display: flex; flex-direction: column; gap: var(--e-4);
+}
+
+.config-bloco-topo {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: var(--e-3);
+}
+.config-bloco-titulo { display: flex; align-items: center; gap: var(--e-2); }
+
+/* O tema que esta na tela ganha a moldura da marca: e' o unico dos dois cuja
+   previa a pessoa consegue ver, e ela precisa saber qual e'. */
+.config-bloco--na-tela { border-color: var(--marca); }
+.config-bloco-topo h2 { font-size: var(--t-grande); margin: 0; }
+.config-bloco-dica { margin: 0; color: var(--texto-fraco); font-size: var(--t-base); }
+
+.config-token {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: var(--e-4);
+  padding-top: var(--e-4);
+  border-top: 1px solid var(--borda);
+}
+.config-token-texto { min-width: 0; }
+.config-token-rotulo {
+  display: flex; align-items: center; gap: var(--e-2);
+  font-weight: var(--peso-forte);
+}
+.config-token-dica {
+  margin: var(--e-1) 0 0;
+  font-size: var(--t-pequeno);
+  color: var(--texto-fraco);
+  line-height: var(--entrelinha-apertada);
+}
+
+/* Diz de onde a cor vem: escolha da empresa, ou o padrao que veio de fabrica.
+   Sem isto, "voltar ao padrao" e' um botao que nao se sabe se fara algo. */
+.config-origem {
+  font-size: var(--t-micro);
+  text-transform: uppercase; letter-spacing: .06em;
+  padding: 2px var(--e-2);
+  border-radius: var(--r-pilula);
+  background: var(--superficie-3);
+  color: var(--texto-fraco);
+}
+.config-origem--sua { background: var(--marca-tinta); color: var(--marca); }
+
+.config-token-campos {
+  display: flex; align-items: center; gap: var(--e-2);
+  flex-shrink: 0;
+}
+
+.config-cor {
+  width: 40px; height: 32px; padding: 2px;
+  border: 1px solid var(--borda); border-radius: var(--r-2);
+  background: var(--superficie);
+  cursor: pointer;
+}
+.config-hex {
+  width: 9ch;
+  padding: var(--e-2);
+  border: 1px solid var(--borda); border-radius: var(--r-2);
+  background: var(--superficie); color: var(--texto);
+  font-family: var(--fonte-dado); font-size: var(--t-base);
+  text-transform: lowercase;
+}
+
+.config-nome { width: 100%; max-width: 40ch; }
+
+.config-logo-linha {
+  display: flex; align-items: flex-start; gap: var(--e-4);
+  flex-wrap: wrap;
+}
+.config-logo {
+  height: 48px; width: auto; max-width: 220px;
+  object-fit: contain;
+}
+.config-logo--vazia {
+  display: flex; align-items: center;
+  padding: 0 var(--e-3);
+  border: 1px dashed var(--borda);
+  border-radius: var(--r-2);
+  color: var(--texto-fraco);
+  font-size: var(--t-pequeno);
+}
+.config-logo-acoes { display: flex; flex-direction: column; gap: var(--e-2); }
+
+.config-rodape {
+  position: sticky; bottom: 0;
+  margin-top: var(--e-5);
+  padding: var(--e-4) 0;
+  background: var(--fundo);
+  border-top: 1px solid var(--borda);
+}
+/* Gruda no fim da tela porque a lista de tokens e' longa: publicar nao pode
+   exigir rolar de volta ate o fim depois de ajustar a ultima cor. */
+.config-acoes { display: flex; gap: var(--e-3); justify-content: flex-end; }

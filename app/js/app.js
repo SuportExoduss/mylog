@@ -3,6 +3,7 @@
 // O colaborador abre isto no patio, muitas vezes sem sinal. O caminho e' curto
 // de proposito: entrar -> ver o que tem para fazer -> executar -> devolver.
 import * as envio from './envio.js'
+import { CHAVES, tokensEfetivos } from '../../compartilhado/marca.js'
 import { elemento, executarChecklist } from './checklist.js'
 
 const raiz = document.getElementById('app')
@@ -14,9 +15,57 @@ const estado = {
   preventivas: [],
   modelos: [],
   politicas: {},
+  marca: null,
 }
 
 const modeloPorId = (id) => estado.modelos.find((m) => m.id === id)
+
+// ------------------------------------------------------------- marca
+
+// Co-branding no patio tambem (roadmap 7). A marca chega DENTRO do contexto,
+// que tem dono: nao existe instante em que o aplicativo mostra a marca de uma
+// empresa e as tarefas de outra.
+//
+// Por folha de estilo, e nao por estilo em linha, pelo mesmo motivo do painel:
+// os tokens sao POR TEMA, e estilo em linha nao tem tema — a cor do claro
+// ficaria por cima do escuro na primeira troca. A folha espelha a cascata que
+// o `estilo.css` ja usa, e o navegador resolve.
+function pintarMarca(marca) {
+  let folha = document.getElementById('marca-da-empresa')
+  if (!folha) {
+    folha = document.createElement('style')
+    folha.id = 'marca-da-empresa'
+    document.head.append(folha)
+  }
+  const bloco = (tema) => {
+    const t = tokensEfetivos(marca?.tokens?.[tema], tema)
+    return CHAVES.map((c) => `--${c}:${t[c]};`).join('')
+  }
+  folha.textContent = [
+    `:root{${bloco('claro')}}`,
+    `@media (prefers-color-scheme: dark){:root:not([data-tema="claro"]){${bloco('escuro')}}}`,
+    `:root[data-tema="escuro"]{${bloco('escuro')}}`,
+    `:root[data-tema="claro"]{${bloco('claro')}}`,
+  ].join('\n')
+}
+
+// A marca da empresa AO LADO da do MyLog, nunca no lugar dela. Nao ha
+// parametro para esconder o MyLog — a ausencia do caminho e' a garantia.
+function marcaDaEmpresa() {
+  const m = estado.marca
+  if (!m?.logo_url && !m?.nome_exibicao) return null
+  return elemento('div', { classe: 'login-empresa' }, [
+    m.logo_url
+      ? elemento('img', { classe: 'login-empresa-logo', src: m.logo_url,
+          // O nome no `alt`: uma logo que nao carrega nao pode deixar a tela
+          // sem dizer de quem e' o aplicativo.
+          alt: m.nome_exibicao || 'Logo da empresa' })
+      : null,
+    m.nome_exibicao
+      ? elemento('div', { classe: 'login-empresa-nome', texto: m.nome_exibicao })
+      : null,
+  ])
+}
 
 // ------------------------------------------------------------- estrutura
 
@@ -106,6 +155,7 @@ function telaLogin(mensagem, depois = carregar) {
           const dados = await resposta.json().catch(() => ({}))
           if (!resposta.ok) throw new Error(dados.mensagem || 'Nao foi possivel entrar.')
           estado.usuario = dados.usuario
+          if (dados.marca) { estado.marca = dados.marca; pintarMarca(dados.marca) }
           if (dados.usuario.deve_trocar_senha) return telaTrocaDeSenha()
           await depois()
         } catch (falha) {
@@ -117,6 +167,7 @@ function telaLogin(mensagem, depois = carregar) {
         }
       },
     }, [
+      marcaDaEmpresa(),
       elemento('div', { classe: 'login-marca', texto: 'MyLog' }),
       elemento('p', { classe: 'login-sub', texto: 'Checklist de frota' }),
       erro,
@@ -593,6 +644,11 @@ function telaFeito(tarefa, resumo, mensagem, pendencia = '') {
 async function sair() {
   try { await fetch('/api/auth/sair', { method: 'POST', credentials: 'same-origin' }) } catch { /* sem rede */ }
   estado.usuario = null
+  // A tela de login nao e' de empresa nenhuma. Deixar a marca da ultima ali
+  // diria, para quem pega o aparelho depois, de quem ele estava — e no patio
+  // o aparelho passa de mao em mao.
+  estado.marca = null
+  pintarMarca(null)
   telaLogin()
 }
 
@@ -619,6 +675,8 @@ async function carregar({ haviaSessao = true } = {}) {
   estado.preventivas = r.dados.preventivas || []
   estado.modelos = r.dados.modelos || []
   estado.politicas = r.dados.politicas || {}
+  estado.marca = r.dados.marca || null
+  pintarMarca(estado.marca)
   telaInicio()
 }
 

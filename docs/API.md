@@ -112,6 +112,17 @@ dela. Chame ao abrir e ao puxar para atualizar.
   "usuario": { "id": "...", "nome": "...", "cargo_id": "...", "cargo_nome": "Motorista",
                "usa_veiculo_diario": true },
 
+  "marca": {
+    "nome_exibicao": "Transportes Silva",
+    "logo_url": "/imagens/marca/emp_...",
+    "tokens": {
+      "claro":  { "marca": "#35539f", "marca-forte": "#2a4180",
+                  "marca-tinta": "#e9eef9", "marca-contraste": "#ffffff" },
+      "escuro": { "marca": "#6f8fd6", "marca-forte": "#9db3e4",
+                  "marca-tinta": "#1a2545", "marca-contraste": "#0e131a" }
+    }
+  },
+
   "tarefas": [
     { "solicitacao_id": "sol_...", "numero": 2, "momento": "saida",
       "janela_inicio": "...", "janela_fim": "...", "motivo": "...",
@@ -574,6 +585,108 @@ aconteceu: a pessoa acabou de fazer o trabalho.
 senha. Trate-o como erro temporário — a `mensagem` diz quanto esperar — e mostre
 a mensagem em vez de repetir o pedido, porque cada repetição só empurra o prazo
 para frente.
+
+---
+
+## 10.1 White label
+
+> Roadmap 7, [D59](DECISOES.md#d59--white-label-muda-a-marca-e-só-a-marca).
+> Configurar é da **Frota**. Ver é de todo mundo.
+
+A marca **não tem chamada própria para o cliente**: ela chega dentro do mesmo
+pacote que diz quem a pessoa é — `POST /api/auth/login`, `GET /api/auth/eu` e
+`GET /api/app/inicio`. É de propósito: assim não existe instante em que a tela
+está logada mostrando a marca de uma empresa e os dados de outra.
+
+```json
+"marca": {
+  "nome_exibicao": "Transportes Silva",
+  "logo_url": "/imagens/marca/emp_...",
+  "tokens": {
+    "claro":  { "marca": "#35539f", "marca-forte": "#2a4180",
+                "marca-tinta": "#e9eef9", "marca-contraste": "#ffffff" },
+    "escuro": { "marca": "#6f8fd6", "marca-forte": "#9db3e4",
+                "marca-tinta": "#1a2545", "marca-contraste": "#0e131a" }
+  }
+}
+```
+
+`tokens` vem **sempre completo e já mesclado** com o padrão MyLog: quem pinta
+não precisa saber o que a empresa escolheu e o que veio de fábrica, nem carregar
+uma cópia da tabela de padrões. `logo_url` é `null` quando não há logo — e aí a
+tela mostra só o MyLog.
+
+**Pinte por folha de estilo, não por atributo `style`.** Os tokens são por
+tema, e estilo em linha não tem tema: a cor do claro sobreviveria à troca para
+o escuro, inclusive quando o tema muda sozinho porque o sistema mudou.
+
+**Co-branding é obrigatório.** A marca MyLog permanece ao lado da marca do
+contratante, nas duas telas. Não há campo para desligar isso, e por isso não há
+caminho — mandar `esconder_mylog` no corpo não faz nada.
+
+**Sair devolve a marca do MyLog.** A tela de login não é de empresa nenhuma, e
+o aparelho do pátio passa de mão em mão.
+
+### Configuração (Frota)
+
+```
+GET /api/marca
+→ { "marca": { "nome_exibicao", "logo_url",
+               "definidos": { "claro": {...}, "escuro": {...} },
+               "efetivos":  { "claro": {...}, "escuro": {...} } },
+    "contraste": { "ok": true, "temas": { "claro": {...}, "escuro": {...} } } }
+```
+
+`definidos` é o que a **empresa** escolheu; `efetivos` é isso mesclado com o
+padrão. A diferença importa: é ela que faz "voltar ao padrão" ter sentido.
+
+```
+PUT /api/marca
+{ "nome_exibicao": "Transportes Silva",
+  "tokens_claro":  { "marca": "#1a5c2e" },
+  "tokens_escuro":  null }
+```
+
+Parcial: o que não vier fica como está. `null` num tema é o pedido explícito de
+**voltar aquele tema ao padrão MyLog** — e só aquele; cada tema volta sozinho.
+
+Os quatro tokens aceitos são `marca`, `marca-forte`, `marca-tinta` e
+`marca-contraste`. Qualquer outra chave é ignorada e volta em `recusadas`, com
+o motivo. **As cores de estado — `ok`, `atencao`, `alerta`, `critico` — não
+entram**: elas dizem o que a tela significa, e mudar significado não é
+aparência.
+
+O valor é `#rrggbb`. Nada de CSS, HTML ou script.
+
+| Resposta | Quando |
+|---|---|
+| `200` | Publicado. Volta `marca`, `contraste` e `recusadas` |
+| `400` | Contraste insuficiente. A `mensagem` nomeia o par e traz o número medido |
+| `403` | Colaborador. Configurar é da Frota |
+
+O contraste é conferido **no servidor**, com o mesmo motor que o painel usa
+para avisar. A tela avisa enquanto a pessoa escolhe; o servidor decide — um
+cliente desatualizado não pode deixar o painel ilegível.
+
+### Logo
+
+```
+POST /api/marca/logo      { "conteudo": "<base64 ou data: URI>" }
+DELETE /api/marca/logo
+GET /imagens/marca/:empresa
+```
+
+PNG, JPEG ou WebP, até 4 MB. O tipo sai dos **bytes**, não do que foi declarado
+— SVG não entra, porque SVG carrega script e a logo é servida dentro do painel.
+
+A logo publica **na hora**: não entra em rascunho, porque arquivo não tem prévia
+honesta. Trocar grava um arquivo novo, aponta o banco para ele e só então apaga
+o antigo — upload que falha não pode deixar a empresa sem logo válida.
+
+`GET /imagens/marca/:empresa` passa por sessão e por tenant. O `:empresa` da URL
+**não escolhe** o que será servido: quem escolhe é a sessão. Pedir o endereço de
+outra empresa devolve `404` — não a sua própria logo com `200`, que faria a URL
+mentir, e não `403`, que confirmaria que a outra empresa existe.
 
 ---
 
