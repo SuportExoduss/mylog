@@ -1356,3 +1356,65 @@ test('aplicativo: nenhuma tela promete uma fila que nao existe mais', () => {
   assert.deepEqual(achados, [],
     `texto de tela prometendo fila:\n${achados.join('\n')}`)
 })
+
+// Uma decisao aparece UMA vez.
+//
+// A D59 inteira — 120 linhas — estava duplicada, byte a byte, uma logo depois
+// da outra. Nada quebrava: o documento renderiza, os links de ancora acham a
+// primeira, e ninguem rele um registro de decisoes de mil e quinhentas linhas
+// para conferir. Foi achado por acaso, procurando outra coisa.
+//
+// Duplicata em documento nao e' so desperdicio: e' a garantia de que as duas
+// copias vao divergir na proxima edicao, e ai o registro passa a dizer duas
+// coisas sobre o mesmo assunto.
+test('documentos: nenhuma decisao aparece duas vezes', () => {
+  const raiz = path.join(import.meta.dirname, '..', '..')
+  const texto = fs.readFileSync(path.join(raiz, 'docs', 'DECISOES.md'), 'utf8')
+
+  const titulos = [...texto.matchAll(/^## (D\d+)\b(.*)$/gm)].map((m) => ({
+    numero: m[1], titulo: m[0].trim(),
+  }))
+  assert.ok(titulos.length > 40, `varredura pobre: achei ${titulos.length} decisoes`)
+
+  const vistos = new Map()
+  const repetidos = []
+  for (const t of titulos) {
+    if (vistos.has(t.numero)) repetidos.push(`${t.numero} aparece mais de uma vez`)
+    vistos.set(t.numero, t.titulo)
+  }
+  assert.deepEqual(repetidos, [], repetidos.join('\n'))
+
+  // E a numeracao nao pula nem volta: D1, D2, ... sem buraco.
+  const numeros = titulos.map((t) => Number(t.numero.slice(1)))
+  const esperado = numeros.map((_, i) => i + 1)
+  assert.deepEqual(numeros, esperado,
+    'as decisoes precisam estar em ordem e sem buraco na numeracao')
+})
+
+// Paragrafo repetido dentro do MESMO documento.
+//
+// A duplicata da D59 tinha esta cara antes de eu entender o que era: o mesmo
+// paragrafo, palavra por palavra, em dois lugares distantes. Um paragrafo
+// longo identico a outro nunca e' coincidencia de escrita.
+test('documentos: nenhum paragrafo longo aparece duas vezes no mesmo arquivo', () => {
+  const raiz = path.join(import.meta.dirname, '..', '..')
+  const achados = []
+
+  for (const doc of ['ARQUITETURA', 'ROADMAP', 'DECISOES', 'API', 'DESIGN']) {
+    const texto = fs.readFileSync(path.join(raiz, 'docs', `${doc}.md`), 'utf8')
+    const paragrafos = texto.split(/\n\s*\n/)
+      .map((p) => p.trim().replace(/\s+/g, ' '))
+      // Curto demais repete de verdade: titulos de coluna, "Por que.", linhas
+      // de tabela. O corte pega texto corrido, que e' onde a duplicata mora.
+      .filter((p) => p.length > 200 && !p.startsWith('|') && !p.startsWith('```'))
+
+    const vistos = new Map()
+    for (const p of paragrafos) {
+      if (vistos.has(p)) achados.push(`${doc}.md: "${p.slice(0, 60)}..."`)
+      vistos.set(p, true)
+    }
+  }
+
+  assert.deepEqual(achados, [],
+    `paragrafo repetido dentro do mesmo documento:\n${achados.join('\n')}`)
+})
