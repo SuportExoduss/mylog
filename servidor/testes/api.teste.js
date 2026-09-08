@@ -4205,6 +4205,130 @@ test('estados: cada acao do modelo so vale onde a imutabilidade permite', async 
     `acao recusada num estado em que devia valer:\n${recusouDeMais.join('\n')}`)
 })
 
+// A preventiva e' a unica maquina cujo estado e' DERIVADO: `em_dia`,
+// `proxima`, `muito_proxima` e `vencida` nao sao decisoes de ninguem — sao a
+// mesma preventiva aberta, lida contra o KM ou a data de hoje, e recalculadas a
+// cada leitura. So `realizada` e' escolha, e e' terminal ate alguem agendar a
+// proxima.
+//
+// Dai a regra ser de uma linha: as duas acoes valem nos quatro graus de urgencia
+// e recusam em `realizada`. Preventiva concluida e' historico — reagendar uma
+// que ja aconteceu reescreveria o que a oficina fez.
+const ESTADOS_PREVENTIVA = ['em_dia', 'proxima', 'muito_proxima', 'vencida', 'realizada']
+
+test('estados: a preventiva concluida e historico, e as outras quatro sao a mesma', async () => {
+  const frota = await entrar('frota.a@teste.local')
+
+  const veiculo = criarVeiculo(empresaA, 'AAA9M99', 'compacto_leve', 30000)
+  const id = criarPreventivaComModelo(empresaA, veiculo, modeloPreventivaA)
+
+  const situacao = () => consultarUm('SELECT status FROM preventivas WHERE id = ?', [id])?.status
+  const por = (estado) => executar(
+    // O alvo volta para longe junto com o estado: sem isso, `avaliarPreventivas`
+    // recalcularia "vencida" por cima do que a varredura acabou de escrever, e o
+    // teste mediria o recalculo em vez da acao.
+    `UPDATE preventivas SET status = ?, modo = 'km', proximo_km = 99000 WHERE id = ?`,
+    [estado, id])
+
+  const ACOES = [
+    { acao: 'reagendar', aceita: ['em_dia', 'proxima', 'muito_proxima', 'vencida'],
+      disparar: () => chamar('PATCH', `/api/preventivas/${id}`, {
+        token: frota, corpo: { motivo: 'reagendamento da varredura', proximo_km: 98000 },
+      }) },
+    { acao: 'concluir', aceita: ['em_dia', 'proxima', 'muito_proxima', 'vencida'],
+      disparar: () => chamar('POST', `/api/preventivas/${id}/concluir`, {
+        token: frota,
+        corpo: { servico: 'servico da varredura', km_realizado: 30500,
+          proximo_modo: 'km', proximo_km: 40500 },
+      }) },
+  ]
+
+  const aceitouDemais = []
+  const recusouDeMais = []
+  let tentativas = 0
+
+  for (const { acao, aceita, disparar } of ACOES) {
+    for (const estado of ESTADOS_PREVENTIVA) {
+      por(estado)
+      tentativas += 1
+      const r = await disparar()
+      const permitida = aceita.includes(estado)
+
+      if (permitida && r.status !== 200) {
+        recusouDeMais.push(`${acao} em "${estado}": ${r.status} ${r.dados?.mensagem || ''}`)
+      }
+      if (!permitida && r.status === 200) {
+        aceitouDemais.push(`${acao} em "${estado}": aceita, e preventiva concluida e historico`)
+      }
+      if (!permitida && situacao() !== estado) {
+        aceitouDemais.push(`${acao} em "${estado}": recusou e mexeu assim mesmo`)
+      }
+    }
+  }
+
+  assert.ok(tentativas >= 10, `poucas tentativas: ${tentativas}`)
+  assert.deepEqual(aceitouDemais, [],
+    `acao aceita sobre preventiva concluida:\n${aceitouDemais.join('\n')}`)
+  assert.deepEqual(recusouDeMais, [],
+    `acao recusada num grau de urgencia em que devia valer:\n${recusouDeMais.join('\n')}`)
+})
+
+test('estados: concluir fecha o ciclo E abre o proximo, num ato so', async () => {
+  // Nao existe "concluir e decidir depois": e' assim que uma frota perde o
+  // controle da manutencao. A conclusao tem que deixar DUAS coisas verdadeiras
+  // ao mesmo tempo — a que acabou virou historico, e ja existe a proxima com
+  // alvo definido e status calculado.
+  const frota = await entrar('frota.a@teste.local')
+  const veiculo = criarVeiculo(empresaA, 'AAA9C99', 'compacto_leve', 30000)
+  const id = criarPreventivaComModelo(empresaA, veiculo, modeloPreventivaA)
+
+  const r = await chamar('POST', `/api/preventivas/${id}/concluir`, {
+    token: frota,
+    corpo: { servico: 'Troca de correia', km_realizado: 30200,
+      proximo_modo: 'km', proximo_km: 40200, alerta_antes_km: 500 },
+  })
+  assert.equal(r.status, 200, JSON.stringify(r.dados))
+
+  assert.equal(r.dados.concluida.status, 'realizada')
+  assert.ok(r.dados.proxima, 'a proxima nasce no mesmo ato')
+  assert.equal(r.dados.proxima.proximo_km, 40200)
+  assert.notEqual(r.dados.proxima.id, id, 'a proxima e um registro novo, nao a mesma linha')
+
+
+  // O KM do veiculo acompanha: a oficina leu o hodometro.
+  assert.equal(consultarUm('SELECT km_atual FROM veiculos WHERE id = ?', [veiculo]).km_atual, 30200)
+
+  // E a concluida some da lista de abertas, sem sumir do banco.
+  const abertas = await chamar('GET', '/api/preventivas', { token: frota })
+  assert.ok(!abertas.dados.preventivas.some((p) => p.id === id && p.status !== 'realizada'),
+    'a concluida nao pode voltar a aparecer como aberta')
+  assert.ok(consultarUm('SELECT id FROM preventivas WHERE id = ?', [id]),
+    'e nao pode ter sido apagada: e historico')
+
+  // Por ultimo, porque este passo move o hodometro: quem le uma preventiva nunca
+  // ve um status velho.
+  //
+  // O `INSERT` da proxima grava `'em_dia'` fixo. Duas coisas independentes
+  // impedem esse valor de chegar a alguem: `avaliarPreventivas`, que reescreve a
+  // coluna ao fim de cada escrita, e `enriquecer`, que recalcula na leitura. E'
+  // redundancia de proposito, e da para ver: quebrando UMA das duas, este teste
+  // continua verde; so as duas juntas o derrubam. E' o certo — ele afirma o que
+  // a pessoa VE, e nao por qual dos dois caminhos o valor chegou ate ela.
+  //
+  // O alvo perto importa. A primeira versao deste asserto media 'em_dia' num
+  // caso em que a conta TAMBEM dava 'em_dia': passava com os dois mecanismos
+  // quebrados, e eu so percebi tentando derruba-la.
+  const perto = await chamar('POST', `/api/preventivas/${r.dados.proxima.id}/concluir`, {
+    token: frota,
+    corpo: { servico: 'Segunda revisao', km_realizado: 40200,
+      proximo_modo: 'km', proximo_km: 40300, alerta_antes_km: 500 },
+  })
+  assert.equal(perto.status, 200, JSON.stringify(perto.dados))
+  assert.equal(perto.dados.proxima.status, 'muito_proxima',
+    'a 100 km do alvo, com janela de 500, a preventiva nova nao pode aparecer como em dia')
+  assert.equal(perto.dados.proxima.restante, 100)
+})
+
 test('limite da consulta: numero que nao da para ler vira o padrao', async () => {
   // `Math.min(Number(bruto || 100), 500)` parecia bastar e nao bastava:
   // `Number('lixo')` da NaN, `Math.min(NaN, 500)` da NaN, e `LIMIT NaN` derruba
