@@ -413,6 +413,25 @@ function telaDevolucao(tarefa, resumo) {
     placeholder: 'Ex.: cheguei tarde, a base estava fechada e tive que ir com o carro embora.' })
   const erro = elemento('div', { classe: 'aviso aviso--erro oculto' })
 
+  // A saida de emergencia so aparece depois que a devolucao falha.
+  //
+  // Esta tela nao tinha saida NENHUMA: sem seta de voltar e com um unico
+  // botao, que e' justamente o que nao funciona sem rede. Quem devolvesse o
+  // carro no patio sem sinal ficava preso aqui — o checklist ja estava na
+  // fila, o trabalho estava feito, e o unico jeito de sair era matar o
+  // aplicativo. Quem faz isso uma vez desconfia do aparelho para sempre.
+  //
+  // Ela nao aparece antes da falha de proposito: enquanto der para encerrar
+  // direito, o caminho e' encerrar direito, com o motivo escrito.
+  const saida = elemento('div', { classe: 'devolucao-saida oculto' }, [
+    elemento('p', { classe: 'texto',
+      texto: 'O checklist ja esta salvo no aparelho e sera enviado sozinho quando '
+        + 'houver sinal. A devolucao em si precisa de rede — se nao voltar, a '
+        + 'equipe da frota encerra pelo painel.' }),
+    elemento('button', { classe: 'botao botao--suave', type: 'button',
+      texto: 'Voltar ao inicio', aoClick: carregar }),
+  ])
+
   async function devolver() {
     const motivo = area.value.trim()
     if (atrasada && motivo.length < 5) {
@@ -435,8 +454,9 @@ function telaDevolucao(tarefa, resumo) {
     } catch (falha) {
       // Sem rede a devolucao nao fecha, mas o checklist ja esta na fila:
       // nada do que ele fez se perde.
-      erro.textContent = `${falha.message} O checklist ja foi salvo e sera enviado sozinho.`
+      erro.textContent = falha.message
       erro.classList.remove('oculto')
+      saida.classList.remove('oculto')
     }
   }
 
@@ -454,6 +474,7 @@ function telaDevolucao(tarefa, resumo) {
             elemento('span', { texto: 'Motivo do atraso' }), area,
           ])
         : null,
+      saida,
     ],
     acoes: [
       elemento('button', { classe: 'botao botao--grande botao--ok', type: 'button',

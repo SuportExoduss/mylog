@@ -7,9 +7,9 @@
 // O que este arquivo exercita e' o CAMINHO — quem entra, o que aparece, o que
 // abre, o que sai junto com a sessao. Camera, IndexedDB e service worker ficam
 // de fora; o roadmap 26 registra que eles seguem sendo passe manual.
-import test, { beforeEach, afterEach } from 'node:test'
+import test, { after, beforeEach, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
-import { montarDom, Evento } from './dom.js'
+import { montarDom, Evento, estaVisivel } from './dom.js'
 
 // O modulo `sincronia` le `navigator.onLine` na importacao. Precisa existir
 // antes dela — `montarDom` instala o dele depois, a cada teste.
@@ -34,8 +34,13 @@ let naFila = []
 armazem.fila.enfileirar = async (i) => { naFila.push({ ...i, estado: 'pendente', tentativas: 0 }) }
 armazem.fila.todas = async () => naFila
 armazem.fila.pendentes = async () => naFila.filter((i) => i.estado !== 'enviada')
-armazem.fila.marcar = async () => {}
-armazem.fila.remover = async () => {}
+armazem.fila.marcar = async (uuid, mudancas) => {
+  const i = naFila.findIndex((x) => x.cliente_uuid === uuid)
+  if (i >= 0) naFila[i] = { ...naFila[i], ...mudancas }
+}
+armazem.fila.remover = async (uuid) => {
+  naFila = naFila.filter((x) => x.cliente_uuid !== uuid)
+}
 armazem.fila.limparEnviadasAntigas = async () => {}
 
 armazem.fotos.guardar = async () => {}
@@ -94,7 +99,20 @@ const PREVENTIVA = {
 const AVULSO = { veiculo: VEICULO, templates: [MODELO.id] }
 
 // --------------------------------------------------------------------- ajuda
-let tela
+// O DOM e' montado UMA vez para o arquivo inteiro, e nao um por teste.
+//
+// `app.js` se inicia na importacao e assina `sincronia.aoMudar`. Reimportando
+// o modulo a cada teste — que e' como se simula abrir o aplicativo de novo —
+// essas assinaturas se acumulam, e as antigas seguem apontando para o `#app`
+// que capturaram. Com um DOM novo por teste, a assinatura velha ia desenhar a
+// tira de conexao num documento ja desmontado, depois do teste ter acabado.
+//
+// No aparelho isso nao existe: `app.js` e' carregado uma vez so. Mantendo o
+// mesmo `#app`, as assinaturas velhas redesenham a tira do no' vivo — que e'
+// exatamente o que a assinatura nova faria. O isolamento que importa (tela
+// limpa, rede, fila, contexto) volta no `beforeEach`.
+const tela = montarDom({ ids: ['app'] })
+const area = tela.corpo.querySelector('#app')
 let conta = 0
 
 // Abre o aplicativo do zero, como quem toca no icone. Cada abertura importa
@@ -106,8 +124,10 @@ async function abrirApp() {
 
 const textoDaTela = () => tela.corpo.querySelector('#app').textContent
 const cartoes = () => tela.corpo.querySelectorAll('.tarefa')
+// Botao que a pessoa VE. Um botao escondido por `oculto` nao conta: quem esta
+// no patio nao pode tocar no que nao aparece.
 const botaoDeTexto = (t) => tela.corpo.querySelectorAll('button')
-  .find((b) => b.textContent.trim() === t)
+  .find((b) => b.textContent.trim() === t && estaVisivel(b))
 
 // A execucao nao comeca nas perguntas: abre na leitura do hodometro, que e' o
 // que amarra o checklist ao carro. So depois vem a primeira pergunta.
@@ -120,7 +140,8 @@ async function comecarChecklist(km = '41850') {
 }
 
 beforeEach(() => {
-  tela = montarDom({ ids: ['app'] })
+  area.replaceChildren()
+  tela.navegador.onLine = true
   temRede = true
   guardado = null
   naFila = []
@@ -134,13 +155,26 @@ beforeEach(() => {
     '/api/app/inicio': { corpo: contextoDe() },
     '/api/auth/sair': { corpo: { ok: true } },
     '/api/auth/login': { corpo: { usuario: ANA } },
+    // A fila sobe normalmente. Sem esta resposta o envio falhava, a sincronia
+    // armava a retentativa, e o relogio sobrevivia ao fim do arquivo —
+    // segurando o processo por quinze segundos para desenhar a tira de conexao
+    // num documento ja desmontado.
+    '/api/inspecoes': { corpo: { inspecao: { id: 'ins-1' } } },
   }
 })
 
 afterEach(async () => {
   await new Promise((r) => setTimeout(r, 0))
-  tela.desmontar()
+  // Desarma o relogio de retentativa que o teste possa ter armado ao ficar
+  // sem rede. Ele sobrevive ao fim do arquivo — o processo ficava quinze
+  // segundos de pe para, no fim, desenhar a tira de conexao num documento
+  // ja desmontado.
+  temRede = true
+  await sincronia.sessaoRenovada()
+  await assentar()
 })
+
+after(() => tela.desmontar())
 
 // ============================================================ abertura basica
 test('inicio: com sessao valida abre a tela da pessoa, com as tarefas dela', async () => {
@@ -178,8 +212,7 @@ test('inicio: sair leva junto o contexto baixado', async () => {
   assert.equal(guardado, null, 'e o contexto baixado sai junto')
 
   // A prova do que isso protege: reabrir sem rede nao pode voltar para a Ana.
-  tela.desmontar()
-  tela = montarDom({ ids: ['app'] })
+  area.replaceChildren()
   temRede = false
   await abrirApp()
   const texto = textoDaTela()
@@ -320,8 +353,7 @@ test('inicio: preventiva e avulso tambem abrem', async () => {
   await comecarChecklist()
   assert.match(textoDaTela(), /Pneus/, 'a preventiva abre o checklist dela')
 
-  tela.desmontar()
-  tela = montarDom({ ids: ['app'] })
+  area.replaceChildren()
   respostas['/api/app/inicio'].corpo = contextoDe({ avulso: [AVULSO] })
   await abrirApp()
   assert.match(textoDaTela(), /Escolha o veiculo/, 'o avulso explica que a pessoa escolhe o carro')
@@ -341,4 +373,91 @@ test('inicio: o que precisa de aviso aparece com aviso', async () => {
   assert.match(texto, /Passou do prazo de devolucao/, 'a tarefa atrasada avisa')
   assert.match(texto, /RETORNO/, 'e diz que o momento e o retorno, nao a saida')
   assert.match(texto, /ocorrencia em aberto/, 'e o carro com pendencia avisa antes do toque')
+})
+
+// ================================================================= devolucao
+// Leva a tarefa ate o fim: hodometro, todas as perguntas em OK, e finalizar.
+async function executarTudoOk() {
+  await comecarChecklist()
+  while (botaoDeTexto('OK')) { botaoDeTexto('OK').click(); await assentar(1) }
+  await assentar()
+  const final = tela.corpo.querySelector('.exec-final')
+  assert.ok(final, 'o resumo tem o botao de finalizar')
+  final.click()
+  await assentar()
+}
+
+const RETORNO = {
+  ...TAREFA, momento: 'retorno',
+  janela_fim: '2020-01-01T10:00:00.000Z',   // ha muito tempo: atrasada
+}
+
+test('devolucao: no retorno atrasado o motivo e pedido antes de encerrar', async () => {
+  respostas['/api/app/inicio'].corpo = contextoDe({ tarefas: [RETORNO] })
+  respostas['/api/solicitacoes/1/devolver'] = { corpo: { ok: true } }
+  await abrirApp()
+  cartoes()[0].click()
+  await assentar()
+  await executarTudoOk()
+
+  assert.match(textoDaTela(), /Passou do prazo/, 'a tela do atraso aparece')
+  botaoDeTexto('Enviar motivo e devolver').click()
+  await assentar()
+  assert.match(textoDaTela(), /Descreva o motivo do atraso/,
+    'sem motivo escrito, nao encerra')
+
+  tela.corpo.querySelector('textarea').value = 'a base estava fechada quando cheguei'
+  botaoDeTexto('Enviar motivo e devolver').click()
+  await assentar()
+  assert.match(textoDaTela(), /Devolucao registrada com o motivo do atraso/)
+  assert.ok(pedidos.some((p) => p.caminho === '/api/solicitacoes/1/devolver' && p.metodo === 'POST'),
+    'e o motivo foi para o servidor')
+})
+
+test('devolucao: sem rede a tela nao vira ratoeira', async () => {
+  // Esta tela nao tinha saida nenhuma: sem seta de voltar e com um unico
+  // botao, que e' justamente o que nao funciona sem rede. Quem devolvesse o
+  // carro no patio sem sinal ficava preso — o checklist ja na fila, o trabalho
+  // feito, e o unico jeito de sair era matar o aplicativo.
+  respostas['/api/app/inicio'].corpo = contextoDe({ tarefas: [RETORNO] })
+  respostas['/api/solicitacoes/1/devolver'] = { falha: true, corpo: {} }
+  await abrirApp()
+  cartoes()[0].click()
+  await assentar()
+  await executarTudoOk()
+
+  assert.equal(naFila.length, 1, 'controle: o checklist ja esta na fila, o trabalho esta feito')
+
+  tela.corpo.querySelector('textarea').value = 'a base estava fechada quando cheguei'
+  botaoDeTexto('Enviar motivo e devolver').click()
+  await assentar()
+
+  const sair = botaoDeTexto('Voltar ao inicio')
+  assert.ok(sair, 'depois da falha existe um caminho de volta')
+  assert.match(textoDaTela(), /sera enviado sozinho/,
+    'e a tela diz que o checklist esta salvo')
+  assert.match(textoDaTela(), /a equipe da frota encerra pelo painel/,
+    'e quem fecha a devolucao quando ela nao vai')
+
+  sair.click()
+  await assentar()
+  assert.match(textoDaTela(), /Ola, Ana/, 'e o caminho de volta leva mesmo ao inicio')
+})
+
+test('devolucao: enquanto da para encerrar direito, nao ha atalho para sair', async () => {
+  // A saida so aparece DEPOIS da falha. Se aparecesse antes, viraria o jeito
+  // facil de pular o motivo do atraso — que e' justamente o que esta tela
+  // existe para colher.
+  respostas['/api/app/inicio'].corpo = contextoDe({ tarefas: [RETORNO] })
+  respostas['/api/solicitacoes/1/devolver'] = { corpo: { ok: true } }
+  await abrirApp()
+  cartoes()[0].click()
+  await assentar()
+  await executarTudoOk()
+
+  assert.match(textoDaTela(), /Passou do prazo/)
+  assert.equal(botaoDeTexto('Voltar ao inicio'), undefined,
+    'sem falha, nao ha atalho para sair sem escrever o motivo')
+  assert.equal(tela.corpo.querySelector('.topo-voltar'), null,
+    'e nem seta de voltar')
 })

@@ -411,4 +411,15 @@ export function montarDom({ ids = ['area-modal'] } = {}) {
   }
 }
 
+// O projeto esconde de um jeito so: a classe `oculto`, que e'
+// `display: none !important`. Sem isto, um teste que procura um botao acha o
+// que esta escondido e passa acreditando que a pessoa o ve — o inverso exato
+// do que o teste queria provar.
+export function estaVisivel(no) {
+  for (let atual = no; atual; atual = atual.parentNode) {
+    if (atual.classList?.contains('oculto')) return false
+  }
+  return true
+}
+
 export { No, Texto, Evento }

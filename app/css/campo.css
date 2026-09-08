@@ -132,6 +132,17 @@ button, input, textarea { font: inherit; color: inherit; }
 .aviso--atencao { background: var(--atencao-fundo); color: var(--atencao); }
 .aviso--ok { background: var(--ok-fundo); color: var(--ok); }
 
+/* Saida de emergencia da devolucao: so aparece quando a devolucao nao fecha.
+   Separada por uma linha porque nao faz parte do caminho normal — e' o que
+   sobra quando o caminho normal nao esta disponivel. */
+.devolucao-saida {
+  display: flex;
+  flex-direction: column;
+  gap: var(--e-3);
+  padding-top: var(--e-4);
+  border-top: 1px solid var(--borda);
+}
+
 .vazio {
   padding: var(--e-6) var(--e-4);
   text-align: center; color: var(--texto-fraco);
