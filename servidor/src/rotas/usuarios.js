@@ -151,10 +151,16 @@ export function registrarRotasUsuarios(rotas) {
 
     let sql = `SELECT ${CAMPOS} ${DE} WHERE u.empresa_id = ?`
     const params = [eu.empresa_id]
+    // O `else` final e' do filtro NAO RECONHECIDO tambem, e nao so do ausente.
+    // Escrito como tres condicoes independentes, um valor invalido escapava das
+    // tres e a consulta saia SEM clausula nenhuma — mostrando os DESATIVADOS,
+    // que sao justamente o que o padrao esconde. E' o mesmo furo que estava em
+    // /api/ocorrencias; achado pela mesma varredura, so que precisou existir um
+    // desativado no banco para aparecer.
     if (status && STATUS_CREDENCIAL.includes(status)) { sql += ' AND u.status = ?'; params.push(status) }
     // "Desativado" nao aparece em lugar nenhum como se estivesse em uso
     // (roadmap 8.3): so surge quando explicitamente filtrado.
-    else if (!status) sql += ` AND u.status <> 'desativado'`
+    else sql += ` AND u.status <> 'desativado'`
     if (busca) {
       sql += ' AND (lower(u.nome) LIKE ? OR lower(u.email) LIKE ? OR u.cpf LIKE ?)'
       params.push(`%${busca}%`, `%${busca}%`, `%${busca}%`)
