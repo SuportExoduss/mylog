@@ -805,6 +805,71 @@ test('checklist: todo campo que a edicao aceita, a tela do painel sabe mandar', 
     'a tela precisa dizer que editar publicado abre a versao seguinte')
 })
 
+// Toda rota que ESCREVE deixa rastro.
+//
+// A auditoria e' o unico artefato do sistema cuja falta e' invisivel ate o dia
+// em que alguem precisa provar o que aconteceu — e nesse dia nao ha conserto.
+// Uma rota de escrita nova que nasca sem `registrarEvento` nao seria notada por
+// nenhum outro teste: tudo funcionaria.
+//
+// As excecoes sao nomeadas uma a uma, com o motivo. Excecao sem motivo escrito
+// vira porta aberta.
+test('auditoria: nenhuma rota de escrita grava sem deixar rastro', () => {
+  const raiz = path.join(import.meta.dirname, '..', 'src', 'rotas')
+
+  const SEM_RASTRO = new Map([
+    ['POST /api/notificacoes/lidas',
+      'estado de leitura do sino: e por usuario, nao muda dado de ninguem'],
+    ['POST /api/templates/conferir',
+      'so valida a estrutura e devolve o parecer; nao escreve nada'],
+    ['PUT /api/templates/:id',
+      'edita RASCUNHO, que ainda nao vale para ninguem — e um checklist e salvo '
+      + 'dezenas de vezes enquanto e montado. O rastro que importa esta na '
+      + 'PUBLICACAO, que guarda o antes e o depois de tudo que muda a operacao: '
+      + 'cargos liberados, horario limite, ritmo, assinatura'],
+    ['POST /api/inspecoes/:id/evidencias',
+      'o caso normal sao 4 a 8 fotos por checklist, e o mural afogaria a tela; '
+      + 'a rota registra o caso que importa, a foto anexada por quem nao executou'],
+  ])
+
+  const semRegistro = []
+  let comRegistro = 0
+
+  for (const arquivo of fs.readdirSync(raiz).filter((f) => f.endsWith('.js'))) {
+    const linhas = fs.readFileSync(path.join(raiz, arquivo), 'utf8').split('\n')
+    const inicios = []
+    linhas.forEach((linha, i) => {
+      const m = linha.match(/rotas\.(get|post|put|patch|delete)\(\s*'([^']+)'/)
+      if (m) inicios.push({ i, metodo: m[1].toUpperCase(), caminho: m[2] })
+    })
+    inicios.forEach((r, k) => {
+      if (r.metodo === 'GET') return
+      const fim = k + 1 < inicios.length ? inicios[k + 1].i : linhas.length
+      const corpo = linhas.slice(r.i, fim).join('\n')
+      const chave = `${r.metodo} ${r.caminho}`
+      if (corpo.includes('registrarEvento')) { comRegistro += 1; return }
+      if (SEM_RASTRO.has(chave)) return
+      semRegistro.push(`${chave} (${arquivo}:${r.i + 1})`)
+    })
+  }
+
+  assert.ok(comRegistro >= 30, `varredura pobre demais: ${comRegistro} rotas com registro`)
+  assert.deepEqual(semRegistro, [],
+    `rota de escrita sem rastro na auditoria — registre, ou nomeie a excecao com o motivo:\n${semRegistro.join('\n')}`)
+
+  // E a lista de excecoes nao pode citar rota que nao existe mais: excecao
+  // orfa e' permissao guardada para uma porta que ninguem lembra onde fica.
+  const todas = new Set()
+  for (const arquivo of fs.readdirSync(raiz).filter((f) => f.endsWith('.js'))) {
+    const texto = fs.readFileSync(path.join(raiz, arquivo), 'utf8')
+    for (const m of texto.matchAll(/rotas\.(get|post|put|patch|delete)\(\s*'([^']+)'/g)) {
+      todas.add(`${m[1].toUpperCase()} ${m[2]}`)
+    }
+  }
+  const orfas = [...SEM_RASTRO.keys()].filter((c) => !todas.has(c))
+  assert.deepEqual(orfas, [], `excecao de auditoria para rota que nao existe:\n${orfas.join('\n')}`)
+})
+
 // ------------------------- a hierarquia documental existe e nao mente
 
 // A regra e' "nao existe arquitetura paralela": cinco documentos, cada um com

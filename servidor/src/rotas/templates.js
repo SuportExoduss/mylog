@@ -30,6 +30,25 @@ function diasComoLista(bruto) {
   }
 }
 
+// Os campos de um checklist que MUDAM A OPERACAO — nao os que descrevem o
+// registro. E' o que a auditoria precisa guardar: `versao 2 publicada` nao diz
+// nada a quem foi conferir por que meia equipe amanheceu atrasada.
+function retratoDoModelo(linha) {
+  if (!linha) return null
+  return {
+    nome: linha.nome,
+    tipo_veiculo: linha.tipo_veiculo,
+    cargos_liberados: Array.isArray(linha.cargos_liberados)
+      ? linha.cargos_liberados : JSON.parse(linha.cargos_liberados || '[]'),
+    exige_assinatura: Boolean(linha.exige_assinatura),
+    periodicidade: linha.periodicidade,
+    dias_semana: diasComoLista(linha.dias_semana),
+    dia_semana: linha.dia_semana,
+    horario_limite: linha.horario_limite,
+    versao: linha.versao,
+  }
+}
+
 function desserializar(linha) {
   if (!linha) return null
   return {
@@ -246,6 +265,19 @@ export function registrarRotasTemplates(rotas) {
     const conferencia = conferirEstrutura(template.estrutura)
     if (!conferencia.valido) throw erro.requisicao(conferencia.mensagem)
 
+    // Quem esta saindo de cena — lido ANTES da transacao arquiva-la.
+    //
+    // A publicacao e' o unico momento em que uma mudanca de checklist passa a
+    // valer, e por isso e' aqui que a auditoria precisa mostrar O QUE mudou. O
+    // evento guardava so `{codigo, versao, perguntas}`: trocar o HORARIO LIMITE
+    // de 08:30 para 07:15, ou tirar um cargo da lista de liberados, nao deixava
+    // nenhum rastro do que foi trocado. No dia seguinte metade da equipe
+    // aparece como atrasada e a auditoria diz apenas "versao 2 publicada".
+    const anterior = consultarUm(
+      `SELECT * FROM templates
+        WHERE empresa_id = ? AND codigo = ? AND status = 'publicado'`,
+      [eu.empresa_id, template.codigo])
+
     const ts = agora()
     transacao(() => {
       // Sai de cena a versao publicada anterior do mesmo codigo.
@@ -260,7 +292,13 @@ export function registrarRotasTemplates(rotas) {
     registrarEvento({
       empresaId: eu.empresa_id, ator: eu, acao: 'checklist.publicado',
       entidade: 'template', entidadeId: template.id,
-      depois: { codigo: template.codigo, versao: template.versao, ...conferencia.resumo }, ip: ctx.ip,
+      antes: retratoDoModelo(anterior),
+      depois: {
+        codigo: template.codigo,
+        ...retratoDoModelo(template),
+        ...conferencia.resumo,
+      },
+      ip: ctx.ip,
     })
     return { template: buscarNaEmpresa(eu.empresa_id, template.id) }
   })

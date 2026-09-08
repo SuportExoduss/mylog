@@ -4329,6 +4329,99 @@ test('estados: concluir fecha o ciclo E abre o proximo, num ato so', async () =>
   assert.equal(perto.dados.proxima.restante, 100)
 })
 
+test('auditoria: publicar checklist registra O QUE mudou, nao so que mudou', async () => {
+  // A publicacao e' o unico momento em que uma alteracao de checklist passa a
+  // valer. O evento guardava `{codigo, versao, perguntas}` — trocar o HORARIO
+  // LIMITE de 08:30 para 07:15, ou tirar um cargo dos liberados, nao deixava
+  // rastro nenhum do que foi trocado. No dia seguinte metade da equipe aparece
+  // como atrasada, alguem vai a auditoria, e le "versao 2 publicada".
+  const frota = await entrar('frota.a@teste.local')
+
+  const v1 = (await chamar('POST', '/api/templates', {
+    token: frota,
+    corpo: {
+      codigo: 'auditoria-mudanca', nome: 'Diario da auditoria',
+      tipo_veiculo: 'compacto_leve', cargos_liberados: [cgMotoristaA],
+      finalidade: 'padrao', periodicidade: 'diario', dias_semana: [1, 2, 3, 4, 5],
+      horario_limite: '08:30', estrutura: ESTRUTURA,
+    },
+  })).dados.template
+  await chamar('POST', `/api/templates/${v1.id}/publicar`, { token: frota })
+
+  // Versao 2 com o horario adiantado e um cargo a mais.
+  const v2 = (await chamar('POST', `/api/templates/${v1.id}/versao`, { token: frota }))
+    .dados.template
+  await chamar('PUT', `/api/templates/${v2.id}`, {
+    token: frota,
+    corpo: { horario_limite: '07:15', cargos_liberados: [cgMotoristaA, cgVendasA] },
+  })
+  await chamar('POST', `/api/templates/${v2.id}/publicar`, { token: frota })
+
+  const auditoria = await chamar('GET', '/api/auditoria?acao=checklist.publicado',
+    { token: frota })
+  const evento = auditoria.dados.eventos.find((e) => e.entidade_id === v2.id)
+  assert.ok(evento, 'a publicacao da v2 precisa estar na auditoria')
+
+  // O ANTES e' a versao que saiu de cena, e o DEPOIS a que entrou. Sem os dois,
+  // a linha da auditoria nao responde "mudou de que para que".
+  assert.equal(evento.antes.horario_limite, '08:30', 'o horario que valia antes')
+  assert.equal(evento.depois.horario_limite, '07:15', 'e o que passou a valer')
+  assert.deepEqual(evento.antes.cargos_liberados, [cgMotoristaA])
+  assert.deepEqual(evento.depois.cargos_liberados, [cgMotoristaA, cgVendasA])
+  assert.equal(evento.antes.versao, 1)
+  assert.equal(evento.depois.versao, 2)
+  assert.ok(evento.ator_nome, 'e quem publicou')
+
+  // A primeira publicacao nao tem antes — nao havia versao no ar.
+  const primeira = auditoria.dados.eventos.find((e) => e.entidade_id === v1.id)
+  assert.ok(primeira, 'a publicacao da v1 tambem esta la')
+  assert.equal(primeira.antes, null, 'a primeira versao nao substitui ninguem')
+  assert.equal(primeira.depois.horario_limite, '08:30')
+})
+
+test('auditoria: foto anexada por quem nao executou o checklist deixa rastro', async () => {
+  // `inspecaoDoUsuario` deixa a Frota anexar evidencia na inspecao de outra
+  // pessoa, "para corrigir". E' mexer num registro que existe para prestar
+  // contas — e nao havia linha nenhuma dizendo quem mexeu.
+  //
+  // O caso normal, o aplicativo subindo as fotos da propria inspecao, continua
+  // FORA da auditoria de proposito: sao 4 a 8 por checklist, e o mural afogaria
+  // a tela onde alguem procura o bloqueio de um carro.
+  const frota = await entrar('frota.a@teste.local')
+  const motorista = await entrar('motorista.a@teste.local')
+
+  const minhas = await chamar('GET', '/api/inspecoes', { token: motorista })
+  const inspecao = minhas.dados.inspecoes[0]
+  assert.ok(inspecao, 'o motorista ja mandou checklist nos testes anteriores')
+
+  const contar = async () => (await chamar(
+    'GET', '/api/auditoria?acao=evidencia.anexada_por_terceiro', { token: frota }))
+    .dados.eventos.length
+
+  const antes = await contar()
+
+  // O proprio autor anexando: nada na auditoria.
+  const dele = await chamar('POST', `/api/inspecoes/${inspecao.id}/evidencias`, {
+    token: motorista,
+    corpo: { pergunta_id: 'lataria', conteudo: PNG_MINIMO, cliente_id: 'auditoria-propria' },
+  })
+  assert.equal(dele.status, 200, JSON.stringify(dele.dados))
+  assert.equal(await contar(), antes, 'a foto do proprio autor nao entra na auditoria')
+
+  // A Frota anexando na inspecao de outra pessoa: entra.
+  const daFrota = await chamar('POST', `/api/inspecoes/${inspecao.id}/evidencias`, {
+    token: frota,
+    corpo: { pergunta_id: 'lataria', conteudo: PNG_MINIMO, cliente_id: 'auditoria-terceiro' },
+  })
+  assert.equal(daFrota.status, 200, JSON.stringify(daFrota.dados))
+
+  const depois = (await chamar('GET', '/api/auditoria?acao=evidencia.anexada_por_terceiro',
+    { token: frota })).dados.eventos
+  assert.equal(depois.length, antes + 1, 'a foto de terceiro tem que aparecer')
+  assert.equal(depois[0].entidade_id, inspecao.id, 'apontando para a inspecao mexida')
+  assert.equal(depois[0].alvo_id, inspecao.usuario_id, 'e dizendo de quem era o checklist')
+})
+
 test('limite da consulta: numero que nao da para ler vira o padrao', async () => {
   // `Math.min(Number(bruto || 100), 500)` parecia bastar e nao bastava:
   // `Number('lixo')` da NaN, `Math.min(NaN, 500)` da NaN, e `LIMIT NaN` derruba

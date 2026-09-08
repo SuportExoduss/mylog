@@ -80,6 +80,27 @@ export function registrarRotasEvidencias(rotas) {
        clienteId, ctx.corpo.capturado_em || ts, ts],
     )
 
+    // Foto anexada por quem NAO executou o checklist entra na auditoria.
+    //
+    // O caso normal — o aplicativo subindo as fotos da propria inspecao — nao
+    // entra, e nao deve: sao quatro a oito por checklist, e a tela de auditoria
+    // viraria um mural de fotos onde ninguem mais acha o bloqueio de um carro.
+    //
+    // Mas `inspecaoDoUsuario` deixa a Frota anexar na inspecao de outra pessoa,
+    // "para corrigir". Isso e' mexer num registro que existe para prestar
+    // contas, e nao havia nenhuma linha dizendo quem mexeu. A informacao ate
+    // existia — a evidencia guarda `usuario_id` — mas nao no lugar onde alguem
+    // vai procurar.
+    if (inspecao.usuario_id !== eu.id) {
+      registrarEvento({
+        empresaId: eu.empresa_id, ator: eu, alvoId: inspecao.usuario_id,
+        acao: 'evidencia.anexada_por_terceiro',
+        entidade: 'inspecao', entidadeId: inspecao.id,
+        depois: { evidencia_id: id, pergunta_id: perguntaId, bytes, tipo: mime },
+        ip: ctx.ip,
+      })
+    }
+
     return { evidencia: consultarUm('SELECT * FROM evidencias WHERE id = ?', [id]) }
   })
 

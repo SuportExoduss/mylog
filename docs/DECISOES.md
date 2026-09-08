@@ -961,3 +961,49 @@ sobre a própria cobertura.
 roda antes de qualquer efeito, então chamar um `POST` de Frota com credencial de
 colaborador recusa sem gravar nada. É de propósito que ela não exerce o nível de
 Frota: fazer isso mutaria o banco e quebraria os vizinhos.
+
+---
+
+## D53 — A auditoria guarda o que mudou, não que mudou
+
+`checklist.publicado` registrava `{codigo, versao, perguntas,
+opcoes_que_abrem_ocorrencia}`. Tudo verdadeiro, e nada útil no dia em que
+importa.
+
+Porque o que se troca num checklist não é o número da versão. É o **horário
+limite**, que decide quem aparece como atrasado. É a lista de **cargos
+liberados**, que decide para quem o checklist existe. É a **periodicidade**, que
+decide se alguém é cobrado hoje. Mude qualquer um, publique, e no dia seguinte
+metade da equipe amanhece na fila de ação — alguém vai à auditoria e lê "versão
+2 publicada".
+
+Agora o evento guarda o retrato **antes** (a versão que sai de cena) e **depois**
+(a que entra), com os campos que mudam a operação. A linha da auditoria responde
+"de que para que", que é a única pergunta que alguém faz ali.
+
+**A publicação é o lugar certo, e o rascunho é o lugar errado.** Um checklist é
+salvo dezenas de vezes enquanto está sendo montado, e nada disso vale para
+ninguém ainda. Auditar o rascunho encheria a tela sem responder nada; auditar a
+publicação registra exatamente o instante em que a mudança passou a valer.
+`PUT /api/templates/:id` fica, por isso, na lista de exceções — com o motivo
+escrito e apontando para onde o rastro está.
+
+**A regra geral, e a varredura que a sustenta.** Toda rota de escrita registra,
+ou aparece numa lista de exceções nomeadas com o porquê. Auditoria é o único
+artefato cuja falta é invisível até o dia em que alguém precisa provar o que
+aconteceu — e nesse dia não há conserto. Uma rota nova sem `registrarEvento` não
+seria notada por nenhum outro teste: tudo funcionaria.
+
+As três exceções de hoje, e o motivo de cada uma:
+
+| Rota | Por que não registra |
+|---|---|
+| `POST /api/notificacoes/lidas` | estado de leitura do sino, por usuário; não muda dado de ninguém |
+| `POST /api/templates/conferir` | só valida e devolve o parecer; não escreve nada |
+| `POST /api/inspecoes/:id/evidencias` | 4 a 8 fotos por checklist afogariam a tela — registra só o caso que importa, a foto anexada por quem **não** executou |
+
+Essa última é a metade que faltava: `inspecaoDoUsuario` deixa a Frota anexar
+evidência na inspeção de outra pessoa, "para corrigir". Isso é mexer num
+registro que existe para prestar contas, e não havia nenhuma linha dizendo quem
+mexeu. A informação até existia — a evidência guarda `usuario_id` — mas não no
+lugar onde alguém vai procurar.
