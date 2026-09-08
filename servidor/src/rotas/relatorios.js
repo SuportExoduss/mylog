@@ -12,6 +12,7 @@ import { exigirFrota } from '../seguranca/nivel.js'
 import { avaliarPreventivas } from '../nucleo/preventivas.js'
 import { dataHoraLocal } from '../nucleo/relogio.js'
 import { avaliarResposta } from '../../../compartilhado/template.js'
+import { marcaDaEmpresa } from './marca.js'
 
 // -------------------------------------------------------------- utilitarios
 
@@ -70,6 +71,13 @@ const rotular = (mapa, valor) => mapa[valor] || valor || '—'
 const ESTILO = `
   :root { --tinta:#1a222c; --fraco:#5b6b7c; --linha:#d8dee8; --marca:#35539f;
           --ok:#1a7a45; --media:#8a6100; --alta:#9c4a15; --critica:#a3222a; }
+  /* A cor da marca da empresa entra por cima desta, quando ha uma. As cores de
+     ESTADO nao entram nunca: verde, amarelo e vermelho dizem o que a folha
+     AFIRMA, e num dossie de sinistro isso pesa ainda mais que na tela (D59). */
+  .logo-empresa { max-height:44px; max-width:180px; object-fit:contain; display:block;
+                  margin-bottom:6px }
+  .por-mylog { font-size:11px; color:var(--fraco); letter-spacing:.04em;
+               text-transform:uppercase; margin-top:3px }
   * { box-sizing:border-box }
   body { margin:0; padding:24px; background:#fff; color:var(--tinta);
          font:13px/1.5 "Segoe UI",system-ui,sans-serif; }
@@ -123,18 +131,43 @@ const ESTILO = `
   }
 `
 
-function pagina({ titulo, corpo, empresa, gerador }) {
+// A folha impressa e' o que a empresa entrega para FORA — seguradora, cliente,
+// perito. Ela mostrava so o MyLog, com o nome de registro da empresa em letra
+// pequena embaixo: quem contratou o white label tinha a propria identidade em
+// toda tela do produto, e em nenhuma folha que sai dele.
+//
+// A arquitetura promete que "a marca MyLog permanece AO LADO da marca do
+// contratante". Aqui ela estava sozinha.
+//
+// Quem NAO personalizou nada continua vendo exatamente o cabecalho de antes: o
+// co-branding aparece onde ha marca, e nao inventa uma para quem nao tem.
+// Continua sem caminho para esconder o MyLog — nao existe campo para isso.
+function cabecalhoDaMarca(empresa, marca) {
+  const nome = marca?.nome_exibicao
+  if (!nome && !marca?.logo_url) {
+    return `<div class="marca">My<span>Log</span></div>
+    <div class="sub">${e(empresa?.nome || '')}</div>`
+  }
+  return `${marca.logo_url
+    ? `<img class="logo-empresa" src="${e(marca.logo_url)}" alt="${e(nome || empresa?.nome || 'Logo da empresa')}">`
+    : ''}
+    <div class="marca">${e(nome || empresa?.nome || '')}</div>
+    <div class="por-mylog">por MyLog</div>`
+}
+
+function pagina({ titulo, corpo, empresa, gerador, marca }) {
+  const corDaMarca = marca?.tokens?.claro?.marca
   return `<!doctype html>
 <html lang="pt-BR"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${e(titulo)}</title><style>${ESTILO}</style>
+${corDaMarca ? `<style>:root{--marca:${e(corDaMarca)}}</style>` : ''}
 <script src="/js/imprimir.js" defer></script></head>
 <body>
 <div class="imprimir"><button type="button" data-imprimir>Imprimir ou salvar em PDF</button></div>
 <div class="cabecalho">
   <div>
-    <div class="marca">My<span>Log</span></div>
-    <div class="sub">${e(empresa?.nome || '')}</div>
+    ${cabecalhoDaMarca(empresa, marca)}
   </div>
   <div class="emitido">
     <div>${e(titulo)}</div>
@@ -287,6 +320,7 @@ export function registrarRotasRelatorios(rotas) {
     responderHtml(ctx, pagina({
       titulo: `Checklist ${ROTULO_MOMENTO[i.momento]} — ${i.placa}`,
       empresa,
+      marca: marcaDaEmpresa(eu.empresa_id),
       corpo: `
         <h1>${e(i.checklist)}</h1>
         <p class="sub">Versao ${e(i.checklist_versao)} · resultado <strong>${e(rotular(ROTULO_RESULTADO, i.resultado))}</strong></p>
@@ -370,6 +404,7 @@ export function registrarRotasRelatorios(rotas) {
     responderHtml(ctx, pagina({
       titulo: `Solicitacao #${s.numero} — ${s.placa || 'sem veiculo'}`,
       empresa,
+      marca: marcaDaEmpresa(eu.empresa_id),
       corpo: `
         <h1>Comparativo de saida e retorno</h1>
         <p class="sub">Solicitacao #${e(s.numero)} · ${e(identificacao)}</p>
@@ -488,6 +523,7 @@ export function registrarRotasRelatorios(rotas) {
     responderHtml(ctx, pagina({
       titulo: `Preventiva — ${prev.placa}`,
       empresa,
+      marca: marcaDaEmpresa(eu.empresa_id),
       gerador: eu.nome,
       corpo: `
         <h1>${e(prev.checklist_nome || 'Preventiva')}</h1>
@@ -556,6 +592,7 @@ export function registrarRotasRelatorios(rotas) {
     responderHtml(ctx, pagina({
       titulo: 'Relatorio de frota',
       empresa,
+      marca: marcaDaEmpresa(eu.empresa_id),
       corpo: `
         <h1>Situacao da frota</h1>
         <p class="sub">${veiculos.length} veiculo(s) · ${ocorrencias.length} ocorrencia(s) aberta(s) ·

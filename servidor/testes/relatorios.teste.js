@@ -769,3 +769,61 @@ test('relatorio: nome com aspas e sinal nao escapa da folha', async () => {
     'o texto do banco virou marcacao dentro da folha')
   assert.match(folha.html, /&lt;script&gt;/, 'o texto tem que aparecer, escapado')
 })
+
+// ==================================== a marca da empresa na folha impressa
+//
+// O relatorio e' o que a empresa entrega para FORA — seguradora, cliente,
+// perito. Ele mostrava so o MyLog, com o nome de registro da empresa em letra
+// pequena embaixo: quem contratou o white label tinha a propria identidade em
+// toda tela do produto, e em nenhuma folha que sai dele.
+//
+// A arquitetura promete que "a marca MyLog permanece AO LADO da marca do
+// contratante". Na folha ela estava sozinha.
+test('relatorio: sem marca publicada, o cabecalho e o de sempre', async () => {
+  // Quem nao personalizou nada nao pode ganhar um cabecalho novo. O
+  // co-branding aparece onde HA marca — nao inventa uma para quem nao tem.
+  const frota = await entrar('frota.b@rel.local')
+  const html = await (await bruto('/relatorio/frota', frota)).text()
+
+  assert.match(html, /My<span>Log<\/span>/, 'a marca MyLog desenhada, como antes')
+  assert.doesNotMatch(html, /por MyLog/,
+    'sem marca da empresa nao ha "por": nao ha ao lado de que ficar')
+  // A CLASSE `.logo-empresa` vive no estilo embutido e esta sempre la; o que
+  // nao pode existir e' a TAG usando ela.
+  assert.doesNotMatch(html, /<img class="logo-empresa"/, 'nem imagem de logo')
+})
+
+test('relatorio: com marca publicada, a empresa aparece e o MyLog fica ao lado', async () => {
+  const frota = await entrar('frota.a@rel.local')
+
+  const r = await chamar('PUT', '/api/marca', {
+    token: frota,
+    corpo: {
+      nome_exibicao: 'Transportes Aurora',
+      tokens_claro: { marca: '#1d5c34' },
+      tokens_escuro: { marca: '#7fd3a0' },
+    },
+  })
+  assert.equal(r.status, 200, `a marca precisa publicar: ${JSON.stringify(r.dados)}`)
+
+  const html = await (await bruto('/relatorio/frota', frota)).text()
+
+  assert.match(html, /Transportes Aurora/, 'o nome escolhido pela empresa aparece')
+  assert.match(html, /por MyLog/,
+    'e o MyLog fica AO LADO — nao existe caminho para escondê-lo')
+  assert.match(html, /--marca:#1d5c34/,
+    'a cor da marca pinta a folha, pelo token do tema claro (papel e branco)')
+
+  // A cor de ESTADO nao entra: ela diz o que a folha AFIRMA. Num dossie de
+  // sinistro isso pesa mais que na tela.
+  assert.match(html, /--critica:#a3222a/, 'o vermelho de critica continua o do MyLog')
+  assert.match(html, /--ok:#1a7a45/, 'e o verde de conforme tambem')
+})
+
+test('relatorio: a marca de uma empresa nao vaza para a folha de outra', async () => {
+  // Mesmo cuidado de sempre: a marca vem da SESSAO, nunca de parametro.
+  const frotaB = await entrar('frota.b@rel.local')
+  const html = await (await bruto('/relatorio/frota', frotaB)).text()
+  assert.doesNotMatch(html, /Transportes Aurora/,
+    'a empresa B nao pode ver a marca da empresa A')
+})

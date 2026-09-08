@@ -1317,6 +1317,28 @@ alguém pode afrouxar: ele não existe como token, e o `PUT` só copia chaves da
 lista fechada. Há teste cobrando que todo token personalizável comece com
 `marca`.
 
+### A folha impressa também é uma tela da empresa
+
+O relatório é o que a empresa entrega **para fora**: seguradora, cliente,
+perito. Ele mostrava só o MyLog, com o nome de registro da empresa em letra
+pequena embaixo — quem contratou o white label tinha a própria identidade em
+toda tela do produto, e em nenhuma folha que sai dele. A arquitetura promete
+que *a marca MyLog permanece ao lado da marca do contratante*; ali ela estava
+sozinha.
+
+As quatro folhas passam pelo mesmo casco, então o co-branding entrou num lugar
+só: logo, nome escolhido, e **por MyLog** logo abaixo — a mesma hierarquia da
+lateral do painel. A cor da marca pinta a folha pelo token do **tema claro**,
+que é o certo: papel é branco, e é contra o fundo claro que o contraste foi
+conferido.
+
+Quem não personalizou nada continua com o cabeçalho de antes. O co-branding
+aparece onde **há** marca; não inventa uma para quem não tem.
+
+As cores de estado não entram, aqui menos que em qualquer lugar. Verde, amarelo
+e vermelho dizem o que a folha **afirma**, e num dossiê de sinistro isso pesa
+mais que na tela.
+
 ### Logo: a ordem das operações é a garantia
 
 A arquitetura diz que *upload que falha não pode deixar a empresa sem logo
