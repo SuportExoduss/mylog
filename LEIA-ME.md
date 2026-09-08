@@ -24,7 +24,9 @@ fonte: quem procura o que vale hoje procura na tabela acima.
 | Painel web | `http://localhost:4000` | ADM, supervisao, manutencao, auditoria |
 | Aplicativo de campo | `http://localhost:4000/app/` | quem executa checklist |
 
-O aplicativo e um PWA instalavel: no Android, "Adicionar a tela inicial".
+O aplicativo **exige internet** (D58): nao ha fila, deposito local nem
+service worker. No Android da para adicionar a tela inicial pelo menu do
+navegador, mas ele nao abre sem rede — e nem tenta.
 
 ## Rodar
 
@@ -76,10 +78,10 @@ web/
   index.html      shell (login + painel)
   css/            folha unica
   js/             api, ui, e uma tela por arquivo
-app/              aplicativo de campo (PWA instalavel)
+app/              aplicativo de campo (Web, exige internet)
   index.html      shell
   sw.js           service worker: guarda a casca, nunca resposta de API
-  js/             armazem (IndexedDB), sincronia (fila), checklist, telas
+  js/             envio (rede), checklist (execucao), app (telas)
 docs/
   DECISOES.md     registro de decisoes tecnicas
   DESIGN.md       design system e identidade visual
@@ -92,7 +94,7 @@ docs/
 | F0 — Descoberta do PROLOG | pendente — depende da empresa |
 | F1 — Fundacao | **feita** — banco multi-tenant, auth, dois niveis, auditoria |
 | F2 — Web ADM | **feita** — usuarios, cargos, frota, solicitacoes, ocorrencias, checklists, auditoria |
-| F3 — Aplicativo de campo | **feita** — PWA offline com checklist de foto, saida e retorno |
+| F3 — Aplicativo de campo | **feita** — checklist com foto, saida e retorno; offline removido na v3.2 (D58) |
 | F4 — Regras | **feita** — prioridade, bloqueio por critica, ocorrencias |
 | F5 — Preventivas | **feita** — KM/data, ciclo de conclusao, alertas |
 | F6 — Relatorios | pendente |
@@ -116,7 +118,7 @@ docs/
   com motivo.
 - O servidor **re-julga** toda inspecao recebida: o resultado que o aplicativo
   mandou e ignorado.
-- Reenvio da fila offline nao duplica inspecao.
+- Nova tentativa de envio nao duplica inspecao nem evidencia.
 - Toda empresa so enxerga os proprios dados.
 
 ## Producao — pendente antes de qualquer piloto

@@ -1,7 +1,7 @@
 {
   "name": "MyLog — Checklist de veiculos",
   "short_name": "MyLog",
-  "description": "Checklist de frota, evidencias e solicitacoes. Funciona sem internet.",
+  "description": "Checklist de frota, evidencias e solicitacoes.",
   "start_url": "/app/",
   "scope": "/app/",
   "display": "standalone",
