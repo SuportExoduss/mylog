@@ -438,3 +438,74 @@ export function tabela(colunas, linhas) {
 export function vazio(mensagem) {
   return elemento('div', { classe: 'vazio', texto: mensagem })
 }
+
+// ------------------------------------------------------ o que mudou num evento
+
+// Carimbos e identificadores mudam em TODA escrita, entao apareciam em toda
+// linha — "atualizado_em: 2026-09-07T11:33:35.948Z → 2026-09-08T04:29:14.385Z"
+// ao lado de "km_atual: 41.200 → 42.700". A coluna existe para dizer o que
+// mudou de verdade, e a data ja esta na primeira coluna.
+const CAMPOS_DE_RUIDO = new Set([
+  'motivo', 'placa', 'id', 'empresa_id',
+  'atualizado_em', 'criado_em', 'publicado_em', 'aberta_em',
+])
+
+const comoTexto = (v) => (typeof v === 'number' ? numero(v) : String(v ?? '—'))
+
+// Achata um nivel: `{tokens_claro: {marca: '#123456'}}` vira
+// `{'tokens_claro.marca': '#123456'}`.
+//
+// Um nivel, e nao todos, de proposito: e' onde moram os dados que a auditoria
+// guarda agrupados — os tokens da marca por tema — e descer mais viraria uma
+// coluna ilegivel.
+function achatar(objeto) {
+  const plano = {}
+  for (const [chave, valor] of Object.entries(objeto || {})) {
+    if (valor && typeof valor === 'object' && !Array.isArray(valor)) {
+      for (const [dentro, v] of Object.entries(valor)) plano[`${chave}.${dentro}`] = v
+    } else {
+      plano[chave] = valor
+    }
+  }
+  return plano
+}
+
+// A DIFERENCA entre o antes e o depois de um evento de auditoria, em uma linha.
+//
+// Existia duas vezes, e as duas estavam incompletas de jeitos diferentes: a do
+// historico do veiculo fazia o diff certo mas escrevia `[object Object]` em
+// qualquer campo agrupado; a da tela de Auditoria PULAVA objetos em silencio e,
+// pior, listava os campos do `depois` em vez do que mudou — mostrava o estado
+// novo mesmo quando aquele campo nao tinha mudado.
+//
+// Na marca da empresa, que guarda os tokens agrupados por tema, as duas
+// juntas resultavam numa linha que nao dizia qual cor mudou. E' exatamente o
+// que a D53 exige que a auditoria diga.
+export function descreverMudanca(evento, { ocultos = CAMPOS_DE_RUIDO, limite = 0 } = {}) {
+  const antes = achatar(evento?.antes)
+  const depois = achatar(evento?.depois)
+
+  const campos = [...new Set([...Object.keys(antes), ...Object.keys(depois)])]
+    .filter((c) => !ocultos.has(c) && !ocultos.has(c.split('.')[0]))
+
+  let mudou = campos
+    .filter((c) => JSON.stringify(antes[c]) !== JSON.stringify(depois[c]))
+    .map((c) => (antes[c] === undefined
+      ? `${c}: ${comoTexto(depois[c])}`
+      : `${c}: ${comoTexto(antes[c])} → ${comoTexto(depois[c])}`))
+
+  // Numa lista larga, uma linha inteira de mudancas nao cabe: corta e DIZ que
+  // cortou, em vez de deixar a pessoa achando que viu tudo.
+  let sobra = 0
+  if (limite && mudou.length > limite) {
+    sobra = mudou.length - limite
+    mudou = mudou.slice(0, limite)
+  }
+  const corte = sobra ? ` (+${sobra})` : ''
+
+  // O motivo escrito pela Frota vale mais que a lista de campos: e' a unica
+  // parte da linha que explica POR QUE.
+  const motivo = evento?.depois?.motivo || evento?.antes?.motivo
+  if (motivo) return mudou.length ? `${mudou.join(' · ')}${corte} — ${motivo}` : String(motivo)
+  return mudou.length ? mudou.join(' · ') + corte : '—'
+}

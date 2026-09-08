@@ -3,6 +3,7 @@
 import { api } from './api.js'
 import {
   elemento, cabecalhoTela, tabela, selo, vazio, avisoDeCorte, abrirModal, notificar, dataCurta, menuAcoes,
+  descreverMudanca,
   ROTULO_STATUS_OCORRENCIA, TOM_STATUS_OCORRENCIA, ROTULO_PRIORIDADE, TOM_PRIORIDADE,
 } from './ui.js'
 
@@ -269,18 +270,16 @@ export async function telaOcorrencias(raiz, contexto) {
 // ------------------------------------------------------------- auditoria
 
 // Resume o par antes/depois numa frase, para a tela nao virar despejo de JSON.
-function resumirMudanca(evento) {
-  const { antes, depois } = evento
-  if (antes?.status && depois?.status) return `${antes.status} → ${depois.status}`
-  if (depois?.motivo) return depois.motivo
-  const partes = []
-  for (const [chave, valor] of Object.entries(depois || {})) {
-    if (valor === null || valor === undefined || typeof valor === 'object') continue
-    partes.push(`${chave}: ${valor}`)
-    if (partes.length === 3) break
-  }
-  return partes.join(' · ') || '—'
-}
+// A coluna "Mudanca" da Auditoria mostra A DIFERENCA, e nao o estado novo.
+//
+// Ela listava os campos do `depois` — o que fazia aparecer "nome_exibicao:
+// Transportes Aurora" numa publicacao que nao mexeu no nome — e PULAVA
+// objetos em silencio, que na marca da empresa e' onde as cores moram: um
+// publish que so trocou cor aparecia como "tem_logo: true".
+//
+// Tres e' o teto: a tabela e' larga e a linha precisa caber. O `(+n)` diz que
+// ha mais, em vez de deixar a pessoa achando que viu tudo.
+const resumirMudanca = (evento) => descreverMudanca(evento, { limite: 3 })
 
 export async function telaAuditoria(raiz, contexto) {
   const filtros = { busca: '', entidade: '' }

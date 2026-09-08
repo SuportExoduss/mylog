@@ -900,3 +900,88 @@ test('vocabulario: os estados de execucao que o motor produz sao os que a tela c
   }
 })
 
+
+// ============================================== o que mudou, numa linha so
+//
+// Esta funcao existia DUAS vezes, e as duas estavam incompletas de jeitos
+// diferentes: a do historico do veiculo fazia o diff certo mas escrevia
+// `[object Object]` em campo agrupado; a da tela de Auditoria pulava objetos
+// em silencio e, pior, listava os campos do `depois` em vez do que mudou —
+// mostrava o estado novo mesmo em campo que nao tinha mudado.
+//
+// Na marca da empresa, que guarda os tokens agrupados por tema, as duas juntas
+// davam uma linha que nao dizia qual cor mudou. E' exatamente o que a D53
+// exige que a auditoria diga.
+const { descreverMudanca } = uiDoTeste
+
+test('mudanca: diz o que mudou, e nao o que ficou', () => {
+  const linha = descreverMudanca({
+    antes: { nome: 'Ana', cargo: 'Motorista' },
+    depois: { nome: 'Ana', cargo: 'Mecanico' },
+  })
+  assert.equal(linha, 'cargo: Motorista → Mecanico',
+    'o nome nao mudou, entao nao entra na linha')
+})
+
+test('mudanca: campo agrupado nao vira [object Object] nem some', () => {
+  // O caso da marca: as cores moram dentro de `tokens_claro`/`tokens_escuro`.
+  const linha = descreverMudanca({
+    antes: { tem_logo: true, tokens_claro: { marca: '#1a5c2e' }, tokens_escuro: { marca: '#9ebdff' } },
+    depois: { tem_logo: true, tokens_claro: { marca: '#1d5c34' }, tokens_escuro: { marca: '#9ebdff' } },
+  })
+  assert.equal(linha, 'tokens_claro.marca: #1a5c2e → #1d5c34')
+  assert.doesNotMatch(linha, /object Object/)
+  assert.doesNotMatch(linha, /tem_logo/, 'o que nao mudou fica de fora')
+  assert.doesNotMatch(linha, /tokens_escuro/, 'e o tema que nao foi tocado tambem')
+})
+
+test('mudanca: campo que nasce aparece sem seta', () => {
+  const linha = descreverMudanca({ antes: {}, depois: { nome_exibicao: 'Transportes Aurora' } })
+  assert.equal(linha, 'nome_exibicao: Transportes Aurora',
+    'nao havia antes: a seta mentiria sobre um valor anterior')
+})
+
+test('mudanca: carimbo de tempo nao polui a linha', () => {
+  // Eles mudam em TODA escrita: apareceriam em toda linha, empurrando para
+  // fora o que a coluna existe para mostrar.
+  const linha = descreverMudanca({
+    antes: { km_atual: 41200, atualizado_em: '2026-09-07T11:33:35.948Z' },
+    depois: { km_atual: 42700, atualizado_em: '2026-09-08T04:29:14.385Z' },
+  })
+  assert.match(linha, /km_atual/)
+  assert.doesNotMatch(linha, /atualizado_em/)
+})
+
+test('mudanca: o motivo escrito pela Frota fecha a linha', () => {
+  const linha = descreverMudanca({
+    antes: { status: 'disponivel' },
+    depois: { status: 'bloqueado', motivo: 'freio com folga' },
+  })
+  assert.equal(linha, 'status: disponivel → bloqueado — freio com folga')
+})
+
+test('mudanca: numero sai formatado, como no resto do painel', () => {
+  const linha = descreverMudanca({ antes: { km_atual: 41200 }, depois: { km_atual: 42700 } })
+  assert.match(linha, /41\.200 → 42\.700/)
+})
+
+test('mudanca: com limite, corta e DIZ que cortou', () => {
+  // A tabela da Auditoria e larga e a linha precisa caber. Cortar em silencio
+  // deixaria a pessoa achando que viu tudo.
+  const evento = {
+    antes: { a: 1, b: 2, c: 3, d: 4, e: 5 },
+    depois: { a: 9, b: 9, c: 9, d: 9, e: 9 },
+  }
+  const linha = descreverMudanca(evento, { limite: 3 })
+  assert.equal(linha.split(' · ').length, 3, 'mostra tres')
+  assert.match(linha, /\(\+2\)$/, 'e diz que ha mais dois')
+
+  // Sem limite, mostra tudo.
+  assert.equal(descreverMudanca(evento).split(' · ').length, 5)
+})
+
+test('mudanca: sem nada para dizer, diz travessao', () => {
+  assert.equal(descreverMudanca({ antes: { a: 1 }, depois: { a: 1 } }), '—')
+  assert.equal(descreverMudanca({}), '—')
+  assert.equal(descreverMudanca({ antes: null, depois: null }), '—')
+})

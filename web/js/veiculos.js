@@ -4,7 +4,7 @@
 import { api } from './api.js'
 import {
   elemento, cabecalhoTela, tabela, selo, vazio, abrirModal, notificar, numero,
-  menuAcoes, dataHora, dataCurta,
+  menuAcoes, dataHora, dataCurta, descreverMudanca,
   ROTULO_STATUS_VEICULO, TOM_STATUS_VEICULO, ROTULO_TIPO_VEICULO,
 } from './ui.js'
 
@@ -75,44 +75,6 @@ function mudarStatus(veiculo, recarregar) {
   })
 }
 
-// "KM 12.000 -> 22.000" e' a linha que alguem abre o historico para ver. O
-// servidor sempre mandou `antes` e `depois`; a tabela mostrava so quando, quem
-// e a acao — o "o que" ficava na resposta, sem chegar a tela.
-//
-// Campos que nao interessam a quem le o historico de um carro ficam de fora: o
-// motivo ja aparece por extenso, e nao vale repetir a placa em toda linha.
-//
-// Os carimbos de tempo saem tambem. Eles mudam em TODA escrita, entao apareciam
-// em toda linha — "atualizado_em: 2026-09-07T11:33:35.948Z →
-// 2026-09-08T04:29:14.385Z" ao lado de "km_atual: 41.200 → 42.700". A coluna
-// existe para dizer o que mudou de verdade, e a data ja esta na primeira
-// coluna.
-const OCULTOS = new Set([
-  'motivo', 'placa', 'id', 'empresa_id',
-  'atualizado_em', 'criado_em', 'publicado_em', 'aberta_em',
-])
-
-function descreverMudanca(evento) {
-  const antes = evento.antes || {}
-  const depois = evento.depois || {}
-  const campos = [...new Set([...Object.keys(antes), ...Object.keys(depois)])]
-    .filter((c) => !OCULTOS.has(c))
-
-  const mudou = campos
-    .filter((c) => JSON.stringify(antes[c]) !== JSON.stringify(depois[c]))
-    .map((c) => {
-      const de = antes[c]
-      const para = depois[c]
-      const valor = (v) => (typeof v === 'number' ? numero(v) : String(v ?? '—'))
-      return de === undefined ? `${c}: ${valor(para)}` : `${c}: ${valor(de)} → ${valor(para)}`
-    })
-
-  // O motivo escrito pela Frota vale mais que a lista de campos: e' a unica
-  // parte da linha que explica POR QUE.
-  const motivo = depois.motivo || antes.motivo
-  if (motivo) return mudou.length ? `${mudou.join(' · ')} — ${motivo}` : String(motivo)
-  return mudou.join(' · ') || '—'
-}
 
 async function verHistorico(veiculo, contexto) {
   // Duas perguntas na mesma tela, porque quem abre o historico de um carro
