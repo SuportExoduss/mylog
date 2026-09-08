@@ -2441,6 +2441,76 @@ test('atomicidade: trocar os carros de uma categoria e um ato so', async () => {
   assert.equal(quantos(), 1, 'a substituicao valida vale')
 })
 
+test('reserva: as oito relacoes possiveis entre duas janelas', async () => {
+  // Duas reservas do mesmo carro se chocam quando os intervalos se SOBREPOEM —
+  // e nao quando apenas se encostam. A regra e' `inicio < fim && fim > inicio`,
+  // intervalo meio-aberto, e essa escolha tem consequencia na operacao: uma
+  // reserva que termina as 12h e outra que comeca as 12h e' TROCA DE TURNO, o
+  // caso mais comum de uma frota, e recusa-la deixaria o carro parado a tarde.
+  //
+  // Havia um teste do choque obvio. Este cobre as oito relacoes que dois
+  // intervalos podem ter, porque e' na borda que a conta erra.
+  const frota = await entrar('frota.a@teste.local')
+  const motorista = await entrar('motorista.a@teste.local')
+  const veiculo = criarVeiculo(empresaA, 'AAA9J99')
+
+  // A reserva ancora: das 10h as 12h de um dia distante, para nao esbarrar em
+  // fixture nenhuma.
+  const DIA = '2027-03-15'
+  const hora = (h, m = 0) => new Date(
+    new Date(bordaDoDia(DIA)).getTime() + (h * 60 + m) * 60000).toISOString()
+
+  const pedir2 = async (inicio, fim) => {
+    const r = await chamar('POST', '/api/solicitacoes', {
+      token: motorista,
+      corpo: { categoria_id: catA, janela_inicio: inicio, janela_fim: fim,
+        motivo: 'Pedido da varredura de janelas' },
+    })
+    assert.equal(r.status, 200, JSON.stringify(r.dados))
+    return r.dados.solicitacao.id
+  }
+
+  const ancoraId = await pedir2(hora(10), hora(12))
+  const liberada = await chamar('POST', `/api/solicitacoes/${ancoraId}/aprovar`, {
+    token: frota, corpo: { veiculo_id: veiculo, motivo_categoria: 'varredura' },
+  })
+  assert.equal(liberada.status, 200, JSON.stringify(liberada.dados))
+
+  // As oito relacoes de Allen, com a ancora em [10h, 12h).
+  const CASOS = [
+    ['antes, sem encostar',        hora(7),      hora(9),      false],
+    ['termina exatamente no inicio', hora(8),    hora(10),     false],
+    ['invade o inicio',            hora(9),      hora(11),     true],
+    ['contida dentro',             hora(10, 30), hora(11, 30), true],
+    ['identica',                   hora(10),     hora(12),     true],
+    ['engloba a ancora',           hora(9),      hora(13),     true],
+    ['invade o fim',               hora(11),     hora(13),     true],
+    ['comeca exatamente no fim',   hora(12),     hora(14),     false],
+    ['depois, sem encostar',       hora(15),     hora(17),     false],
+  ]
+
+  const erradas = []
+  for (const [nome, inicio, fim, deveChocar] of CASOS) {
+    const id = await pedir2(inicio, fim)
+    const r = await chamar('POST', `/api/solicitacoes/${id}/aprovar`, {
+      token: frota, corpo: { veiculo_id: veiculo, motivo_categoria: 'varredura' },
+    })
+    const chocou = r.status === 409
+    if (chocou !== deveChocar) {
+      erradas.push(`${nome}: ${chocou ? 'recusou' : 'liberou'}, e devia `
+        + `${deveChocar ? 'recusar' : 'liberar'} (${r.status} ${r.dados?.mensagem || ''})`)
+    }
+    // Libera o carro de volta para o proximo caso nao herdar a reserva.
+    if (!chocou) {
+      executar("UPDATE solicitacoes SET status = 'cancelada' WHERE id = ?", [id])
+      executar("UPDATE veiculos SET status = 'disponivel' WHERE id = ?", [veiculo])
+    }
+  }
+
+  assert.deepEqual(erradas, [],
+    `a conta de sobreposicao errou em:\n${erradas.join('\n')}`)
+})
+
 test('cobranca: colaborador nao ve quem faltou', async () => {
   const vendas = await entrar('vendas.a@teste.local')
   const r = await chamar('GET', '/api/execucoes/faltando?dia=2026-09-03', { token: vendas })
