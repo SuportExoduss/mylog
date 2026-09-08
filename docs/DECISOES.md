@@ -1044,3 +1044,38 @@ navegador.
 do zero, lendo a [`API.md`](API.md) — que agora traz a tabela de quais status
 repetir. A regra é mais fácil de errar do que de acertar: "4xx não repete" é o
 que qualquer pessoa escreveria primeiro.
+
+---
+
+## D55 — Consertar um lado pode fechar a saída do outro
+
+A [D54](#d54--nem-todo-4xx-é-definitivo-e-tratar-como-se-fosse-apaga-evidência)
+parou de tratar `401` como recusa definitiva. Certo, e insuficiente: o conserto
+abriu um beco que antes não existia.
+
+Antes dela, um `401` marcava o checklist como `recusada`. Errado — a credencial
+venceu, ninguém recusou nada — mas com um efeito colateral que ninguém tinha
+notado: o item saía de `pendente`, e o botão **Sair** voltava a funcionar.
+
+Corrigido o `401` para retentativa, os dois lados travaram um no outro:
+
+- a fila não envia, porque a sessão morreu;
+- `sair()` recusa, porque há fila pendente;
+- renovar a credencial exige sair; sair exige esvaziar a fila; esvaziar a fila
+  exige a credencial.
+
+E nenhuma tela dizia qual era o problema: a tira de conexão mostrava *"1
+checklist na fila"*, com sinal cheio.
+
+**A saída tem duas partes, e as duas importam.** `estado.sessaoExpirada` faz a
+tira dizer o que houve e levar ao login com um toque — porque "aguardando
+conexão" com sinal cheio manda a pessoa procurar rede que não é o problema. E
+`sair()` deixa de recusar **quando a sessão já venceu**: a recusa existe para
+não perder a credencial que a fila precisa, e credencial vencida não há o que
+perder. Entrar de novo não toca na fila — ela vive no IndexedDB e sobrevive ao
+login.
+
+**A lição é sobre o método, não sobre a fila.** Um conserto correto mudou o
+estado em que o sistema passa a viver, e a consequência estava a duas telas de
+distância. Não bastou verificar que o defeito sumiu: foi preciso perguntar o
+que passou a ser possível — e a resposta era um beco.

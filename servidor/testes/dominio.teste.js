@@ -971,6 +971,52 @@ test('atomicidade: rota com duas escritas usa transacao', () => {
     `rota com duas escritas e sem transacao — envolva, ou nomeie a excecao com o motivo:\n${semTransacao.join('\n')}`)
 })
 
+// O que o aplicativo MANDA e o que a rota LE sao a mesma lista.
+//
+// Um campo com nome errado no envio nao quebra nada: o `JSON.stringify` aceita
+// qualquer chave, a rota le `undefined` e segue. `km_informado` virando
+// `kmInformado` faria o hodometro parar de chegar — sem erro, sem 500, sem
+// nenhum sinal, ate alguem reparar meses depois que as leituras sumiram.
+//
+// E' o mesmo raciocinio do teste que confere o exemplo da API.md contra a
+// resposta, do outro lado da conversa: ali a RESPOSTA, aqui o PEDIDO.
+test('contrato: o aplicativo manda exatamente os campos que a rota de checklist le', () => {
+  const raiz = path.join(import.meta.dirname, '..', '..')
+  const app = fs.readFileSync(path.join(raiz, 'app', 'js', 'sincronia.js'), 'utf8')
+  const rota = fs.readFileSync(path.join(raiz, 'servidor', 'src', 'rotas', 'inspecoes.js'), 'utf8')
+
+  // O corpo do POST no aplicativo.
+  const iApp = app.indexOf("await fetch('/api/inspecoes'")
+  assert.ok(iApp > 0, 'nao achei o envio de checklist no aplicativo')
+  const abre = app.indexOf('body: JSON.stringify({', iApp)
+  const fecha = app.indexOf('}),', abre)
+  assert.ok(abre > 0 && fecha > abre, 'nao achei o corpo do envio')
+  const manda = new Set(
+    app.slice(abre, fecha).split('\n')
+      .map((l) => l.match(/^\s{6}([a-z_]+):/)?.[1])
+      .filter(Boolean),
+  )
+
+  // O que a rota le do corpo.
+  const iRota = rota.indexOf("rotas.post('/api/inspecoes'")
+  const fimRota = rota.indexOf("rotas.get('/api/inspecoes'", iRota)
+  assert.ok(iRota > 0 && fimRota > iRota, 'nao achei a rota de envio')
+  const le = new Set(
+    [...rota.slice(iRota, fimRota).matchAll(/ctx\.corpo\.([a-z_]+)/g)].map((m) => m[1]),
+  )
+
+  assert.ok(manda.size >= 10, `varredura pobre do lado do app: ${[...manda].join(', ')}`)
+  assert.ok(le.size >= 10, `varredura pobre do lado da rota: ${[...le].join(', ')}`)
+
+  const ignorados = [...manda].filter((c) => !le.has(c))
+  assert.deepEqual(ignorados, [],
+    `o aplicativo manda campo que a rota nao le — chega e some:\n${ignorados.join('\n')}`)
+
+  const naoEnviados = [...le].filter((c) => !manda.has(c))
+  assert.deepEqual(naoEnviados, [],
+    `a rota le campo que o aplicativo nunca manda:\n${naoEnviados.join('\n')}`)
+})
+
 // ------------------------- a hierarquia documental existe e nao mente
 
 // A regra e' "nao existe arquitetura paralela": cinco documentos, cada um com

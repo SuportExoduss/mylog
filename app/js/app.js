@@ -49,6 +49,17 @@ function tiraConexao() {
   let texto
   let tom
 
+  // Antes de tudo: sessao vencida trava a fila inteira, e nenhuma outra
+  // mensagem ajuda enquanto ela nao for resolvida. "Aguardando conexao" com
+  // sinal cheio faria a pessoa procurar rede que nao e' o problema.
+  if (s.sessaoExpirada) {
+    return elemento('button', {
+      classe: 'tira tira--erro', type: 'button',
+      texto: 'Sua sessao expirou. Toque para entrar de novo e enviar a fila.',
+      aoClick: () => telaLogin('Entre de novo para enviar os checklists da fila.'),
+    })
+  }
+
   if (s.pendentes > 0 && !online) { tom = 'espera'; texto = `${s.pendentes} checklist(s) aguardando conexao` }
   else if (s.enviando) { tom = 'enviando'; texto = 'Enviando...' }
   else if (s.pendentes > 0) { tom = 'espera'; texto = `${s.pendentes} checklist(s) na fila` }
@@ -501,8 +512,14 @@ async function telaFila() {
 
 async function sair() {
   const pendentes = (await fila.pendentes()).filter((i) => i.estado === 'pendente')
-  if (pendentes.length) {
-    // Sair com fila pendente perderia a sessao que a fila precisa para enviar.
+  // Sair com fila pendente perderia a sessao que a fila precisa para enviar —
+  // MENOS quando a sessao ja venceu. Nesse caso a recusa fechava um beco: a
+  // fila nao envia porque a credencial morreu, e o unico jeito de renova-la e'
+  // entrar de novo, que este `return` impedia.
+  //
+  // Entrar de novo nao toca na fila: ela vive no IndexedDB e sobrevive ao
+  // login. O que se perde e' nada.
+  if (pendentes.length && !sincronia.estado.sessaoExpirada) {
     return telaFila()
   }
   try { await fetch('/api/auth/sair', { method: 'POST', credentials: 'same-origin' }) } catch { /* offline */ }

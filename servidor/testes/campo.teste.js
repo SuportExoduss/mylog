@@ -685,6 +685,62 @@ test('fila: foto recusada pelo servidor nao some sem deixar recado', async () =>
   }
 })
 
+test('fila: sessao vencida avisa, em vez de deixar a pessoa num beco', async () => {
+  // Este defeito nasceu do conserto anterior, e vale dizer assim.
+  //
+  // Antes da D54, um 401 marcava o checklist como `recusada`. Errado — a
+  // credencial venceu, ninguem recusou nada — mas com um efeito colateral: o
+  // item saia de `pendente`, e o botao "Sair" voltava a funcionar.
+  //
+  // Corrigido o 401 para retentativa, o beco apareceu: a fila nao envia porque
+  // a sessao morreu, e `sair()` recusa porque ha fila pendente. Renovar a
+  // credencial exige sair; sair exige esvaziar a fila; esvaziar a fila exige a
+  // credencial. Sem saida, e sem ninguem dizendo qual e' o problema.
+  const navegadorAntes = Object.getOwnPropertyDescriptor(globalThis, 'navigator')
+  Object.defineProperty(globalThis, 'navigator',
+    { configurable: true, value: { onLine: true } })
+
+  const buscaAntes = globalThis.fetch
+  const pendentesAntes = filaReal.pendentes
+  const marcarAntes = filaReal.marcar
+
+  filaReal.pendentes = async () => [{
+    cliente_uuid: 'uuid-sessao-morta', estado: 'pendente', template_id: 't1',
+  }]
+  filaReal.marcar = async () => {}
+  globalThis.fetch = async () => ({
+    ok: false, status: 401,
+    json: async () => ({ mensagem: 'Sessao ausente ou expirada.' }),
+  })
+
+  try {
+    assert.equal(sincronia.estado.sessaoExpirada, false, 'controle: comeca sem a marca')
+
+    await sincronia.sincronizar()
+    assert.equal(sincronia.estado.sessaoExpirada, true,
+      'um 401 na fila tem que virar aviso — e nao uma retentativa muda para sempre')
+
+    // E some quando a sessao volta: o aviso nao pode ficar preso na tela depois
+    // de resolvido.
+    globalThis.fetch = async () => ({
+      ok: true, status: 200,
+      json: async () => ({ inspecao: { id: 'ins1' }, resumo: {} }),
+    })
+    await sincronia.sincronizar()
+    assert.equal(sincronia.estado.sessaoExpirada, false,
+      'passou um envio: a sessao esta viva de novo e o aviso sai')
+  } finally {
+    filaReal.pendentes = async () => []
+    await sincronia.sincronizar()
+    globalThis.fetch = buscaAntes
+    filaReal.pendentes = pendentesAntes
+    filaReal.marcar = marcarAntes
+    sincronia.estado.sessaoExpirada = false
+    if (navegadorAntes) Object.defineProperty(globalThis, 'navigator', navegadorAntes)
+    else delete globalThis.navigator
+  }
+})
+
 test('fila: nao arma relogio sem fila nem sem rede', () => {
   // Sem fila nao ha o que reenviar. Sem rede, quem acorda e o evento `online`,
   // que chega na hora certa e nao gasta nada esperando.

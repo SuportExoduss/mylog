@@ -17,6 +17,11 @@ export const estado = {
   enviando: false,
   pendentes: 0,
   ultimoErro: null,
+  // A fila viu um 401. Nao e' erro de rede nem recusa de regra: e' credencial
+  // vencida, e o unico jeito de sair disso e' entrar de novo. Sem este aviso a
+  // pessoa fica num beco — a fila nao envia porque a sessao morreu, e o "sair"
+  // recusa porque ha fila pendente.
+  sessaoExpirada: false,
 }
 
 // Retentativa com espera crescente.
@@ -175,6 +180,7 @@ async function enviarFotos(clienteUuid, inspecaoId) {
         })
         await fotos.remover(foto.id)
       } else {
+        if (resposta.status === 401) { estado.sessaoExpirada = true; avisar() }
         restantes += 1
       }
     } catch {
@@ -212,6 +218,8 @@ async function enviarUma(item) {
   const dados = await resposta.json().catch(() => ({}))
 
   if (resposta.ok) {
+    // Passou: a sessao esta viva de novo.
+    estado.sessaoExpirada = false
     const inspecaoId = dados.inspecao?.id
     // As fotos sobem DEPOIS, uma a uma. Se alguma falhar, a inspecao ja esta
     // gravada e a foto continua no aparelho para a proxima tentativa — nunca
@@ -254,6 +262,8 @@ async function enviarUma(item) {
     })
     return { ok: false, permanente: true, mensagem: dados.mensagem }
   }
+
+  if (resposta.status === 401) { estado.sessaoExpirada = true; avisar() }
 
   await fila.marcar(item.cliente_uuid, {
     estado: 'pendente',
