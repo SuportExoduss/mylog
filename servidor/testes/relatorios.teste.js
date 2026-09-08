@@ -13,7 +13,7 @@ process.env.MYLOG_BANCO = path.join(raizTemp, 'mylog.db')
 process.env.MYLOG_STORAGE = path.join(raizTemp, 'evidencias')
 process.env.MYLOG_PORTA = '0'
 
-const { abrirBanco, executar, consultarUm, novoId, agora, fecharBanco } = await import('../src/nucleo/banco.js')
+const { abrirBanco, executar, consultar, consultarUm, novoId, agora, fecharBanco } = await import('../src/nucleo/banco.js')
 const { gerarHashSenha } = await import('../src/seguranca/senha.js')
 
 abrirBanco()
@@ -394,6 +394,87 @@ async function umaInspecaoQualquer() {
   assert.ok(inspecao, 'os testes anteriores precisam ter deixado alguma inspecao')
   return { frota, inspecao: inspecao.id }
 }
+
+// Texto hostil no banco, os QUATRO relatorios de uma vez.
+//
+// Ja havia uma prova de escape, numa folha so. Escape e' o tipo de coisa que se
+// acerta uma vez e se perde na quinta interpolacao nova: a folha que ninguem
+// testou e' justamente onde o `${}` cru vai aparecer.
+//
+// Uma varredura do codigo diz que hoje esta certo — as interpolacoes que
+// PARECEM cruas alimentam `titulo`, e `pagina()` escapa o titulo. Mas isso e'
+// um argumento sobre o codigo de hoje. Este teste e' sobre a SAIDA, e continua
+// valendo depois de qualquer refatoracao.
+const VENENO = '<script>alert(1)</script><img src=x onerror=alert(2)>"><b>'
+
+test('relatorios: texto hostil no banco nao vira marcacao em nenhuma das quatro folhas', async () => {
+  const frota = await entrar('frota.a@rel.local')
+
+  // Os alvos ja existem: os testes acima criaram inspecao, solicitacao e
+  // preventiva. Procurar em vez de recriar mantem a folha realista — com
+  // fotos, ocorrencias e assinatura, que e' onde ha mais texto para escapar.
+  const um = (sql) => consultarUm(sql, [empresaA])?.id
+  const inspecao = um('SELECT id FROM inspecoes WHERE empresa_id = ? ORDER BY criado_em LIMIT 1')
+  const solicitacao = um('SELECT id FROM solicitacoes WHERE empresa_id = ? LIMIT 1')
+  const preventiva = um('SELECT id FROM preventivas WHERE empresa_id = ? LIMIT 1')
+  assert.ok(inspecao && solicitacao && preventiva,
+    'a fixture precisa ter as tres entidades para as quatro folhas terem o que mostrar')
+
+  // Guarda o que estava la: outros testes deste arquivo leem estes nomes.
+  const antes = {
+    veiculos: consultar('SELECT id, marca, modelo FROM veiculos WHERE empresa_id = ?', [empresaA]),
+    usuario: consultarUm('SELECT id, nome FROM usuarios WHERE email = ?', ['motorista.a@rel.local']),
+    empresa: consultarUm('SELECT id, nome FROM empresas WHERE id = ?', [empresaA]),
+  }
+
+  try {
+    // Envenena os campos de TEXTO LIVRE que as folhas mostram — os que uma
+    // pessoa digita.
+    executar('UPDATE veiculos SET modelo = ?, marca = ? WHERE empresa_id = ?',
+      [`Fiesta ${VENENO}`, `Ford ${VENENO}`, empresaA])
+    executar('UPDATE usuarios SET nome = ? WHERE id = ?', [`Motorista ${VENENO}`, antes.usuario.id])
+    executar('UPDATE empresas SET nome = ? WHERE id = ?', [`Transportes ${VENENO}`, empresaA])
+
+    const folhas = [
+      ['checklist', `/relatorio/inspecao/${inspecao}`],
+      ['comparativo', `/relatorio/solicitacao/${solicitacao}`],
+      ['dossie de preventiva', `/relatorio/preventiva/${preventiva}`],
+      ['frota', '/relatorio/frota'],
+    ]
+
+    for (const [nome, caminho] of folhas) {
+      const r = await bruto(caminho, frota)
+      assert.equal(r.status, 200, `${nome} nao abriu`)
+      const html = await r.text()
+
+      // O UNICO script da folha e' o do botao de imprimir. Qualquer outro veio
+      // do banco.
+      const scripts = [...html.matchAll(/<script\b[^>]*>/gi)].map((m) => m[0])
+      assert.deepEqual(scripts, ['<script src="/js/imprimir.js" defer>'],
+        `${nome}: apareceu script que nao e o de imprimir — ${scripts.join(' ')}`)
+
+      // A prova exata, e nao um `onerror` procurado a esmo: o veneno nao pode
+      // aparecer CRU em lugar nenhum. Procurar por "onerror=" solto acusa o
+      // proprio texto escapado — `&lt;img src=x onerror=...&gt;` contem essas
+      // letras, e como TEXTO elas sao inofensivas. Foi o primeiro jeito que
+      // escrevi, e ele acusou um defeito que nao existe.
+      assert.ok(!html.includes(VENENO),
+        `${nome}: o texto do banco chegou cru na folha`)
+      assert.ok(!html.includes('<b>'), `${nome}: marcacao do banco chegou crua na folha`)
+
+      // E o texto continua LEGIVEL: escapar nao pode virar sumir. Quem imprime
+      // precisa ver o nome esquisito para desconfiar dele.
+      assert.ok(html.includes('&lt;script&gt;'),
+        `${nome}: o texto hostil sumiu em vez de aparecer escapado`)
+    }
+  } finally {
+    for (const v of antes.veiculos) {
+      executar('UPDATE veiculos SET marca = ?, modelo = ? WHERE id = ?', [v.marca, v.modelo, v.id])
+    }
+    executar('UPDATE usuarios SET nome = ? WHERE id = ?', [antes.usuario.nome, antes.usuario.id])
+    executar('UPDATE empresas SET nome = ? WHERE id = ?', [antes.empresa.nome, empresaA])
+  }
+})
 
 test('cabecalhos: a politica de conteudo vale para TUDO que sai do servidor', async () => {
   // Nao adianta blindar a API e deixar o HTML do painel, o CSS e a imagem de
