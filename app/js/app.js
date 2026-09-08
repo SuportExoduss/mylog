@@ -69,7 +69,15 @@ function aviso(mensagem, tom = 'erro') {
 
 // ------------------------------------------------------------------ login
 
-function telaLogin(mensagem) {
+// `depois` e' o que acontece quando o login der certo. O padrao — ir para a
+// tela inicial — vale para quem esta abrindo o aplicativo.
+//
+// Existe um caso em que ir para o inicio PERDE trabalho: a sessao venceu no
+// meio do envio, o checklist inteiro esta na mao da tela de falha, e a propria
+// tela promete "entre de novo e o checklist sera enviado na mesma hora". Sem
+// isto a promessa era falsa: o login levava ao inicio e a inspecao morria com
+// a tela. Um checklist de quarenta perguntas, com fotos, feito no patio.
+function telaLogin(mensagem, depois = carregar) {
   const email = elemento('input', { type: 'email', autocomplete: 'username',
     inputmode: 'email', placeholder: 'seu@email', required: true })
   const senha = elemento('input', { type: 'password', autocomplete: 'current-password',
@@ -99,7 +107,7 @@ function telaLogin(mensagem) {
           if (!resposta.ok) throw new Error(dados.mensagem || 'Nao foi possivel entrar.')
           estado.usuario = dados.usuario
           if (dados.usuario.deve_trocar_senha) return telaTrocaDeSenha()
-          await carregar()
+          await depois()
         } catch (falha) {
           erro.textContent = falha.message
           erro.classList.remove('oculto')
@@ -447,7 +455,11 @@ function telaEnvioFalhou(tarefa, inspecao, resultado) {
       resultado.sessao
         ? elemento('button', { classe: 'botao botao--grande botao--ok', type: 'button',
             texto: 'Entrar de novo',
-            aoClick: () => telaLogin('Entre de novo para enviar o checklist.') })
+            // Com credencial nova, retoma o ENVIO — nao vai para o inicio. E'
+            // o que a frase logo acima promete a quem esta olhando.
+            aoClick: () => telaLogin(
+              'Entre de novo e o checklist sobe em seguida.',
+              () => enviar(tarefa, inspecao)) })
         : elemento('button', { classe: 'botao botao--grande botao--ok', type: 'button',
             texto: 'Tentar enviar de novo',
             aoClick: () => enviar(tarefa, inspecao) }),

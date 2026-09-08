@@ -553,3 +553,51 @@ test('tela: nenhuma tela escreve a palavra "null" para o motorista', async () =>
   await executarTudoOk()
   semNulo('envio falhou')
 })
+
+test('envio: sessao vencida no envio — entrar de novo RETOMA o checklist', async () => {
+  // A tela de falha diz, com essas palavras, que entrar de novo envia o
+  // checklist em seguida. Ela nao cumpria: o login levava ao inicio e a
+  // inspecao morria com a tela — quarenta perguntas e as fotos, feitas no
+  // patio, jogadas fora por uma promessa que a tela nao podia cumprir.
+  respostas['/api/app/inicio'].corpo = contextoDe({ tarefas: [TAREFA] })
+  respostas['/api/inspecoes'] = { status: 401, corpo: {} }
+  await abrirApp()
+  cartoes()[0].click()
+  await assentar()
+  await executarTudoOk()
+
+  assert.match(textoDaTela(), /Nao deu para enviar/)
+  botaoDeTexto('Entrar de novo').click()
+  await assentar()
+  assert.match(textoDaTela(), /o checklist sobe em seguida/,
+    'a tela de login repete a promessa')
+
+  // Credencial nova, e o servidor volta a aceitar.
+  respostas['/api/inspecoes'] = { corpo: { inspecao: { id: 'ins-1' } } }
+  const campos = tela.corpo.querySelectorAll('input')
+  campos[0].value = 'ana@empresa.com'
+  campos[1].value = 'segredo'
+  tela.corpo.querySelector('form').dispatchEvent(new Evento('submit'))
+  await assentar()
+
+  assert.match(textoDaTela(), /Bom trabalho/, 'o checklist subiu, sem refazer nada')
+  assert.equal(enviadas.length, 2, 'foi a MESMA inspecao, tentada duas vezes')
+  assert.equal(enviadas[0].cliente_uuid, enviadas[1].cliente_uuid)
+})
+
+test('login: quem entra pela porta normal continua indo para o inicio', async () => {
+  // A retomada e' excecao, e nao pode virar a regra: quem abre o aplicativo e
+  // entra vai para a lista de tarefas, como sempre.
+  respostas['/api/auth/eu'] = { status: 401, corpo: {} }
+  respostas['/api/app/inicio'] = { status: 401, corpo: {} }
+  await abrirApp()
+
+  respostas['/api/app/inicio'] = { corpo: contextoDe({ tarefas: [TAREFA] }) }
+  const campos = tela.corpo.querySelectorAll('input')
+  campos[0].value = 'ana@empresa.com'
+  campos[1].value = 'segredo'
+  tela.corpo.querySelector('form').dispatchEvent(new Evento('submit'))
+  await assentar()
+  assert.match(textoDaTela(), /Ola, Ana/)
+  assert.match(textoDaTela(), /ABC1D23/)
+})
