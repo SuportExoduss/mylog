@@ -187,7 +187,16 @@ condutor fixo: a lista traz os carros do galpão para a pessoa escolher.
 
 `foto_exibicao` é uma URL **relativa ao servidor**, servida em `/imagens/...`.
 Exige a mesma sessão das outras rotas: mande o `Authorization` também nela.
-Baixe e guarde no aparelho — o checklist precisa abrir sem sinal.
+
+**Baixe e guarde no aparelho, junto com o contexto — não quando a pergunta
+abrir.** A pergunta abre no pátio, que é onde não há sinal: buscar a imagem
+naquele instante é buscá-la exatamente quando ela não vem. O nome do arquivo é
+sorteado e a versão publicada é imutável (D50), então a cópia guardada nunca
+fica errada.
+
+**Num aparelho compartilhado, guarde por usuário.** Duas pessoas de empresas
+diferentes no mesmo tablet não podem enxergar a cópia uma da outra: o servidor
+barra o acesso cruzado, mas um cache local sem dono não barra nada.
 
 ### O julgamento é do servidor
 

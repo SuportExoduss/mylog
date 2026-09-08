@@ -741,6 +741,74 @@ test('fila: sessao vencida avisa, em vez de deixar a pessoa num beco', async () 
   }
 })
 
+test('contexto: as fotos de exemplo sao baixadas junto, e nao quando a pergunta abre', async () => {
+  // A foto de exemplo mostra COMO fotografar a peca (roadmap 11.3), e so era
+  // pedida no instante em que a pergunta aparecia na tela. A pergunta aparece
+  // no PATIO, que e' onde nao ha sinal: a imagem quebrava exatamente no momento
+  // para o qual existe.
+  //
+  // A API.md manda o cliente baixar e guardar — "o checklist precisa abrir sem
+  // sinal" — e o cliente de referencia nao fazia.
+  const navegadorAntes = Object.getOwnPropertyDescriptor(globalThis, 'navigator')
+  Object.defineProperty(globalThis, 'navigator',
+    { configurable: true, value: { onLine: true } })
+  const buscaAntes = globalThis.fetch
+
+  // `atualizarContexto` guarda no IndexedDB, que nao existe aqui. O que este
+  // teste mede sao os PEDIDOS de imagem, nao o armazenamento.
+  const { contexto } = await import('../../app/js/armazem.js')
+  const guardarAntes = contexto.guardar
+  const lerAntes = contexto.ler
+  let guardado = null
+  contexto.guardar = async (d) => { guardado = d }
+  contexto.ler = async () => guardado
+
+  const pedidas = []
+  globalThis.fetch = async (url) => {
+    pedidas.push(String(url))
+    if (String(url).includes('/api/app/inicio')) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          usuario: { id: 'u1' },
+          tarefas: [],
+          modelos: [
+            { id: 't1', estrutura: { perguntas: [
+              { id: 'lataria', foto_exibicao: '/imagens/modelo/t1/aaa.jpg' },
+              { id: 'pneus', foto_exibicao: '/imagens/modelo/t1/bbb.jpg' },
+              { id: 'freios' },                                  // sem exemplo
+            ] } },
+            { id: 't2', estrutura: { perguntas: [
+              { id: 'oleo', foto_exibicao: '/imagens/modelo/t1/aaa.jpg' },  // repetida
+            ] } },
+          ],
+        }),
+      }
+    }
+    return { ok: true, status: 200 }
+  }
+
+  try {
+    await sincronia.atualizarContexto()
+    // O `baixarFotosDeExemplo` corre solto de proposito: a tela nao pode ficar
+    // parada por causa de imagem. Uma volta do laco de eventos basta.
+    await new Promise((r) => setTimeout(r, 20))
+
+    const imagens = pedidas.filter((u) => u.includes('/imagens/modelo/'))
+    assert.deepEqual(imagens.sort(),
+      ['/imagens/modelo/t1/aaa.jpg', '/imagens/modelo/t1/bbb.jpg'],
+      'as duas fotos distintas sao baixadas — a repetida so uma vez, e pergunta '
+      + 'sem exemplo nao vira pedido')
+  } finally {
+    globalThis.fetch = buscaAntes
+    contexto.guardar = guardarAntes
+    contexto.ler = lerAntes
+    if (navegadorAntes) Object.defineProperty(globalThis, 'navigator', navegadorAntes)
+    else delete globalThis.navigator
+  }
+})
+
 test('fila: nao arma relogio sem fila nem sem rede', () => {
   // Sem fila nao ha o que reenviar. Sem rede, quem acorda e o evento `online`,
   // que chega na hora certa e nao gasta nada esperando.

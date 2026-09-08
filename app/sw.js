@@ -54,8 +54,13 @@ self.addEventListener('fetch', (evento) => {
   // Mas escopo maior nao e' licenca para interceptar o painel: fora do
   // aplicativo, so a casca passa por aqui. O painel continua falando direto com
   // a rede, e nao ganha uma copia velha de nada.
+  // A foto de EXEMPLO de cada pergunta tambem entra. Ela mostra COMO fotografar
+  // a peca (roadmap 11.3), e o momento em que alguem precisa dela e' justamente
+  // o momento sem sinal. O nome do arquivo e' sorteado e a versao publicada e'
+  // imutavel, entao a copia guardada nunca fica errada.
   const daCasca = CASCA.includes(url.pathname)
-  if (!url.pathname.startsWith('/app/') && !daCasca) return
+  const exemploDeModelo = url.pathname.startsWith('/imagens/modelo/')
+  if (!url.pathname.startsWith('/app/') && !daCasca && !exemploDeModelo) return
 
   // Rede primeiro, cache como rede de seguranca: assim uma correcao publicada
   // chega no proximo carregamento com sinal, sem esperar troca de versao.

@@ -333,6 +333,28 @@ export async function sincronizar() {
   return { enviadas }
 }
 
+// Puxa as fotos de exemplo das perguntas para o cache do service worker.
+//
+// A API.md manda o cliente fazer isto — "baixe e guarde no aparelho: o
+// checklist precisa abrir sem sinal" — e o cliente de referencia nao fazia. A
+// foto so era pedida quando a pergunta aparecia na tela, e a pergunta aparece
+// no patio, que e' onde nao ha sinal. A imagem quebrava justamente no momento
+// para o qual ela existe.
+//
+// Basta pedir: o service worker guarda toda resposta boa que passa por ele.
+// Falha de uma nao atrapalha as outras nem o contexto, que ja esta salvo.
+async function baixarFotosDeExemplo(modelos = []) {
+  const urls = new Set()
+  for (const modelo of modelos) {
+    for (const pergunta of modelo?.estrutura?.perguntas || []) {
+      if (pergunta.foto_exibicao) urls.add(pergunta.foto_exibicao)
+    }
+  }
+  for (const url of urls) {
+    try { await fetch(url, { credentials: 'same-origin' }) } catch { /* fica para a proxima */ }
+  }
+}
+
 // Baixa o contexto do dia e guarda. Se nao houver rede, devolve o que ja tem
 // no armazem — e' o que permite abrir o app no patio sem sinal.
 export async function atualizarContexto() {
@@ -342,6 +364,9 @@ export async function atualizarContexto() {
     if (!resposta.ok) throw new Error('falha')
     const dados = await resposta.json()
     await contexto.guardar({ ...dados, baixado_em: new Date().toISOString() })
+    // Sem esperar: a tela nao pode ficar parada por causa de imagem de
+    // exemplo, e a falha de uma nao pode derrubar o contexto que ja chegou.
+    baixarFotosDeExemplo(dados.modelos)
     return { dados, doCache: false }
   } catch {
     const guardado = await contexto.ler()
