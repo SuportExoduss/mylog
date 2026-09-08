@@ -566,8 +566,16 @@ test('cabecalhos: a politica de conteudo vale para TUDO que sai do servidor', as
     ['arquivo que nao existe', '/js/nao-existe.js', undefined],
   ]
 
+  // O status esperado de cada um, junto com o nome. A varredura conferia so
+  // cabecalhos, e cabecalho de seguranca sai em TODA resposta — inclusive num
+  // 500. Um arquivo da casca quebrado passava batido: os cabecalhos estavam
+  // certos e a pagina nao existia.
+  const ESPERADO = { 'arquivo que nao existe': 404 }
+
   for (const [nome, caminho, token] of caminhos) {
     const r = await bruto(caminho, token)
+    assert.equal(r.status, ESPERADO[nome] ?? 200,
+      `${nome} (${caminho}) respondeu ${r.status}`)
     const csp = r.headers.get('content-security-policy')
     assert.ok(csp, `${nome} (${caminho}) saiu sem content-security-policy`)
     assert.match(csp, /script-src 'self'/, `${nome}: script-src precisa ser 'self'`)

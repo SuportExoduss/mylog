@@ -50,6 +50,13 @@ self.addEventListener('fetch', (evento) => {
   // API nunca vem do cache. Sem rede, quem responde e' o IndexedDB.
   if (url.pathname.startsWith('/api/')) return
 
+  // O registro pede escopo `/` porque a casca tem tres arquivos fora de /app/.
+  // Mas escopo maior nao e' licenca para interceptar o painel: fora do
+  // aplicativo, so a casca passa por aqui. O painel continua falando direto com
+  // a rede, e nao ganha uma copia velha de nada.
+  const daCasca = CASCA.includes(url.pathname)
+  if (!url.pathname.startsWith('/app/') && !daCasca) return
+
   // Rede primeiro, cache como rede de seguranca: assim uma correcao publicada
   // chega no proximo carregamento com sinal, sem esperar troca de versao.
   evento.respondWith(

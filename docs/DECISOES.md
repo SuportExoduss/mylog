@@ -1079,3 +1079,59 @@ login.
 estado em que o sistema passa a viver, e a consequência estava a duas telas de
 distância. Não bastou verificar que o defeito sumiu: foi preciso perguntar o
 que passou a ser possível — e a resposta era um beco.
+
+---
+
+## D56 — O escopo do service worker é a pasta dele, e a casca não cabia nela
+
+O aplicativo de campo **não abria offline**, e o motivo estava numa regra de
+plataforma que não aparece em nenhum lugar do código.
+
+`navigator.serviceWorker.register('/app/sw.js')` dá ao service worker o escopo
+**`/app/`** — a pasta do script. Fora dela, o `fetch` dele nunca é chamado. E
+três arquivos da casca vivem fora:
+
+| Arquivo | O que acontecia sem rede |
+|---|---|
+| `/css/estilo.css` | o app abria sem estilo |
+| `/js/tema-inicial.js` | o tema não aplicava |
+| `/compartilhado/template.js` | **o `import` do motor falhava — e sem motor não existe checklist** |
+
+O terceiro é o que importa. Os três estavam no `CASCA` e eram **guardados** no
+cache (o `addAll` não respeita escopo) — só nunca eram **servidos** dele. Bytes
+no aparelho, inalcançáveis.
+
+O motor compartilhado não pode ser copiado para dentro de `/app/`: ele é o mesmo
+arquivo que o servidor usa, e a cópia viraria divergência — "o app aprova
+offline o que o servidor reprova depois", como diz o próprio comentário do
+`servirEstatico`.
+
+**A saída tem três partes, e as três são necessárias.** O servidor manda
+`Service-Worker-Allowed: /` em `/app/sw.js`; o registro pede `{ scope: '/' }`; e
+o próprio service worker **ignora tudo que não for de `/app/` ou da casca**.
+Escopo maior não é licença para interceptar o painel — ele continua falando
+direto com a rede, e não ganha cópia velha de nada.
+
+**Como isto apareceu.** Não por leitura atenta: escrevi um `caminhoUrl` fora de
+escopo ao servir o cabeçalho, e a suíte **travou** em vez de falhar. Investigar
+o travamento levou ao service worker — e a dois outros defeitos, abaixo.
+
+## D57 — Erro em callback de I/O não vira 500; vira conexão pendurada
+
+O `try/catch` que envolve o roteador **não alcança callback de I/O**: quando o
+callback do `fs.readFile` roda, a pilha da requisição já acabou. Um erro ali não
+virava 500 — a resposta simplesmente nunca era escrita, e o cliente ficava
+esperando até o próprio tempo limite.
+
+Em teste isso é uma suíte que trava, que se parece com lentidão. Em produção é
+um navegador esperando indefinidamente por um arquivo, sem mensagem, e **nada no
+log do servidor**, porque nada falhou de forma visível.
+
+Agora o corpo do callback vai num `try`, o erro é registrado com o arquivo e a
+pilha, e a resposta é 500 — a menos que os cabeçalhos já tenham saído, caso em
+que só resta fechar.
+
+**E a varredura de cabeçalhos passou a conferir o STATUS.** Ela olhava só os
+cabeçalhos de segurança, que saem em *toda* resposta — inclusive num 500. Um
+arquivo da casca quebrado passava batido: os cabeçalhos certos, e a página
+inexistente.

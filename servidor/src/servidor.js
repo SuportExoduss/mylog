@@ -83,7 +83,20 @@ function servirArquivo(destino, raiz, res) {
     res.writeHead(403).end('Acesso negado')
     return
   }
+  // Tudo dentro do callback vai num `try`: erro aqui NAO pode virar conexao
+  // pendurada.
+  //
+  // O `try/catch` que envolve o roteador nao alcanca callback de I/O — quando
+  // ele roda, a pilha da requisicao ja acabou. Um erro aqui dentro nao virava
+  // 500: a resposta simplesmente nunca era escrita, e o cliente ficava
+  // esperando ate o proprio tempo limite.
+  //
+  // Descobri isto por acidente, escrevendo um `caminhoUrl` que nao existe neste
+  // escopo. A suite nao acusou o erro — ela TRAVOU. Em producao seria pior: um
+  // navegador esperando indefinidamente por um arquivo, sem mensagem nenhuma, e
+  // no log do servidor nada, porque nada falhou de forma visivel.
   fs.readFile(destino, (falha, conteudo) => {
+   try {
     if (falha) {
       // O index so cobre ROTA — caminho sem extensao, resolvido no cliente.
       // Arquivo que nao existe precisa dizer 404.
@@ -105,10 +118,38 @@ function servirArquivo(destino, raiz, res) {
       })
       return
     }
-    res.writeHead(200, {
+    const cabecalhos = {
       'content-type': TIPOS[path.extname(destino).toLowerCase()] || 'application/octet-stream',
       'cache-control': config.ambiente === 'desenvolvimento' ? 'no-store' : 'public, max-age=300',
-    }).end(conteudo)
+    }
+
+    // O service worker do aplicativo mora em /app/sw.js, e o escopo PADRAO de um
+    // service worker e' a pasta dele. Tres arquivos da casca ficam fora dessa
+    // pasta — `/css/estilo.css`, `/js/tema-inicial.js` e, o que importa de
+    // verdade, `/compartilhado/template.js`, o motor de julgamento que o
+    // `checklist.js` importa.
+    //
+    // Sem este cabecalho eles eram GUARDADOS no cache (o `addAll` nao respeita
+    // escopo) e nunca SERVIDOS dele: o `fetch` do service worker jamais via
+    // esses pedidos. No patio sem sinal o aplicativo abria sem estilo e, pior,
+    // o import do motor falhava — e sem o motor nao existe checklist.
+    //
+    // Ele deixa o registro pedir escopo `/`; quem decide o que interceptar e' o
+    // proprio service worker, que ignora tudo fora de /app/ menos a casca.
+    // `servirArquivo` nao recebe a URL — so o caminho em disco. Casar pelo
+    // arquivo e' o que da para fazer aqui, e e' suficiente: so existe um sw.js.
+    if (destino.endsWith(`app${path.sep}sw.js`)) cabecalhos['service-worker-allowed'] = '/'
+
+    res.writeHead(200, cabecalhos).end(conteudo)
+   } catch (erroInterno) {
+    console.error('falha ao servir arquivo estatico', destino, erroInterno)
+    if (!res.headersSent) {
+      res.writeHead(500, { 'content-type': 'text/plain; charset=utf-8' })
+         .end('Falha ao servir o arquivo.')
+    } else {
+      res.end()
+    }
+   }
   })
 }
 

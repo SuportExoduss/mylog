@@ -581,7 +581,17 @@ async function iniciar() {
 }
 
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('/app/sw.js').catch(() => { /* segue sem cache */ })
+  // Escopo `/`, e nao o padrao `/app/`: a casca do aplicativo inclui tres
+  // arquivos que vivem fora da pasta dele — o estilo comum, o script de tema e
+  // o MOTOR DE JULGAMENTO em /compartilhado/template.js. Com o escopo padrao
+  // eles eram guardados no cache e nunca servidos dele, e o aplicativo nao
+  // abria sem sinal.
+  //
+  // Escopo maior nao significa interceptar mais: o proprio service worker
+  // ignora tudo que nao for do aplicativo ou da casca — o painel continua
+  // falando direto com a rede.
+  navigator.serviceWorker.register('/app/sw.js', { scope: '/' })
+    .catch(() => { /* segue sem cache */ })
 }
 
 iniciar()
