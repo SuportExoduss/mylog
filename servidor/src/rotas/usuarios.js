@@ -4,7 +4,7 @@
 // Toda leitura e escrita e' presa ao empresa_id da sessao — nunca ao corpo.
 import crypto from 'node:crypto'
 import { consultar, consultarUm, executar, novoId, agora } from '../nucleo/banco.js'
-import { erro } from '../nucleo/http.js'
+import { erro, limiteDaConsulta } from '../nucleo/http.js'
 import { registrarEvento } from '../nucleo/auditoria.js'
 import { exigirAutenticado, revogarSessoesDoUsuario } from '../seguranca/sessao.js'
 import { exigirFrota, ehFrota } from '../seguranca/nivel.js'
@@ -354,7 +354,7 @@ export function registrarRotasUsuarios(rotas) {
       throw erro.permissao('Voce so pode consultar o proprio historico.')
     }
     const alvo = buscarNaEmpresa(eu.empresa_id, ctx.params.id)
-    const limite = Math.min(Number(ctx.query.get('limite') || 200), 500)
+    const limite = limiteDaConsulta(ctx.query.get('limite'), { padrao: 200, teto: 500 })
 
     const eventos = consultar(
       `SELECT acao, entidade, entidade_id, ator_id, ator_nome, antes, depois, criado_em

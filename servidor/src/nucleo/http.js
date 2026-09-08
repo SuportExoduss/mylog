@@ -171,6 +171,26 @@ export function lerCookies(req) {
 // mesmo entao le-se da direita: o proxy ACRESCENTA o endereco que ele mesmo
 // enxergou ao fim da lista, entao o que o cliente forjou fica a esquerda e nao
 // alcanca a posicao que conta.
+// Um `limite` vindo da URL, que e' o mundo.
+//
+// O idioma anterior era `Math.min(Number(ctx.query.get('limite') || 100), 500)`.
+// Com qualquer coisa que nao seja numero — um marcador antigo, um erro de
+// digitacao, um rastreador colando parametro — `Number('lixo')` da NaN,
+// `Math.min(NaN, 500)` da NaN, e o `LIMIT NaN` derruba a consulta: 500 na cara
+// de quem so queria abrir a auditoria.
+//
+// Negativo e zero tambem nao servem: `LIMIT -5` e' erro de SQL, e `LIMIT 0`
+// devolve lista vazia em silencio, que e' pior que erro — parece que nao ha
+// nada para ver.
+//
+// Valor que nao da para ler vira o PADRAO. A pagina abre; o filtro que ninguem
+// entende e' que e' ignorado.
+export function limiteDaConsulta(bruto, { padrao, teto }) {
+  const n = Math.trunc(Number(bruto))
+  if (!Number.isFinite(n) || n < 1) return padrao
+  return Math.min(n, teto)
+}
+
 export function ipDe(req) {
   const doSocket = req.socket?.remoteAddress || ''
   const confiaveis = config.proxiesConfiaveis

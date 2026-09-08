@@ -5,7 +5,7 @@
 // marcada como "abrir ocorrencia: sim". A prioridade vem do modelo, nao e'
 // digitada na hora.
 import { consultar, consultarUm, executar, agora, transacao } from '../nucleo/banco.js'
-import { erro } from '../nucleo/http.js'
+import { erro, limiteDaConsulta } from '../nucleo/http.js'
 import { registrarEvento } from '../nucleo/auditoria.js'
 import { notificar } from '../nucleo/notificacoes.js'
 import { exigirAutenticado } from '../seguranca/sessao.js'
@@ -200,7 +200,7 @@ export function registrarRotasAuditoria(rotas) {
     const entidade = ctx.query.get('entidade')
     const acao = ctx.query.get('acao')
     const busca = (ctx.query.get('busca') || '').trim().toLowerCase()
-    const limite = Math.min(Number(ctx.query.get('limite') || 100), 500)
+    const limite = limiteDaConsulta(ctx.query.get('limite'), { padrao: 100, teto: 500 })
 
     let sql = `SELECT id, ator_nome, alvo_id, acao, entidade, entidade_id, antes, depois, ip, criado_em
                  FROM eventos_auditoria WHERE empresa_id = ?`

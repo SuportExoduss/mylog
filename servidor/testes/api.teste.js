@@ -3668,6 +3668,140 @@ test('entrada malformada nunca vira 500', async () => {
   assert.deepEqual(quebrados, [], `respostas 500:\n  ${quebrados.join('\n  ')}`)
 })
 
+// Filtro que o servidor nao reconhece NUNCA pode alargar a lista.
+//
+// Este teste nasceu de um defeito achado por acaso, sondando outra coisa. Em
+// `/api/ocorrencias` as tres condicoes de status eram independentes:
+//
+//   if (status === 'em_aberto') { ... }
+//   else if (status && STATUS.includes(status)) { ... }
+//   else if (!status) { ... o padrao, `<> encerrada` ... }
+//
+// Um valor invalido escapava das TRES — nao era `em_aberto`, nao estava na
+// lista, e `!status` era falso — e a consulta saia sem clausula nenhuma,
+// devolvendo MAIS do que o padrao, com as encerradas junto. Um marcador antigo
+// no navegador bastava para ver o que a tela nao mostra.
+//
+// O invariante e' simples e vale para toda lista: com um filtro que ninguem
+// entende, o servidor pode ignorar (e devolver o padrao) ou recusar (e devolver
+// menos). O que ele nao pode e' devolver mais.
+//
+// Os nomes dos filtros sao lidos do proprio codigo. Filtro novo entra na
+// varredura no dia em que nasce.
+function filtrosDaRota(caminhoProcurado, metodoProcurado = 'GET') {
+  const raiz = path.join(import.meta.dirname, '..', 'src', 'rotas')
+  for (const arquivo of fs.readdirSync(raiz).filter((f) => f.endsWith('.js'))) {
+    const linhas = fs.readFileSync(path.join(raiz, arquivo), 'utf8').split('\n')
+    const inicios = []
+    linhas.forEach((linha, i) => {
+      const m = linha.match(/rotas\.(get|post|put|patch|delete)\(\s*'([^']+)'/)
+      if (m) inicios.push({ i, metodo: m[1].toUpperCase(), caminho: m[2] })
+    })
+    for (let k = 0; k < inicios.length; k += 1) {
+      // Casa por METODO tambem: `/api/inspecoes` existe como POST e como GET, e
+      // o POST vem primeiro no arquivo. Casando so pelo caminho, a varredura
+      // lia o corpo do POST, nao achava filtro nenhum e teria pulado a lista.
+      if (inicios[k].caminho !== caminhoProcurado
+        || inicios[k].metodo !== metodoProcurado) continue
+      const fim = k + 1 < inicios.length ? inicios[k + 1].i : linhas.length
+      const corpo = linhas.slice(inicios[k].i, fim).join('\n')
+      return [...new Set([...corpo.matchAll(/query\.get\('([^']+)'\)/g)].map((m) => m[1]))]
+    }
+  }
+  return null
+}
+
+test('filtro invalido nunca devolve mais do que o padrao', async () => {
+  const token = await entrar('frota.a@teste.local')
+
+  const LISTAS = [
+    '/api/veiculos', '/api/ocorrencias', '/api/solicitacoes', '/api/preventivas',
+    '/api/templates', '/api/usuarios', '/api/inspecoes', '/api/categorias',
+    '/api/auditoria',
+    // `/api/notificacoes` fica de fora: nao le nenhum parametro de consulta.
+    // Se um dia ler, entra aqui — e ate la nao ha o que varrer.
+  ]
+
+  const quantos = (dados) => {
+    if (!dados || typeof dados !== 'object') return null
+    for (const v of Object.values(dados)) if (Array.isArray(v)) return v.length
+    return null
+  }
+
+  const LIXOS = ['lixo_que_nao_existe', '1 OR 1=1', '', '../..', '%00']
+  const alargaram = []
+  const quebraram = []
+  let combinacoes = 0
+
+  for (const rota of LISTAS) {
+    const filtros = filtrosDaRota(rota)
+    assert.ok(filtros && filtros.length,
+      `${rota}: nao achei nenhum query.get() — a rota mudou de forma?`)
+
+    const limpo = await chamar('GET', rota, { token })
+    assert.equal(limpo.status, 200, `${rota} nao respondeu limpo`)
+    const base = quantos(limpo.dados)
+    assert.notEqual(base, null, `${rota}: nao achei a lista na resposta`)
+
+    for (const filtro of filtros) {
+      for (const lixo of LIXOS) {
+        combinacoes += 1
+        const r = await chamar('GET', `${rota}?${filtro}=${encodeURIComponent(lixo)}`, { token })
+        if (r.status >= 500) { quebraram.push(`${rota}?${filtro}=${lixo} → ${r.status}`); continue }
+        const n = quantos(r.dados)
+        if (n !== null && n > base) {
+          alargaram.push(`${rota}?${filtro}=${lixo} → ${n} linhas, contra ${base} do padrao`)
+        }
+      }
+    }
+  }
+
+  assert.ok(combinacoes >= 60, `varredura pobre demais: ${combinacoes} combinacoes`)
+  assert.deepEqual(quebraram, [], `filtro invalido derrubou a rota:\n${quebraram.join('\n')}`)
+  assert.deepEqual(alargaram, [],
+    `filtro que ninguem entende alargou a lista:\n${alargaram.join('\n')}`)
+})
+
+test('limite da consulta: numero que nao da para ler vira o padrao', async () => {
+  // `Math.min(Number(bruto || 100), 500)` parecia bastar e nao bastava:
+  // `Number('lixo')` da NaN, `Math.min(NaN, 500)` da NaN, e `LIMIT NaN` derruba
+  // a consulta. Abrir a auditoria com um marcador antigo na barra devolvia 500.
+  //
+  // Negativo e zero sao piores que o NaN de um jeito proprio: `LIMIT -5` e' erro
+  // de SQL, e `LIMIT 0` devolve lista vazia EM SILENCIO — parece que nao ha nada
+  // para ver.
+  const frota = await entrar('frota.a@teste.local')
+
+  const padrao = await chamar('GET', '/api/auditoria', { token: frota })
+  assert.equal(padrao.status, 200)
+  assert.equal(padrao.dados.limite, 100, 'o padrao da auditoria e 100')
+  assert.ok(padrao.dados.eventos.length > 0, 'controle: a auditoria tem eventos para contar')
+
+  const naoLegiveis = ['lixo', '', 'NaN', 'Infinity', '1e999', '0', '-5', '-1', 'null', '{}']
+  for (const bruto of naoLegiveis) {
+    const r = await chamar('GET', `/api/auditoria?limite=${encodeURIComponent(bruto)}`,
+      { token: frota })
+    assert.equal(r.status, 200, `limite=${JSON.stringify(bruto)} devolveu ${r.status}`)
+    assert.equal(r.dados.limite, 100,
+      `limite=${JSON.stringify(bruto)} virou ${r.dados.limite}, e devia cair no padrao`)
+  }
+
+  // O que DA para ler continua valendo, e o teto continua sendo teto.
+  assert.equal((await chamar('GET', '/api/auditoria?limite=7', { token: frota })).dados.limite, 7)
+  assert.equal((await chamar('GET', '/api/auditoria?limite=7.9', { token: frota })).dados.limite, 7,
+    'fracao trunca, e nao vira NaN nem erro')
+  assert.equal((await chamar('GET', '/api/auditoria?limite=99999', { token: frota })).dados.limite, 500,
+    'o teto de 500 protege a memoria do servidor')
+
+  const sete = await chamar('GET', '/api/auditoria?limite=7', { token: frota })
+  assert.ok(sete.dados.eventos.length <= 7, 'e o limite tem que valer de verdade na consulta')
+
+  // A mesma regra vale no historico do usuario, que usava o mesmo idioma.
+  const hist = await chamar('GET', `/api/usuarios/${frotaA}/historico?limite=lixo`,
+    { token: frota })
+  assert.equal(hist.status, 200, 'o historico caia pelo mesmo motivo')
+})
+
 test('entrada quase valida com um campo envenenado nunca vira 500', async () => {
   // A varredura de lixo puro acima tem um limite que so aparece quando se
   // tenta conferi-la: um corpo vazio ou absurdo e' barrado pela PRIMEIRA
