@@ -11,8 +11,8 @@ import test, { after, beforeEach, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { montarDom, Evento, estaVisivel } from './dom.js'
 
-// O modulo `sincronia` le `navigator.onLine` na importacao. Precisa existir
-// antes dela — `montarDom` instala o dele depois, a cada teste.
+// `montarDom` instala o `navigator` de cada teste; este e' o de antes dele,
+// para os modulos que leem `navigator` ja na importacao.
 Object.defineProperty(globalThis, 'navigator', {
   value: { onLine: true }, configurable: true, writable: true,
 })
@@ -21,41 +21,26 @@ const assentar = async (voltas = 8) => {
   for (let i = 0; i < voltas; i += 1) await new Promise((r) => setImmediate(r))
 }
 
-// ------------------------------------------------------ depositos de mentira
-const armazem = await import('../../app/js/armazem.js')
-const sincronia = await import('../../app/js/sincronia.js')
-
-let guardado = null
-armazem.contexto.guardar = async (d) => { guardado = d }
-armazem.contexto.ler = async () => guardado
-armazem.contexto.limpar = async () => { guardado = null }
-
-let naFila = []
-armazem.fila.enfileirar = async (i) => { naFila.push({ ...i, estado: 'pendente', tentativas: 0 }) }
-armazem.fila.todas = async () => naFila
-armazem.fila.pendentes = async () => naFila.filter((i) => i.estado !== 'enviada')
-armazem.fila.marcar = async (uuid, mudancas) => {
-  const i = naFila.findIndex((x) => x.cliente_uuid === uuid)
-  if (i >= 0) naFila[i] = { ...naFila[i], ...mudancas }
+// A foto e' comprimida com OffscreenCanvas e virada base64 com FileReader —
+// nenhum dos dois existe no Node. Aqui nao se testa captura: se testa a tela.
+globalThis.FileReader = class {
+  readAsDataURL() { setTimeout(() => this.onload?.(), 0) }
+  get result() { return 'data:image/jpeg;base64,AAAA' }
 }
-armazem.fila.remover = async (uuid) => {
-  naFila = naFila.filter((x) => x.cliente_uuid !== uuid)
-}
-armazem.fila.limparEnviadasAntigas = async () => {}
-
-armazem.fotos.guardar = async () => {}
-armazem.fotos.ler = async () => null
-armazem.fotos.remover = async () => {}
-armazem.fotos.daInspecao = async () => []
 
 // ------------------------------------------------------------- rede de mentira
 let temRede = true
 let respostas = {}
 const pedidos = []
 
+const enviadas = []
+
 globalThis.fetch = async (url, opcoes = {}) => {
   const caminho = String(url).split('?')[0]
   pedidos.push({ caminho, metodo: opcoes.method || 'GET' })
+  if (caminho === '/api/inspecoes' && opcoes.method === 'POST') {
+    enviadas.push(JSON.parse(opcoes.body))
+  }
   if (!temRede) throw new TypeError('Failed to fetch')
   const r = respostas[caminho]
   if (!r) return { ok: false, status: 404, json: async () => ({}) }
@@ -143,35 +128,19 @@ beforeEach(() => {
   area.replaceChildren()
   tela.navegador.onLine = true
   temRede = true
-  guardado = null
-  naFila = []
+  enviadas.length = 0
   pedidos.length = 0
-  sincronia.estado.sessaoExpirada = false
-  sincronia.estado.pendentes = 0
-  sincronia.estado.ultimoErro = null
-  sincronia.estado.online = true
   respostas = {
     '/api/auth/eu': { corpo: { usuario: ANA } },
     '/api/app/inicio': { corpo: contextoDe() },
     '/api/auth/sair': { corpo: { ok: true } },
     '/api/auth/login': { corpo: { usuario: ANA } },
-    // A fila sobe normalmente. Sem esta resposta o envio falhava, a sincronia
-    // armava a retentativa, e o relogio sobrevivia ao fim do arquivo —
-    // segurando o processo por quinze segundos para desenhar a tira de conexao
-    // num documento ja desmontado.
     '/api/inspecoes': { corpo: { inspecao: { id: 'ins-1' } } },
   }
 })
 
 afterEach(async () => {
   await new Promise((r) => setTimeout(r, 0))
-  // Desarma o relogio de retentativa que o teste possa ter armado ao ficar
-  // sem rede. Ele sobrevive ao fim do arquivo — o processo ficava quinze
-  // segundos de pe para, no fim, desenhar a tira de conexao num documento
-  // ja desmontado.
-  temRede = true
-  await sincronia.sessaoRenovada()
-  await assentar()
 })
 
 after(() => tela.desmontar())
@@ -194,88 +163,78 @@ test('inicio: sem nada para fazer, a tela diz o que esperar', async () => {
   assert.equal(cartoes().length, 0)
 })
 
-// ====================================================== o contexto tem dono
-test('inicio: sair leva junto o contexto baixado', async () => {
-  // O contexto guardado tem nome, cargo, placas e as tarefas de quem estava
-  // usando. Ficando no aparelho depois do "Sair", a proxima abertura SEM REDE
-  // caia no caminho offline e devolvia essa tela inteira — sem senha, para
-  // quem quer que estivesse com o aparelho na mao.
+// ================================================= nada fica guardado no aparelho
+test('sessao: sair leva junto tudo que estava na tela', async () => {
+  // O aplicativo ja guardou o contexto — nome, cargo, placas e tarefas — num
+  // deposito local, para abrir sem sinal. Aquilo custou dois furos de verdade:
+  // depois do "Sair", uma abertura offline devolvia a tela inteira sem pedir
+  // senha; e a rede caindo logo apos o login entregava a tela de quem usou o
+  // aparelho antes para quem acabou de entrar.
   //
-  // O aparelho do patio passa de mao em mao. Sair tem que significar sair.
+  // Sem deposito nao ha nenhum dos dois. Este teste guarda a propriedade, e
+  // nao a correcao: quem reintroduzir um cache passa por aqui.
   respostas['/api/app/inicio'].corpo = contextoDe({ tarefas: [TAREFA] })
   await abrirApp()
-  assert.ok(guardado, 'controle: o contexto foi baixado e guardado')
+  assert.match(textoDaTela(), /ABC1D23/, 'controle: a tarefa estava na tela')
 
   botaoDeTexto('Sair').click()
   await assentar()
   assert.match(textoDaTela(), /Entrar/, 'volta para o login')
-  assert.equal(guardado, null, 'e o contexto baixado sai junto')
 
-  // A prova do que isso protege: reabrir sem rede nao pode voltar para a Ana.
+  // Reabrir sem servidor: nao pode sobrar nada de onde reconstruir a tela.
   area.replaceChildren()
+  respostas['/api/auth/eu'] = { status: 401, corpo: {} }
   temRede = false
   await abrirApp()
   const texto = textoDaTela()
-  assert.doesNotMatch(texto, /Ola, Ana/, 'sem sessao e sem rede, ninguem volta para a tela da Ana')
+  assert.doesNotMatch(texto, /Ola, Ana/, 'ninguem volta para a tela da Ana')
   assert.doesNotMatch(texto, /ABC1D23/, 'nem para as tarefas dela')
   assert.match(texto, /Entrar/, 'a tela e a de login')
 })
 
-test('inicio: quem entra nao herda a tela de quem usou o aparelho antes', async () => {
-  // Ana usou o aparelho e o contexto dela ficou guardado. Bruno entra, e a
-  // rede cai no instante seguinte — entre o login e o download.
-  //
-  // O caminho offline devolvia o contexto guardado sem olhar de quem era: o
-  // Bruno recebia o nome da Ana, o cargo da Ana, os veiculos e os checklists
-  // da Ana para executar. O aviso de "sem conexao" aparecia; o nome trocado,
-  // ninguem repara.
-  guardado = { ...contextoDe({ usuario: ANA, tarefas: [TAREFA] }), baixado_em: '2026-09-08T08:00:00.000Z' }
+test('sessao: sem servidor a tela diz que falta internet, e nao que falta senha', async () => {
+  // Sao duas coisas diferentes e a pessoa age diferente em cada uma: numa ela
+  // procura sinal, na outra ela procura a senha. Dizer a errada faz o
+  // motorista digitar a senha certa tres vezes achando que errou.
+  temRede = false
+  await abrirApp()
+  assert.match(textoDaTela(), /precisa de internet/,
+    'o login explica que o problema e a conexao')
+})
 
-  // Sem sessao o servidor recusa as duas portas, como recusa de verdade.
+test('sessao: quem nunca entrou nao recebe aviso de sessao vencida', async () => {
+  // Este teste ja existiu ao contrario, afirmando que a abertura sem sessao
+  // dizia "Sua sessao expirou" — e passava, porque o codigo fazia isso. Quem
+  // pegou foi o navegador, na primeira abertura limpa.
+  //
+  // As duas frases mandam a pessoa fazer coisas diferentes: uma manda procurar
+  // sinal, a outra manda entrar de novo. Para quem abre o aplicativo pela
+  // primeira vez, as duas mandam procurar um problema que nao existe.
   respostas['/api/auth/eu'] = { status: 401, corpo: {} }
   respostas['/api/app/inicio'] = { status: 401, corpo: {} }
   await abrirApp()
-  assert.match(textoDaTela(), /Entrar/, 'controle: comeca no login')
-
-  respostas['/api/auth/login'] = { corpo: { usuario: BRUNO } }
-  respostas['/api/app/inicio'] = { falha: true, corpo: {} }
-
-  const campos = tela.corpo.querySelectorAll('input')
-  campos[0].value = 'bruno@empresa.com'
-  campos[1].value = 'segredo'
-  tela.corpo.querySelector('form').dispatchEvent(new Evento('submit'))
-  await assentar()
 
   const texto = textoDaTela()
-  assert.doesNotMatch(texto, /Ola, Ana/, 'o Bruno nao pode ser cumprimentado como Ana')
-  assert.doesNotMatch(texto, /Motorista/, 'nem receber o cargo dela, que e o que libera checklist')
-  assert.doesNotMatch(texto, /ABC1D23/, 'nem as tarefas dela')
+  assert.match(texto, /Entrar/, 'a tela e a de login')
+  assert.doesNotMatch(texto, /expirou/i, 'sem sessao nenhuma, nada expirou')
+  assert.doesNotMatch(texto, /Sem conexao/, 'e o servidor respondeu — nao e a rede')
 })
 
-test('inicio: o proprio dono reabre sem rede e continua vendo o que baixou', async () => {
-  // O contrario do teste acima, e igualmente importante: a confirmacao do dono
-  // nao pode fechar a abertura offline legitima. Quem baixou o contexto abre o
-  // aplicativo no patio, sem sinal, e ve o que tem para fazer.
-  guardado = { ...contextoDe({ usuario: ANA, tarefas: [TAREFA] }), baixado_em: '2026-09-08T08:00:00.000Z' }
-  temRede = false
+test('sessao: a sessao que vence DURANTE o uso avisa com essas palavras', async () => {
+  // Aqui a pessoa estava dentro, e a credencial morreu no meio. Agora sim.
   await abrirApp()
+  assert.match(textoDaTela(), /Ola, Ana/, 'controle: entrou e esta na tela dela')
 
-  const texto = textoDaTela()
-  assert.match(texto, /Ola, Ana/, 'a Ana volta para a tela dela')
-  assert.match(texto, /ABC1D23/, 'com as tarefas que ela baixou')
-  assert.match(texto, /Sem conexao/, 'e a tela avisa que o que ela ve e do cache')
+  respostas['/api/app/inicio'] = { status: 401, corpo: {} }
+  botaoDeTexto('Atualizar').click()
+  await assentar()
+  assert.match(textoDaTela(), /sessao expirou/i, 'e ai sim o assunto e a credencial')
 })
 
-test('inicio: soluco na primeira chamada nao faz a tela mentir que esta offline', async () => {
+test('inicio: soluco na primeira chamada nao derruba a abertura', async () => {
   // `/api/auth/eu` falha sozinho — um soluco de sinal — e o contexto vem
-  // normalmente pela rede logo depois.
-  //
-  // A abertura tinha uma copia de `carregar` que marcava "veio do cache" fixo,
-  // sem olhar de onde o dado veio. A tela abria com dado FRESCO estampando
-  // "Sem conexao. Mostrando o que foi baixado em algum momento."
-  //
-  // Esse aviso e' o que separa "o que eu fiz ja saiu do aparelho" de "ainda
-  // esta aqui comigo". Um aviso que aparece sem motivo deixa de ser lido.
+  // normalmente pela rede logo depois. A abertura tem que seguir: quem
+  // respondeu a segunda chamada respondeu que a sessao esta viva.
   respostas['/api/auth/eu'] = { falha: true, corpo: {} }
   respostas['/api/app/inicio'].corpo = contextoDe({ tarefas: [TAREFA] })
   await abrirApp()
@@ -284,17 +243,7 @@ test('inicio: soluco na primeira chamada nao faz a tela mentir que esta offline'
   assert.match(texto, /Ola, Ana/, 'a tela abre assim mesmo — o contexto chegou')
   assert.match(texto, /ABC1D23/, 'com a tarefa que veio agora pela rede')
   assert.doesNotMatch(texto, /Sem conexao/,
-    'e sem dizer que esta offline, porque o dado acabou de chegar pela rede')
-})
-
-test('inicio: sem contexto nenhum, a tela diz o que fazer', async () => {
-  // A copia caia num login mudo. Quem abre o aplicativo pela primeira vez no
-  // patio, sem sinal, precisa saber que falta baixar — nao ficar olhando um
-  // formulario que nao vai funcionar.
-  temRede = false
-  await abrirApp()
-  assert.match(textoDaTela(), /Conecte-se uma vez/,
-    'o login explica que ainda nao ha nada baixado neste aparelho')
+    'e sem avisar de conexao, porque o dado acabou de chegar pela rede')
 })
 
 // ================================================================ o toque morto
@@ -426,7 +375,7 @@ test('devolucao: sem rede a tela nao vira ratoeira', async () => {
   await assentar()
   await executarTudoOk()
 
-  assert.equal(naFila.length, 1, 'controle: o checklist ja esta na fila, o trabalho esta feito')
+  assert.equal(enviadas.length, 1, 'controle: o checklist ja subiu, o trabalho esta feito')
 
   tela.corpo.querySelector('textarea').value = 'a base estava fechada quando cheguei'
   botaoDeTexto('Enviar motivo e devolver').click()
@@ -460,4 +409,147 @@ test('devolucao: enquanto da para encerrar direito, nao ha atalho para sair', as
     'sem falha, nao ha atalho para sair sem escrever o motivo')
   assert.equal(tela.corpo.querySelector('.topo-voltar'), null,
     'e nem seta de voltar')
+})
+
+// ============================================================== envio ao vivo
+test('envio: falhou, e o checklist continua inteiro na mao de quem fez', async () => {
+  // Sem fila, esta tela e' a unica coisa entre o trabalho feito e o trabalho
+  // perdido. Quarenta perguntas e as fotos ja foram respondidas; a rede caiu
+  // no ultimo passo. Ela nao pode se fechar sozinha nem voltar ao inicio por
+  // engano.
+  respostas['/api/app/inicio'].corpo = contextoDe({ tarefas: [TAREFA] })
+  respostas['/api/inspecoes'] = { falha: true, corpo: {} }
+  await abrirApp()
+  cartoes()[0].click()
+  await assentar()
+  await executarTudoOk()
+
+  assert.match(textoDaTela(), /Nao deu para enviar/)
+  assert.match(textoDaTela(), /esta aqui na tela, inteiro/,
+    'a tela diz onde o checklist esta')
+  assert.ok(botaoDeTexto('Tentar enviar de novo'), 'e oferece a tentativa')
+
+  // Voltou o sinal: a mesma inspecao sobe, com o mesmo identificador.
+  respostas['/api/inspecoes'] = { corpo: { inspecao: { id: 'ins-1' } } }
+  botaoDeTexto('Tentar enviar de novo').click()
+  await assentar()
+  assert.equal(enviadas.length, 2, 'a segunda tentativa reenvia a MESMA inspecao')
+  assert.equal(enviadas[0].cliente_uuid, enviadas[1].cliente_uuid,
+    'com o mesmo cliente_uuid — e por ele que o servidor recusa duplicar')
+  assert.equal(enviadas[0].finalizada_em, enviadas[1].finalizada_em,
+    'e a mesma hora de conclusao: quem terminou as 09h40 nao terminou as 10h05')
+  assert.match(textoDaTela(), /Bom trabalho/, 'e o checklist fecha')
+})
+
+test('envio: descartar existe, mas cobra a confirmacao e diz o que custa', async () => {
+  // Uma tela sem saida ja custou caro na devolucao. Mas sair daqui perde o
+  // checklist de verdade — entao a saida existe, e nao finge que e' de graca.
+  respostas['/api/app/inicio'].corpo = contextoDe({ tarefas: [TAREFA] })
+  respostas['/api/inspecoes'] = { falha: true, corpo: {} }
+  await abrirApp()
+  cartoes()[0].click()
+  await assentar()
+  await executarTudoOk()
+
+  assert.equal(botaoDeTexto('Perder o checklist e voltar'), undefined,
+    'de saida, o descarte nao esta a um toque de distancia')
+
+  botaoDeTexto('Descartar e voltar ao inicio').click()
+  await assentar()
+  assert.match(textoDaTela(), /PERDE este checklist/,
+    'a confirmacao diz o que acontece, com todas as letras')
+
+  respostas['/api/app/inicio'].corpo = contextoDe()
+  botaoDeTexto('Perder o checklist e voltar').click()
+  await assentar()
+  assert.match(textoDaTela(), /Ola, Ana/, 'e ai sim volta ao inicio')
+})
+
+test('envio: sessao vencida manda entrar de novo, e nao insistir na rede', async () => {
+  // "Tentar de novo" com a credencial morta tenta para sempre. A saida daqui
+  // e' outra tela.
+  respostas['/api/app/inicio'].corpo = contextoDe({ tarefas: [TAREFA] })
+  respostas['/api/inspecoes'] = { status: 401, corpo: {} }
+  await abrirApp()
+  cartoes()[0].click()
+  await assentar()
+  await executarTudoOk()
+
+  assert.equal(botaoDeTexto('Tentar enviar de novo'), undefined,
+    'insistir na rede nao resolve credencial vencida')
+  assert.ok(botaoDeTexto('Entrar de novo'), 'o caminho e a credencial')
+  assert.match(textoDaTela(), /sessao expirou/i)
+})
+
+test('tira: sem rede o aviso aparece antes de comecar, e some quando ela volta', async () => {
+  // Na era da fila a tira contava o que ainda nao tinha subido. Agora ela
+  // avisa ANTES: ninguem pode comecar quarenta perguntas sem sinal e descobrir
+  // no fim que nao da para enviar.
+  await abrirApp()
+  assert.equal(tela.corpo.querySelector('.tira'), null, 'com rede, nao ha aviso')
+
+  tela.rede(false)
+  await assentar()
+  assert.match(textoDaTela(), /Nao da para enviar checklist agora/)
+
+  tela.rede(true)
+  await assentar()
+  assert.equal(tela.corpo.querySelector('.tira'), null, 'voltou a rede, sai o aviso')
+})
+
+test('tela: nenhuma tela escreve a palavra "null" para o motorista', async () => {
+  // `replaceChildren` do navegador converte `null` em TEXTO: passar um filho
+  // condicional que nao existe escreve a palavra "null" na tela, entre os
+  // outros. O `elemento()` filtra por dentro; `replaceChildren` e' navegador
+  // cru, e nao filtra nada.
+  //
+  // A tela inicial do aplicativo mostrou "null" em todas as telas, no
+  // navegador, com a suite inteira verde — porque o DOM de teste ignorava
+  // nulos, e o navegador nao ignora. Quem pegou foi o navegador; este teste
+  // existe para nao depender disso de novo.
+  // Sem `\b`: o `textContent` cola os elementos sem espaco entre eles, entao a
+  // palavra sai grudada — "Ola, AnaMotoristanullNenhum veiculo...". `\bnull\b`
+  // nao casa ali, e a primeira versao deste teste nao podia falhar. Foi
+  // conferida reintroduzindo o defeito, e passou verde: e' o unico jeito de
+  // saber que um teste testa alguma coisa.
+  const semNulo = (onde) => {
+    const t = textoDaTela()
+    assert.doesNotMatch(t, /null/, `a tela "${onde}" escreveu null`)
+    assert.doesNotMatch(t, /undefined/, `a tela "${onde}" escreveu undefined`)
+  }
+
+  // Inicio COM rede: nao ha tira, e o filho condicional some.
+  respostas['/api/app/inicio'].corpo = contextoDe({ tarefas: [RETORNO] })
+  await abrirApp()
+  semNulo('inicio')
+
+  // Inicio SEM rede: a tira existe, e o rodape tambem.
+  tela.rede(false)
+  await assentar()
+  semNulo('inicio sem rede')
+  tela.rede(true)
+  await assentar()
+
+  // Execucao, envio e o desfecho: a tela de envio nao tem rodape nenhum.
+  respostas['/api/solicitacoes/1/devolver'] = { corpo: { ok: true } }
+  cartoes()[0].click()
+  await assentar()
+  semNulo('hodometro')
+  await executarTudoOk()
+  semNulo('devolucao')
+
+  tela.corpo.querySelector('textarea').value = 'a base estava fechada quando cheguei'
+  botaoDeTexto('Enviar motivo e devolver').click()
+  await assentar()
+  semNulo('feito')
+
+  // E a tela de falha, que tem aviso, texto, confirmacao escondida e duas acoes.
+  area.replaceChildren()
+  respostas['/api/inspecoes'] = { falha: true, corpo: {} }
+  respostas['/api/app/inicio'].corpo = contextoDe({ tarefas: [TAREFA] })
+  await abrirApp()
+  cartoes()[0].click()
+  await assentar()
+  await executarTudoOk()
+  semNulo('envio falhou')
 })

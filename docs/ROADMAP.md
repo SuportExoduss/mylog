@@ -133,7 +133,7 @@ Frota cadastra cargo  →  Frota cadastra usuário com senha inicial
 
 | Componente | Função | Decisão |
 |---|---|---|
-| Aplicativo de campo | Execução de checklist | **PWA instalável**, offline-first, fila local de sincronização, câmera, assinatura. |
+| Aplicativo de campo | Execução de checklist | Web, **exige internet** (D58), câmera, assinatura. O Android será nativo, escrito do zero. |
 | Web | Supervisão e configuração | Painel responsivo, foco em leitura rápida e ação prioritária. |
 | API/Backend | Regras e segurança | Centraliza autenticação, autorização, estados, auditoria. |
 | Banco | Dados estruturados | PostgreSQL em produção; SQLite em desenvolvimento, com esquema portável. |
@@ -141,18 +141,26 @@ Frota cadastra cargo  →  Frota cadastra usuário com senha inicial
 | Worker/Jobs | Processos assíncronos | Relatórios, processamento de imagem, lembretes de preventiva. |
 | PDF/Relatórios | Saída documental | Relatório operacional, executivo e dossiê de evidências. |
 
-### Por que PWA primeiro, e não app nativo
+### Por que a Web primeiro, e não o app nativo
 
-O risco concentrado da fase de campo não é a linguagem: é a **fila de fotos
-offline**. Um app nativo colocaria uma stack nova exatamente em cima do trecho
-mais arriscado do projeto. O PWA usa o mesmo stack já dominado, e a API
-permanece agnóstica de cliente — trocar por Kotlin depois não mexe no backend.
+A API é agnóstica de cliente: trocar por Kotlin depois não mexe no backend. A
+Web usa o stack já dominado, e é onde a operação inteira — painel e campo —
+pôde ser exercitada antes de existir um aparelho.
+
+O que já foi diferente: o risco concentrado desta fase era a **fila de fotos
+offline**, e o PWA existia para não colocar uma stack nova em cima justamente
+dela. A [D58](DECISOES.md#d58--o-offline-sai-inteiro-e-o-que-ele-protegia-fica)
+tirou a fila, e com ela esse risco. O que sobrou do argumento é o de cima.
 
 > **Atualização de 06/09/2026.** O Android nativo está decidido, e será escrito
-> **do zero**. O PWA passa a regime de manutenção
-> ([ARQUITETURA 4.1](ARQUITETURA.md)): continua sendo o cliente de campo até o
-> APK existir, e para de receber investimento novo. O que se aproveita no
-> nativo é o **contrato**, não o cliente.
+> **do zero**. O cliente Web continua sendo o cliente de campo até o APK
+> existir, e para de receber investimento novo. O que se aproveita no nativo é
+> o **contrato**, não o cliente.
+>
+> **Atualização de 08/09/2026** ([D58](DECISOES.md#d58--o-offline-sai-inteiro-e-o-que-ele-protegia-fica)).
+> O offline saiu: sem fila, sem depósito local, sem service worker. O que era
+> um PWA passa a ser uma página Web que exige internet. O Android nativo nasce
+> com o mesmo contrato.
 
 ### O motor de checklist é um arquivo só
 
@@ -579,7 +587,8 @@ campo de horário.
 
 **Não existe tabela de faltas.** É estado derivado, calculado na hora — guardar
 falta seria guardar uma acusação que o próprio sistema pode ter que retirar:
-bastaria o checklist subir da fila offline dez minutos depois.
+bastaria o checklist chegar dez minutos depois — a pessoa achou sinal, ou a
+Frota registrou pelo painel.
 
 Quem é cobrado, no dia:
 
@@ -1271,21 +1280,36 @@ vez de pelo veículo que está na mão.
 
 ---
 
-## 19. Offline e sincronização
+## 19. Envio do checklist
 
-O checklist precisa funcionar sem internet.
+> **O MyLog exige internet.** A fila offline, o depósito local e o service
+> worker foram removidos pela
+> [D58](DECISOES.md#d58--o-offline-sai-inteiro-e-o-que-ele-protegia-fica). O
+> Android nativo nasce com o mesmo contrato.
+
+O checklist sobe no momento em que é finalizado. Não há nada guardado no
+aparelho: fechada a tela, o que não subiu não existe mais.
+
+Isso põe todo o peso numa única promessa, e é dela que trata esta seção.
 
 | Situação | Comportamento |
 |---|---|
-| Sem conexão | O checklist continua normalmente |
-| Foto capturada | Arquivo vai para a fila local |
-| Internet voltou | Sincronização retoma automaticamente |
-| Upload parcial | O sistema registra progresso por arquivo |
-| Reenvio da fila | **Idempotente**: devolve a inspeção existente em vez de duplicar |
-| Falha de sincronização | Exibe o item pendente e permite nova tentativa |
+| Sem conexão ao abrir | O aplicativo não abre a lista de tarefas; a tela diz que falta internet, e não que falta senha |
+| Sem conexão ao finalizar | A tela de falha fica com o checklist inteiro na mão e oferece nova tentativa. **Nada é descartado sem confirmação explícita** |
+| Sessão vencida ao finalizar | Caminho diferente: entrar de novo, não insistir na rede |
+| Nova tentativa | **Idempotente**: `cliente_uuid` na inspeção, `cliente_id` na evidência — o servidor devolve o registro existente em vez de duplicar |
+| Foto que falha por erro passageiro | Volta para nova tentativa; a inspeção já está gravada e não é derrubada por ela |
+| Foto recusada em definitivo | Não volta (insistir não muda o resultado), mas **volta com o motivo**, que aparece na tela do fim |
+| Hora da conclusão | Carimbada uma vez, quando a pessoa termina — nunca a hora em que a rede deixou |
 
-A identificação de cada inspeção é gerada **no aparelho**, o que torna o reenvio
-seguro mesmo quando a resposta do servidor se perdeu no caminho.
+A identificação da inspeção é gerada **no aparelho**, o que torna a nova
+tentativa segura mesmo quando a resposta do servidor se perdeu no caminho. Sem
+fila isso importa mais, não menos: a nova tentativa agora é humana, e humano
+toca duas vezes.
+
+A tira de conexão avisa **antes**, não depois: sem rede, ela aparece no topo
+para ninguém começar quarenta perguntas e descobrir no fim que não dá para
+enviar.
 
 ---
 
@@ -1332,7 +1356,7 @@ Valem para todas as telas de lista:
 |---|---|
 | Identidade | Login, troca de senha no primeiro acesso, bloqueio, cargos |
 | Veículos | Cadastro, placa, modelo, tipo, status e KM |
-| Checklist | Modelos versionados por cargo e tipo de veículo, periodicidade e horário limite, execução com foto, saída e retorno, offline |
+| Checklist | Modelos versionados por cargo e tipo de veículo, periodicidade e horário limite, execução com foto, saída e retorno |
 | Checklists feitos | Tela com filtro de período (padrão hoje) e por cargo, e exportação em planilha |
 | Ocorrências | Prioridade, evidência, fluxo de tratamento, bloqueio por crítica |
 | Solicitações | Pedido por categoria de uso, liberação com escolha da placa, veículo visível ao solicitante, retirada, devolução e atraso justificado |
@@ -1351,7 +1375,7 @@ Valem para todas as telas de lista:
 | F0 — Descoberta | Mapear o PROLOG real em uso | **pendente — depende da empresa** |
 | F1 — Fundação | Repo, banco, auth, tenant, auditoria | **feita** |
 | F2 — Web ADM | Usuários, veículos, painel, editor de checklist | **feita** — reescrita na v3.0 |
-| F3 — Aplicativo de campo | Login, checklist, evidências, offline | **feita** — reescrita na v3.0 |
+| F3 — Aplicativo de campo | Login, checklist, evidências | **feita** — reescrita na v3.0; offline removido na v3.2 (D58) |
 | F4 — Regras | Prioridade, bloqueio, ocorrências | **feita** |
 | F4.1 — v3.1 | Categoria de uso, checklist diário avulso, ritmo do modelo, checklists feitos e planilha | **feita** |
 | F5 — Preventivas | Agenda por KM/data, reagendamento, alertas | **feita** |
@@ -1390,20 +1414,22 @@ nada no contrato muda. Faz parte da A0 por decisão de arquitetura, mas é a
 
 ### Sobre o aplicativo Android
 
-Será escrito **do zero, em Android Studio**, original — não é o PWA
-empacotado, e nenhuma linha dele é reaproveitada. O PWA continua existindo e
+Será escrito **do zero, em Android Studio**, original — não é o cliente Web
+empacotado, e nenhuma linha dele é reaproveitada. Ele nasce com o mesmo
+contrato da [D58](DECISOES.md#d58--o-offline-sai-inteiro-e-o-que-ele-protegia-fica):
+**exige internet, e não terá fila**. A Web continua existindo e
 funcionando como cliente de campo até o APK sair; o nativo é outro cliente do
 mesmo servidor.
 
-O PWA serve ao Android de **implementação de referência**: não código a copiar,
+O cliente Web serve ao Android de **implementação de referência**: não código a copiar,
 mas uma resposta que funciona para o que o nativo terá que resolver — o que o
 servidor espera em cada envio, como a dependência foto→inspeção é respeitada, e
 o que a tela mostra quando o servidor recusa.
 
 A **API é o contrato entre os dois**, e está documentada em
 [`docs/API.md`](API.md): as quatro rotas que fecham o ciclo de checklist, a
-distinção entre solicitação, preventiva e avulso, a idempotência que faz o
-offline funcionar, e o formato de cada erro.
+distinção entre solicitação, preventiva e avulso, a idempotência que torna a
+nova tentativa segura, e o formato de cada erro.
 
 Duas coisas que o servidor **ainda não tem** e que o app nativo vai pedir:
 
@@ -1555,7 +1581,7 @@ abertura ao fechamento.
 | Permissões | Frota e Colaborador |
 | Cargo | Checklist visível e invisível conforme o cargo |
 | Checklist | Foto obrigatória, opcional e ausente; limite de fotos; navegação entre respondidas; saída e retorno |
-| Offline | Modo avião, queda durante upload, retomada, duplicidade |
+| Envio | Queda durante o upload, nova tentativa, duplicidade, foto recusada |
 | Mídia | Compressão, upload, acesso privado, relatório |
 | Ocorrência | Prioridade, bloqueio por crítica, liberação com motivo |
 | Solicitação | Janela, aprovação, retirada, devolução no prazo e com atraso |
@@ -1584,7 +1610,7 @@ abertura ao fechamento.
   o resumo tem os campos que a tela final lê |
 | Modelos | A seção de preventiva cria modelo de preventiva; a padrão, padrão |
 | Relógio do aparelho | A hora é a do pátio; fora da janela, cai para o recebimento e audita |
-| Fila offline | Reenvia sozinha com espera crescente, e para quando esvazia |
+| Envio que falha | A tela fica com o checklist inteiro; nova tentativa não duplica; descartar cobra confirmação |
 | Performance | Painel com volume e sincronização concorrente |
 
 ### Onde a cobertura começa e onde termina
@@ -1593,7 +1619,7 @@ São 280 testes em três camadas:
 
 | Camada | Arquivo | O que prova |
 |---|---|---|
-| Motor | `template.teste.js`, `dominio.teste.js` | O julgamento do checklist, offline e no servidor |
+| Motor | `template.teste.js`, `dominio.teste.js` | O julgamento do checklist, no aparelho e no servidor |
 | API | `api.teste.js`, `relatorios.teste.js` | O servidor HTTP real, ponta a ponta |
 | Tela | `interface.teste.js`, `campo.teste.js` sobre `dom.js` | O que a interface faz com a resposta |
 
@@ -1677,22 +1703,22 @@ exercitava o caminho errado e passaria de qualquer jeito.
 
 **O que continua sem cobertura automatizada:**
 
-- captura de foto e assinatura — IndexedDB, câmera e canvas de verdade;
+- captura de foto e assinatura — câmera e canvas de verdade;
 - qualquer coisa que dependa de geometria (o menu que abre para cima perto do
   rodapé) — sem layout, `getBoundingClientRect` devolve zeros;
 - CSS: contraste, tema claro/escuro, quebra de página na impressão;
-- **o service worker**, e com ele todo o modo offline do app de campo;
 - **o histórico do navegador** — `pushState`, `popstate`, o botão Voltar. Fazer
   o DOM de teste fingir ser um navegador só para isso contradiria a D35, que
   existe justamente para o arcabouço parar onde a interface para.
 
-> Sobre o service worker: o navegador embutido usado nos testes recusa
-> qualquer registro — um SW de uma linha falha com a mesma mensagem que o
-> nosso. Foi conferido que os 11 arquivos da casca respondem 200 (o que
-> importa, porque `cache.addAll` é atômico: um único 404 derruba a instalação
-> inteira). Mas **o offline precisa ser testado num navegador de verdade,
-> com o modo avião ligado**, antes do piloto. Nada aqui prova que ele
-> funciona.
+> Sobre o service worker: ele saiu com a
+> [D58](DECISOES.md#d58--o-offline-sai-inteiro-e-o-que-ele-protegia-fica), mas
+> **o cancelamento dele continua sendo passe manual obrigatório**. Um service
+> worker instalado não morre quando o arquivo some do repositório — segue
+> servindo a versão que guardou, e nenhuma publicação nova alcança aquele
+> aparelho. O passe é: instalar a versão antiga num aparelho de verdade, subir
+> a nova, abrir, e conferir que o aplicativo novo aparece. Nada aqui prova
+> isso.
 
 Para esses três, **o passe manual no navegador continua obrigatório** a cada
 mudança:
@@ -1805,7 +1831,7 @@ servidor, e não há dependência a instalar.
 | % preventivas realizadas no prazo | Medir disciplina de manutenção |
 | % devoluções no prazo | Medir aderência ao processo de solicitação |
 | Falhas recorrentes por veículo | Identificar problemas sistêmicos |
-| Taxa de sincronização sem intervenção | Medir qualidade do offline |
+| Checklists que precisaram de nova tentativa | Medir se a rede do pátio dá conta do envio ao vivo |
 
 ---
 
@@ -1850,7 +1876,7 @@ servidor, e não há dependência a instalar.
 | Decisão | Escolha |
 |---|---|
 | Frontend web | Vanilla JS com design system próprio, sem framework |
-| Aplicativo de campo | PWA instalável, offline-first |
+| Aplicativo de campo | Web, exige internet (D58); Android nativo, do zero |
 | Backend | Node sem dependências externas; API stateless com regras centralizadas |
 | Banco | PostgreSQL em produção; SQLite portável em desenvolvimento |
 | Auth | Token opaco revogável; o banco guarda apenas o HMAC |
@@ -2012,9 +2038,12 @@ Pontos que ainda dependem de decisão da operação:
     aparelho quando a inspeção é aceita. `limparEnviadasAntigas` toca apenas nas
     enviadas.
 
-    A tensão é real dos dois lados. A D15 nomeia a cota de fotos como o risco
-    concentrado do offline — cada foto retida aproxima o navegador de despejar o
-    armazenamento e levar junto as fotos que *ainda não subiram*. E, do outro
+    A tensão era real dos dois lados. A D15 nomeava a cota de fotos como o
+    risco concentrado do offline — cada foto retida aproximava o navegador de
+    despejar o armazenamento e levar junto as fotos que *ainda não tinham
+    subido*. Sem depósito local (D58) esse lado da tensão desapareceu: a foto
+    sobe logo após a inspeção ou volta para nova tentativa na mesma tela. E, do
+    outro
     lado, essas fotos são a única prova de que a pessoa fez o serviço que o
     sistema diz não ter acontecido.
 

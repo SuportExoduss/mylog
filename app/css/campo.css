@@ -115,17 +115,19 @@ button, input, textarea { font: inherit; color: inherit; }
 }
 .rodape-nota { font-size: 13px; color: var(--texto-fraco); }
 
-/* Tira de conexao: quem esta no patio precisa saber, sem procurar, se o que
-   ele fez ja saiu do aparelho. */
+/* Tira de conexao: sem rede nao da para enviar checklist, e quem esta no patio
+   precisa saber ANTES de comecar quarenta perguntas.
+
+   Ela ja contou fila — "3 checklists aguardando conexao" — e por isso era um
+   botao que levava a fila, com varios tons. Sem fila ela virou aviso, e um so:
+   sem rede. Nao e' mais clicavel, entao nao finge cursor de clique; e nao e'
+   mais informativa, entao usa o tom de atencao e nao o de fundo neutro. */
 .tira {
   width: 100%; padding: var(--e-2) var(--e-4);
   border: none; text-align: left;
-  font-size: 14px; font-weight: 600; cursor: pointer;
+  font-size: 14px; font-weight: 600;
+  background: var(--atencao-fundo); color: var(--atencao);
 }
-.tira--ok { background: var(--ok-fundo); color: var(--ok); }
-.tira--espera, .tira--enviando { background: var(--atencao-fundo); color: var(--atencao); }
-.tira--offline { background: var(--superficie-3); color: var(--texto-medio); }
-.tira--erro { background: var(--critico-fundo); color: var(--critico); }
 
 .aviso { padding: var(--e-3); border-radius: var(--r-2); font-size: 15px; line-height: 1.4; }
 .aviso--erro { background: var(--critico-fundo); color: var(--critico); }
@@ -462,21 +464,3 @@ button, input, textarea { font: inherit; color: inherit; }
 .feito--ok .feito-simbolo { background: var(--preenche-ok); }
 .feito--bloqueado .feito-simbolo { background: var(--preenche-ocorrencia); }
 .feito-texto { margin: 0; font-size: 17px; text-align: center; }
-
-/* -------------------------------------------------------------------- fila */
-
-.fila-item {
-  padding: var(--e-3);
-  background: var(--superficie);
-  border: 1px solid var(--borda);
-  border-left: 4px solid var(--borda-forte);
-  border-radius: var(--r-2);
-}
-.fila-item--enviada { border-left-color: var(--preenche-ok); }
-.fila-item--recusada { border-left-color: var(--critico); }
-.fila-item--pendente { border-left-color: var(--atencao); }
-.fila-topo { display: flex; align-items: center; justify-content: space-between; font-weight: 700; }
-.fila-selo { font-size: 12px; letter-spacing: .06em; color: var(--texto-fraco); }
-.fila-quando { font-size: 13px; color: var(--texto-fraco); }
-.fila-estado { font-size: 14px; margin-top: var(--e-1); }
-.fila-erro { font-size: 14px; margin-top: var(--e-1); color: var(--critico); }

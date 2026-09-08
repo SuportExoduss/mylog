@@ -123,23 +123,6 @@ function servirArquivo(destino, raiz, res) {
       'cache-control': config.ambiente === 'desenvolvimento' ? 'no-store' : 'public, max-age=300',
     }
 
-    // O service worker do aplicativo mora em /app/sw.js, e o escopo PADRAO de um
-    // service worker e' a pasta dele. Tres arquivos da casca ficam fora dessa
-    // pasta — `/css/estilo.css`, `/js/tema-inicial.js` e, o que importa de
-    // verdade, `/compartilhado/template.js`, o motor de julgamento que o
-    // `checklist.js` importa.
-    //
-    // Sem este cabecalho eles eram GUARDADOS no cache (o `addAll` nao respeita
-    // escopo) e nunca SERVIDOS dele: o `fetch` do service worker jamais via
-    // esses pedidos. No patio sem sinal o aplicativo abria sem estilo e, pior,
-    // o import do motor falhava — e sem o motor nao existe checklist.
-    //
-    // Ele deixa o registro pedir escopo `/`; quem decide o que interceptar e' o
-    // proprio service worker, que ignora tudo fora de /app/ menos a casca.
-    // `servirArquivo` nao recebe a URL — so o caminho em disco. Casar pelo
-    // arquivo e' o que da para fazer aqui, e e' suficiente: so existe um sw.js.
-    if (destino.endsWith(`app${path.sep}sw.js`)) cabecalhos['service-worker-allowed'] = '/'
-
     res.writeHead(200, cabecalhos).end(conteudo)
    } catch (erroInterno) {
     console.error('falha ao servir arquivo estatico', destino, erroInterno)

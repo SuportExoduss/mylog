@@ -2,8 +2,7 @@
 //
 // O colaborador abre isto no patio, muitas vezes sem sinal. O caminho e' curto
 // de proposito: entrar -> ver o que tem para fazer -> executar -> devolver.
-import * as sincronia from './sincronia.js'
-import { contexto, fila, garantirPersistencia } from './armazem.js'
+import * as envio from './envio.js'
 import { elemento, executarChecklist } from './checklist.js'
 
 const raiz = document.getElementById('app')
@@ -15,8 +14,6 @@ const estado = {
   preventivas: [],
   modelos: [],
   politicas: {},
-  doCache: false,
-  baixadoEm: null,
 }
 
 const modeloPorId = (id) => estado.modelos.find((m) => m.id === id)
@@ -24,7 +21,14 @@ const modeloPorId = (id) => estado.modelos.find((m) => m.id === id)
 // ------------------------------------------------------------- estrutura
 
 function tela({ titulo, subtitulo, voltar, corpo, acoes = [] }) {
-  raiz.replaceChildren(
+  // `.filter(Boolean)` obrigatorio: `replaceChildren` do navegador converte
+  // `null` em texto e escreve a palavra "null" na tela. Duas das quatro linhas
+  // abaixo sao condicionais — a tira de conexao (que so existe sem rede) e o
+  // rodape (que so existe com acoes).
+  //
+  // Quem filtra nulo por dentro e' o `elemento()`; `replaceChildren` e'
+  // navegador cru, e nao filtra nada.
+  raiz.replaceChildren(...[
     elemento('header', { classe: 'topo' }, [
       voltar
         ? elemento('button', { classe: 'topo-voltar', type: 'button', texto: '←',
@@ -38,38 +42,24 @@ function tela({ titulo, subtitulo, voltar, corpo, acoes = [] }) {
     tiraConexao(),
     elemento('main', { classe: 'corpo' }, corpo),
     acoes.length ? elemento('footer', { classe: 'rodape' }, acoes) : null,
-  )
+  ].filter(Boolean))
 }
 
-// A tira de conexao e' permanente: quem esta no patio precisa saber, sem
-// procurar, se o que ele fez ja saiu do aparelho.
+// A tira de conexao continua, com outro trabalho.
+//
+// Na era da fila ela contava o que ainda nao tinha subido — "3 checklists
+// aguardando conexao". Sem fila nao ha nada esperando: o checklist sobe no
+// momento em que e' finalizado, ou nao e' finalizado. O que a tira faz agora
+// e' AVISAR ANTES, para ninguem comecar quarenta perguntas sem sinal e
+// descobrir no fim.
 function tiraConexao() {
-  const s = sincronia.estado
-  const online = navigator.onLine
-  let texto
-  let tom
-
-  // Antes de tudo: sessao vencida trava a fila inteira, e nenhuma outra
-  // mensagem ajuda enquanto ela nao for resolvida. "Aguardando conexao" com
-  // sinal cheio faria a pessoa procurar rede que nao e' o problema.
-  if (s.sessaoExpirada) {
-    return elemento('button', {
-      classe: 'tira tira--erro', type: 'button',
-      texto: 'Sua sessao expirou. Toque para entrar de novo e enviar a fila.',
-      aoClick: () => telaLogin('Entre de novo para enviar os checklists da fila.'),
-    })
-  }
-
-  if (s.pendentes > 0 && !online) { tom = 'espera'; texto = `${s.pendentes} checklist(s) aguardando conexao` }
-  else if (s.enviando) { tom = 'enviando'; texto = 'Enviando...' }
-  else if (s.pendentes > 0) { tom = 'espera'; texto = `${s.pendentes} checklist(s) na fila` }
-  else if (s.recusadas > 0) { tom = 'erro'; texto = `${s.recusadas} checklist(s) recusado(s) — toque para ver` }
-  else if (!online) { tom = 'offline'; texto = 'Sem conexao. Da para trabalhar normalmente.' }
-  else { tom = 'ok'; texto = 'Tudo sincronizado' }
-
-  return elemento('button', {
-    classe: `tira tira--${tom}`, type: 'button', texto,
-    aoClick: telaFila,
+  if (navigator.onLine) return null
+  return elemento('div', {
+    classe: 'tira',
+    // Aparece sozinha, sem ninguem ter tocado em nada: `status` e' o que faz
+    // um leitor de tela anunciar isso sem interromper o que esta sendo lido.
+    role: 'status',
+    texto: 'Sem conexao. Nao da para enviar checklist agora.',
   })
 }
 
@@ -109,10 +99,6 @@ function telaLogin(mensagem) {
           if (!resposta.ok) throw new Error(dados.mensagem || 'Nao foi possivel entrar.')
           estado.usuario = dados.usuario
           if (dados.usuario.deve_trocar_senha) return telaTrocaDeSenha()
-          // Credencial nova: tira o aviso de sessao vencida e tenta a fila
-          // agora, sem esperar o relogio de retentativa. Quem entrou de novo
-          // depois daquele aviso entrou POR CAUSA da fila.
-          sincronia.sessaoRenovada()
           await carregar()
         } catch (falha) {
           erro.textContent = falha.message
@@ -185,12 +171,6 @@ function horaCurta(iso) {
 
 function telaInicio() {
   const corpo = []
-
-  if (estado.doCache) {
-    corpo.push(aviso(
-      `Sem conexao. Mostrando o que foi baixado em ${estado.baixadoEm ? horaCurta(estado.baixadoEm) : 'algum momento'}.`,
-      'atencao'))
-  }
 
   if (!estado.tarefas.length && !estado.avulso.length && !estado.preventivas.length) {
     corpo.push(elemento('div', { classe: 'vazio' }, [
@@ -383,28 +363,99 @@ function abrirPreventiva(prev) {
   }))
 }
 
+// O checklist sobe agora, e falhar nao pode perder o trabalho.
+//
+// `finalizada_em` e' carimbado UMA vez, aqui: e' a hora em que a pessoa
+// terminou, nao a hora em que a rede finalmente deixou. Tentar de novo as
+// 10h05 nao pode dizer que o checklist das 09h40 foi feito as 10h05.
 async function concluir(tarefa, inspecao) {
-  await fila.enfileirar({
+  return enviar(tarefa, {
     ...inspecao,
     veiculo_id: tarefa.veiculo?.id || tarefa.veiculo_id || null,
     preventiva_id: tarefa.preventiva_id || null,
-    veiculo_placa: tarefa.veiculo.placa,
     finalizada_em: new Date().toISOString(),
   })
-  sincronia.sincronizar()
+}
+
+async function enviar(tarefa, inspecao) {
+  tela({
+    titulo: 'Enviando checklist',
+    subtitulo: tarefa.veiculo.placa,
+    corpo: [elemento('p', { classe: 'texto',
+      texto: 'Nao feche o aplicativo. Isto leva alguns segundos.' })],
+  })
+
+  const r = await envio.enviarInspecao(inspecao)
+  if (!r.ok) return telaEnvioFalhou(tarefa, inspecao, r)
+
+  // A inspecao esta gravada. Se alguma foto ficou para tras, o aviso vai junto
+  // — uma evidencia que nao entrou e' exatamente o que alguem procura meses
+  // depois, num sinistro, e ela nunca pode sumir em silencio.
+  const pendencia = [
+    r.restantes.length ? `${r.restantes.length} foto(s) nao subiram.` : null,
+    r.recusadas.length
+      ? `${r.recusadas.length} foto(s) recusada(s): ${r.recusadas[0].motivo}`
+      : null,
+  ].filter(Boolean).join(' ')
 
   // Preventiva nao tem devolucao: o carro nao foi emprestado, foi para a
   // oficina. O retorno encerra a manutencao e ja agendou a proxima.
   if (tarefa.preventiva_id) {
     return telaFeito(tarefa, inspecao.resumo, tarefa.momento === 'retorno'
       ? 'Preventiva encerrada. A proxima ja esta agendada.'
-      : 'Estado registrado. Faca o servico e volte para o checklist de retorno.')
+      : 'Estado registrado. Faca o servico e volte para o checklist de retorno.', pendencia)
   }
 
   // Roadmap 10.2, passo 7: na devolucao fora do prazo, o motivo e' pedido
   // ANTES de encerrar. Nao adianta perguntar depois — a pessoa ja foi embora.
   if (tarefa.momento === 'retorno') return telaDevolucao(tarefa, inspecao.resumo)
-  telaFeito(tarefa, inspecao.resumo, 'Checklist de saida enviado. Bom trabalho.')
+  telaFeito(tarefa, inspecao.resumo, 'Checklist de saida enviado. Bom trabalho.', pendencia)
+}
+
+// O envio falhou e o checklist inteiro esta na variavel `inspecao`.
+//
+// Sem fila, esta tela e' a unica coisa entre o trabalho feito e o trabalho
+// perdido. Ela nao pode se fechar sozinha, nao pode voltar ao inicio por
+// engano, e nao pode esconder o que esta em jogo: sair daqui sem enviar perde
+// o checklist. Por isso o descarte existe — uma tela sem saida e' pior, e ja
+// custou caro na devolucao — mas pede confirmacao e diz o que custa.
+//
+// Reenviar e' seguro: a inspecao leva `cliente_uuid` e cada foto leva
+// `cliente_id`. O servidor devolve o registro que ja existe em vez de
+// duplicar, mesmo que a resposta da primeira tentativa tenha se perdido.
+function telaEnvioFalhou(tarefa, inspecao, resultado) {
+  const confirmar = elemento('div', { classe: 'descarte oculto' }, [
+    elemento('p', { classe: 'texto',
+      texto: 'Sair agora PERDE este checklist. Ele nao fica guardado no aparelho '
+        + 'e sera preciso refazer as respostas e as fotos.' }),
+    elemento('button', { classe: 'botao botao--perigo', type: 'button',
+      texto: 'Perder o checklist e voltar', aoClick: carregar }),
+  ])
+
+  tela({
+    titulo: 'Nao deu para enviar',
+    subtitulo: tarefa.veiculo.placa,
+    corpo: [
+      aviso(resultado.motivo, 'erro'),
+      elemento('p', { classe: 'texto',
+        texto: resultado.sessao
+          ? 'Entre de novo e o checklist sera enviado na mesma hora.'
+          : 'O checklist esta aqui na tela, inteiro. Procure sinal e tente de novo.' }),
+      confirmar,
+    ],
+    acoes: [
+      resultado.sessao
+        ? elemento('button', { classe: 'botao botao--grande botao--ok', type: 'button',
+            texto: 'Entrar de novo',
+            aoClick: () => telaLogin('Entre de novo para enviar o checklist.') })
+        : elemento('button', { classe: 'botao botao--grande botao--ok', type: 'button',
+            texto: 'Tentar enviar de novo',
+            aoClick: () => enviar(tarefa, inspecao) }),
+      elemento('button', { classe: 'botao botao--suave', type: 'button',
+        texto: 'Descartar e voltar ao inicio',
+        aoClick: () => confirmar.classList.remove('oculto') }),
+    ],
+  })
 }
 
 function telaDevolucao(tarefa, resumo) {
@@ -484,7 +535,7 @@ function telaDevolucao(tarefa, resumo) {
   if (atrasada) setTimeout(() => area.focus(), 80)
 }
 
-function telaFeito(tarefa, resumo, mensagem) {
+function telaFeito(tarefa, resumo, mensagem, pendencia = '') {
   const bloqueou = resumo.estado_veiculo_previsto === 'bloqueado'
   tela({
     titulo: 'Pronto',
@@ -499,6 +550,7 @@ function telaFeito(tarefa, resumo, mensagem) {
         : resumo.ocorrencias.length
           ? aviso(`${resumo.ocorrencias.length} ocorrencia(s) foram abertas para a frota tratar.`, 'atencao')
           : null,
+      pendencia ? aviso(pendencia, 'atencao') : null,
     ],
     acoes: [
       elemento('button', { classe: 'botao botao--grande botao--ok', type: 'button',
@@ -507,81 +559,30 @@ function telaFeito(tarefa, resumo, mensagem) {
   })
 }
 
-// -------------------------------------------------------------------- fila
-
-async function telaFila() {
-  const itens = await fila.todas()
-  const corpo = itens.length
-    ? itens.reverse().map((i) => elemento('div', { classe: `fila-item fila-item--${i.estado}` }, [
-        elemento('div', { classe: 'fila-topo' }, [
-          elemento('span', { classe: 'dado', texto: i.veiculo_placa || '—' }),
-          elemento('span', { classe: 'fila-selo', texto: i.momento === 'saida' ? 'SAIDA' : 'RETORNO' }),
-        ]),
-        elemento('div', { classe: 'fila-quando dado', texto: horaCurta(i.criado_em) }),
-        elemento('div', { classe: 'fila-estado', texto:
-          i.estado === 'enviada' ? 'Enviado ao servidor'
-            : i.estado === 'recusada' ? 'Recusado pelo servidor'
-              : 'Aguardando envio' }),
-        i.erro ? elemento('div', { classe: 'fila-erro', texto: i.erro }) : null,
-      ]))
-    : [elemento('div', { classe: 'vazio' }, [elemento('p', { texto: 'A fila esta vazia.' })])]
-
-  const cota = await garantirPersistencia()
-  if (cota.usadoMb !== null) {
-    corpo.push(elemento('p', { classe: 'rodape-nota',
-      texto: `Armazenamento: ${cota.usadoMb} MB usados de ${cota.cotaMb} MB${cota.persistente ? ' · protegido contra limpeza automatica' : ''}` }))
-  }
-
-  tela({
-    titulo: 'Fila de envio',
-    subtitulo: 'Nada se perde: o envio acontece sozinho quando houver rede.',
-    voltar: telaInicio,
-    corpo,
-    acoes: [
-      elemento('button', { classe: 'botao botao--grande botao--ok', type: 'button',
-        texto: 'Tentar enviar agora',
-        aoClick: async () => { await sincronia.sincronizar(); telaFila() } }),
-    ],
-  })
-}
-
 // ------------------------------------------------------------------ sessao
 
 async function sair() {
-  const pendentes = (await fila.pendentes()).filter((i) => i.estado === 'pendente')
-  // Sair com fila pendente perderia a sessao que a fila precisa para enviar —
-  // MENOS quando a sessao ja venceu. Nesse caso a recusa fechava um beco: a
-  // fila nao envia porque a credencial morreu, e o unico jeito de renova-la e'
-  // entrar de novo, que este `return` impedia.
-  //
-  // Entrar de novo nao toca na fila: ela vive no IndexedDB e sobrevive ao
-  // login. O que se perde e' nada.
-  if (pendentes.length && !sincronia.estado.sessaoExpirada) {
-    return telaFila()
-  }
-  try { await fetch('/api/auth/sair', { method: 'POST', credentials: 'same-origin' }) } catch { /* offline */ }
-  // O contexto baixado sai junto com a sessao.
-  //
-  // Ele guarda nome, cargo, placas e as tarefas de quem estava usando. Ficando
-  // no aparelho, a proxima abertura SEM REDE caia no caminho offline e
-  // devolvia essa tela inteira — sem pedir senha, para quem quer que estivesse
-  // com o aparelho na mao. O aparelho do patio passa de mao em mao; sair tem
-  // que significar sair.
-  //
-  // A fila fica: ela vive noutro deposito, e o que esta nela ja foi feito e
-  // precisa chegar ao servidor. So falta credencial, e a credencial volta no
-  // proximo login.
-  try { await contexto.limpar() } catch { /* deposito indisponivel */ }
+  try { await fetch('/api/auth/sair', { method: 'POST', credentials: 'same-origin' }) } catch { /* sem rede */ }
   estado.usuario = null
   telaLogin()
 }
 
-async function carregar() {
-  // O id de quem esta na sessao viaja junto: se a rede cair e o contexto vier
-  // do cache, ele tem que ser DESTA pessoa. Ver `atualizarContexto`.
-  const r = await sincronia.atualizarContexto(estado.usuario?.id)
-  if (r.erro === 'sessao') return telaLogin('Sua sessao expirou. Entre de novo.')
-  if (r.erro === 'sem_contexto') return telaLogin('Sem dados baixados. Conecte-se uma vez para comecar.')
+// `haviaSessao` diz o que um 401 SIGNIFICA para quem esta olhando.
+//
+// Para quem estava dentro, ele significa "sua credencial venceu, entre de
+// novo". Para quem acabou de abrir o aplicativo e nunca entrou, a mesma frase
+// manda procurar um problema que nao existe — e transforma a tela de login,
+// que e' onde ela deveria estar, numa tela de erro.
+async function carregar({ haviaSessao = true } = {}) {
+  let r
+  try {
+    r = await envio.baixarContexto()
+  } catch {
+    return telaLogin('Sem conexao com o servidor. O MyLog precisa de internet para funcionar.')
+  }
+  if (r.erro === 'sessao') {
+    return telaLogin(haviaSessao ? 'Sua sessao expirou. Entre de novo.' : '')
+  }
 
   estado.usuario = r.dados.usuario || estado.usuario
   estado.tarefas = r.dados.tarefas || []
@@ -589,60 +590,74 @@ async function carregar() {
   estado.preventivas = r.dados.preventivas || []
   estado.modelos = r.dados.modelos || []
   estado.politicas = r.dados.politicas || {}
-  estado.doCache = r.doCache
-  estado.baixadoEm = r.dados.baixado_em || r.dados.gerado_em
   telaInicio()
 }
 
 // ------------------------------------------------------------------ inicio
 
-sincronia.aoMudar(() => {
-  // A tira de conexao vive em todas as telas; atualiza no lugar.
+// A tira de conexao vive em todas as telas. Some quando a rede volta, aparece
+// quando ela cai — no lugar, sem redesenhar a tela por baixo de quem responde.
+function redesenharTira() {
   const tira = raiz.querySelector('.tira')
-  if (tira) tira.replaceWith(tiraConexao())
-})
-
-window.addEventListener('online', () => sincronia.sincronizar())
-
-async function iniciar() {
-  await sincronia.iniciar()
-  try {
-    const resposta = await fetch('/api/auth/eu', { credentials: 'same-origin' })
-    if (!resposta.ok) throw new Error('sem sessao')
-    const { usuario } = await resposta.json()
-    estado.usuario = usuario
-    if (usuario.deve_trocar_senha) return telaTrocaDeSenha()
-    await carregar()
-  } catch {
-    // Sem rede mas com contexto baixado, o app abre mesmo assim — e quem sabe
-    // fazer isso e' `carregar`, a mesma porta de sempre.
-    //
-    // Aqui existia uma copia dela, e a copia estava errada de dois jeitos:
-    // marcava `doCache = true` FIXO, mesmo quando o contexto tinha acabado de
-    // chegar pela rede (basta o `/api/auth/eu` falhar sozinho, um soluco de
-    // sinal), e entao a tela dizia "sem conexao, mostrando o que foi baixado
-    // em algum momento" com dado fresco na mao. Quem le isso deixa de confiar
-    // no aviso — e o aviso e' o que separa "ja saiu do aparelho" de "ainda
-    // esta aqui".
-    //
-    // A copia tambem caia num `telaLogin()` mudo quando nao havia contexto,
-    // enquanto `carregar` explica o que fazer: conecte-se uma vez.
-    await carregar()
-  }
+  const nova = tiraConexao()
+  if (tira && nova) return tira.replaceWith(nova)
+  if (tira && !nova) return tira.remove()
+  if (!tira && nova) raiz.querySelector('.topo')?.after(nova)
 }
 
-if ('serviceWorker' in navigator) {
-  // Escopo `/`, e nao o padrao `/app/`: a casca do aplicativo inclui tres
-  // arquivos que vivem fora da pasta dele — o estilo comum, o script de tema e
-  // o MOTOR DE JULGAMENTO em /compartilhado/template.js. Com o escopo padrao
-  // eles eram guardados no cache e nunca servidos dele, e o aplicativo nao
-  // abria sem sinal.
+window.addEventListener('online', redesenharTira)
+window.addEventListener('offline', redesenharTira)
+
+async function iniciar() {
+  // Sem `try/catch` em volta de tudo de proposito.
   //
-  // Escopo maior nao significa interceptar mais: o proprio service worker
-  // ignora tudo que nao for do aplicativo ou da casca — o painel continua
-  // falando direto com a rede.
-  navigator.serviceWorker.register('/app/sw.js', { scope: '/' })
-    .catch(() => { /* segue sem cache */ })
+  // A versao anterior tratava as duas saidas como uma so, e as duas dizem
+  // coisas opostas para quem esta olhando: "nao consegui falar com o servidor"
+  // manda procurar sinal; "sua sessao expirou" manda entrar de novo. Juntas,
+  // davam "Sua sessao expirou. Entre de novo." para quem abriu o aplicativo
+  // pela PRIMEIRA VEZ e nunca teve sessao nenhuma — a pessoa procura um
+  // problema que nao existe, e a tela de login vira uma tela de erro.
+  let resposta
+  try {
+    resposta = await fetch('/api/auth/eu', { credentials: 'same-origin' })
+  } catch {
+    // Uma chamada que nao volta pode ser o servidor fora do ar ou um soluco de
+    // sinal nesta chamada so. Nao da para saber com uma tentativa, e declarar
+    // "sem conexao" na primeira fecha o aplicativo para quem tinha sinal.
+    // `carregar` faz a segunda tentativa e diz o que for verdade.
+    return carregar({ haviaSessao: false })
+  }
+
+  // 401 aqui nao e' erro: e' a primeira tela de quem ainda nao entrou. O
+  // formulario limpo ja e' a mensagem.
+  if (resposta.status === 401) return telaLogin()
+  if (!resposta.ok) return telaLogin('O servidor nao respondeu. Tente de novo em instantes.')
+
+  const { usuario } = await resposta.json()
+  estado.usuario = usuario
+  if (usuario.deve_trocar_senha) return telaTrocaDeSenha()
+  // Daqui para baixo existe sessao — e ai sim um 401 significa que ela venceu.
+  await carregar()
+}
+
+// O service worker foi embora com o offline (D58), e ir embora do repositorio
+// nao basta: um service worker instalado continua vivo no aparelho, servindo
+// a versao que ele guardou em cache, para sempre. Quem ja tinha o MyLog
+// instalado ficaria preso ao aplicativo antigo — com fila, com IndexedDB, sem
+// nenhuma das correcoes seguintes — e nenhuma publicacao nova o alcancaria.
+//
+// Por isso a despedida e' explicita: cancela o registro e apaga os caches que
+// ele criou. E' o unico jeito de um service worker sair do ar.
+//
+// Esta parte tem que ficar aqui por algumas versoes. Tirar cedo demais nao da
+// erro nenhum — so deixa para tras os aparelhos que nao abriram o aplicativo
+// no meio tempo, que sao exatamente os que mais precisam dela.
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.getRegistrations?.()
+    .then((registros) => Promise.all(registros.map((r) => r.unregister())))
+    .then(() => caches?.keys())
+    .then((chaves) => Promise.all((chaves || []).map((c) => caches.delete(c))))
+    .catch(() => { /* navegador sem a API, ou ja limpo */ })
 }
 
 iniciar()

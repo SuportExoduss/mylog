@@ -35,13 +35,13 @@ do notebook está na seção 5.
 
 | Camada | Escolha | Papel |
 |---|---|---|
-| Hospedagem | Firebase Hosting | Serve Web e PWA. Sem dado sensível. |
+| Hospedagem | Firebase Hosting | Serve o painel e o cliente de campo. Sem dado sensível. |
 | Identidade | Firebase Authentication | Diz **quem é a pessoa**. Não diz o que ela pode. |
 | Banco | Cloud Firestore | Dados estruturados, sempre escopados à empresa. |
 | Servidor | Cloud Functions | Autoridade. Autorização, regras, re-julgamento, jobs. |
 | Arquivos | Cloudflare R2 | Fotos e branding. Privado, nunca URL pública permanente. |
 | Cliente web | Painel administrativo | Supervisão, cadastro, configuração, relatórios. |
-| Cliente de campo | PWA **em regime de manutenção**, Android nativo em seguida | Mesmo contrato, mesmo domínio. Ver 4.1. |
+| Cliente de campo | Web **em regime de manutenção**, Android nativo em seguida | Mesmo contrato, mesmo domínio. Ver 4.1. |
 
 **Regra de ouro.** A URL identifica o contexto. A autenticação identifica a
 pessoa. O membership determina o vínculo. O `empresaId` determina o tenant. A
@@ -91,8 +91,8 @@ quais checklists aparecem · placa imutável · KM não retrocede sem justificat
 · modelo publicado é imutável, alteração gera versão nova · a inspeção aponta
 para a versão **respondida**, e o relatório histórico nunca a reinterpreta com o
 modelo de hoje · o servidor **re-julga** toda inspeção e ignora o resultado
-enviado pelo cliente · `cliente_uuid` garante idempotência · offline é requisito
-de primeira classe · ocorrência crítica bloqueia o veículo e só decisão humana
+enviado pelo cliente · `cliente_uuid` garante idempotência, e por isso nova
+tentativa nunca duplica · ocorrência crítica bloqueia o veículo e só decisão humana
 com motivo o libera · preventiva tem status derivado e ciclo novo a cada
 realização · auditoria é append-only.
 
@@ -100,23 +100,28 @@ O motor `compartilhado/template.js` é o ativo central: determinístico, sem
 banco, sem DOM, sem Node, **entrada explícita**, usado igual pelos dois lados.
 Não existirá um segundo motor no Android.
 
-### 4.1 O PWA está congelado
+### 4.1 O cliente Web está congelado
 
 **Decisão de 06/09/2026.** O aplicativo de campo Android será escrito **do zero,
-original**, em Android Studio. Nada do PWA vira código nele: a fila é
-JavaScript, a do Android será Kotlin.
+original**, em Android Studio. Nada do cliente Web vira código nele.
+
+> **08/09/2026 ([D58](DECISOES.md#d58--o-offline-sai-inteiro-e-o-que-ele-protegia-fica)).**
+> O offline saiu dos dois: nem a Web nem o Android terão fila, depósito local
+> ou service worker. O MyLog exige internet para operar. O que a remoção **não**
+> tirou é o que o nativo precisa herdar: falhar não perde o trabalho, evidência
+> não some em silêncio, e nova tentativa não duplica.
 
 Portanto o `app/` entra em **regime de manutenção**. Só se mexe nele em duas
 situações:
 
 1. quando algo ali quebrar o painel, o servidor ou o contrato da API;
-2. quando o próprio PWA estiver impedindo a homologação em aparelho real — que
-   é o que produz a evidência sobre o campo.
+2. quando o próprio cliente Web estiver impedindo a homologação em aparelho
+   real — que é o que produz a evidência sobre o campo.
 
 Todo o resto do esforço vai para o **painel, o servidor e o contrato**.
 
-**Isso não é abandono, e o PWA não é desperdício.** Ele é o único cliente de
-campo que existe até o APK sair: sem ele, ninguém executa checklist nenhum
+**Isso não é abandono, e o cliente Web não é desperdício.** Ele é o único
+cliente de campo que existe até o APK sair: sem ele, ninguém executa checklist nenhum
 durante a construção. E ele é a **implementação de referência** para quem
 escrever o Android — não como código a copiar, mas como resposta funcionando às
 perguntas que o nativo vai ter que responder: o que o servidor espera em cada
@@ -200,8 +205,8 @@ validado antes de salvar; há prévia antes de publicar; a publicação é atôm
 gera auditoria; upload que falha não pode deixar a empresa sem logo válida.
 
 Configuração e tokens no Firestore, arquivos no R2, ambos escopados ao tenant. O
-cliente de campo guarda o último branding confirmado para funcionar offline, e
-**nunca** troca silenciosamente para a marca de outra empresa.
+cliente de campo **nunca** troca silenciosamente para a marca de outra
+empresa — o branding chega junto com o contexto, e o contexto tem dono.
 
 > A camada que isso exige já existe no CSS: `web/css/estilo.css` separa paleta
 > primitiva de tokens semânticos (`--fundo`, `--superficie`, `--texto`,
@@ -239,14 +244,16 @@ mesmo `cliente_uuid` e upload duplicado precisam de operação atômica. A
 idempotência já é reforçada por índice único no banco, e não só por lógica de
 aplicação — isso deve sobreviver à migração.
 
-**Offline.** A fila é uma outbox: chave de idempotência, tipo, payload,
-dependências, tentativas, estado, erro e datas. Erro temporário tenta de novo
-com espera crescente; erro permanente para de insistir e **aparece para a
-pessoa**. Operação criada offline não desaparece em silêncio.
+**Envio.** Não há fila
+([D58](DECISOES.md#d58--o-offline-sai-inteiro-e-o-que-ele-protegia-fica)): o
+checklist sobe no ato. O que a fila garantia continua sendo obrigação de quem
+envia — erro temporário oferece nova tentativa com o trabalho intacto na tela;
+erro permanente para de insistir e **aparece para a pessoa**. Nada desaparece
+em silêncio, e nada é descartado sem confirmação explícita.
 
 **Observabilidade.** `requestId` atravessando log, auditoria, erro e job. Logs
-estruturados com o tenant, sem vazar dado. Métricas de latência, falha de
-sincronização, falha de upload e consumo.
+estruturados com o tenant, sem vazar dado. Métricas de latência, falha de envio,
+falha de upload e consumo.
 
 **Recuperação.** Backup com **restore testado em ambiente separado**. RPO e RTO
 definidos. Runbook. Backup sem restore comprovado não é estratégia.

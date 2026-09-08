@@ -4,7 +4,7 @@
 // meio, e dois botoes embaixo — OCORRENCIA em vermelho a esquerda, OK em verde
 // a direita. Quem preenche isso esta de pe no patio, com pressa e as vezes de
 // luva; cada toque a mais e' um checklist que nao vai ser feito direito.
-import { fotos, uuid } from './armazem.js'
+import { uuid } from './envio.js'
 import {
   avaliarInspecao, avaliarResposta, descreverPendencia, MINIMO_RELATORIO,
 } from '../../compartilhado/template.js'
@@ -120,6 +120,18 @@ export function painelAssinatura({ aoAssinar }) {
 // modelo: { id, nome, versao, exige_assinatura, estrutura }
 export function executarChecklist({ tarefa, modelo, aoConcluir, aoSair }) {
   const clienteUuid = uuid()
+
+  // As fotos desta execucao, na memoria, ate o envio.
+  //
+  // Elas moravam no IndexedDB porque o checklist podia terminar sem rede e
+  // subir horas depois. Sem fila, a vida da foto e' a vida da tela: capturada,
+  // comprimida, enviada logo apos a inspecao. Guardar num deposito que
+  // sobrevive ao recarregamento so criaria lixo que ninguem viria buscar.
+  //
+  // O envio manda TODAS as fotos do acervo, e nao so as citadas nas respostas
+  // — por isso `descartarFoto` e' o unico jeito de tirar uma, e trocar a
+  // resposta de uma pergunta descarta as dela.
+  const acervo = new Map()
   const estrutura = modelo.estrutura
   const perguntas = estrutura.perguntas
   const respostas = {}
@@ -235,19 +247,18 @@ export function executarChecklist({ tarefa, modelo, aoConcluir, aoSair }) {
 
   // O UNICO jeito de apagar uma foto daqui.
   //
-  // Apagar do IndexedDB e' metade: o endereco de blob criado para MOSTRAR a
-  // foto na tela continua vivo enquanto ninguem o revoga, e com ele os bytes da
+  // Tirar do acervo e' metade: o endereco de blob criado para MOSTRAR a foto
+  // na tela continua vivo enquanto ninguem o revoga, e com ele os bytes da
   // imagem ficam presos na memoria ate a pagina fechar.
   //
-  // Chamava-se `fotos_remover`, num arquivo inteiro em camelCase, e dos tres
-  // lugares que apagam foto so um usava. Os outros dois chamavam
-  // `fotos.remover` direto e vazavam — "tirar novamente" e o corte de fotos
-  // acima do limite, que sao justamente os dois que a pessoa repete. Num
-  // aparelho barato, oito checklists com repeticao viram memoria que nao volta.
-  //
-  // O nome novo e' o que se procura ao escrever a proxima chamada.
+  // Ja houve tres lugares que apagavam foto e so um passava por aqui: os
+  // outros dois tiravam do deposito direto e deixavam o endereco vivo —
+  // "tirar novamente" e o corte de fotos acima do limite, que sao justamente
+  // os dois que a pessoa repete. Num aparelho barato, oito checklists com
+  // repeticao viram memoria que nao volta. Por isso o nome diz o que faz: e' o
+  // que se procura ao escrever a proxima chamada.
   async function descartarFoto(id) {
-    await fotos.remover(id)
+    acervo.delete(id)
     const url = enderecoDaFoto.get(id)
     if (url) { URL.revokeObjectURL(url); enderecoDaFoto.delete(id) }
   }
@@ -255,12 +266,12 @@ export function executarChecklist({ tarefa, modelo, aoConcluir, aoSair }) {
   async function guardarFoto(arquivo, perguntaId) {
     const comprimida = await comprimir(arquivo)
     const id = `${clienteUuid}:${perguntaId}:${Date.now()}`
-    await fotos.guardar({
+    acervo.set(id, {
       id, cliente_uuid: clienteUuid, pergunta_id: perguntaId,
       blob: comprimida, bytes: comprimida.size, capturado_em: new Date().toISOString(),
     })
     // O endereco e' so para MOSTRAR a foto na tela. Se falhar, a foto ja esta
-    // guardada e vai subir do mesmo jeito: perder a previa e' aceitavel,
+    // no acervo e vai subir do mesmo jeito: perder a previa e' aceitavel,
     // perder a foto nao.
     try {
       enderecoDaFoto.set(id, URL.createObjectURL(comprimida))
@@ -339,8 +350,8 @@ export function executarChecklist({ tarefa, modelo, aoConcluir, aoSair }) {
   // A tela promete isso com todas as letras — "Ja respondida como OK. Responder
   // de novo SUBSTITUI" — e a promessa nao estava sendo cumprida. A resposta
   // nova nascia com `fotos_ids: []`, mas as fotos antigas continuavam no
-  // IndexedDB amarradas a esta inspecao, e o envio manda TODAS as fotos da
-  // inspecao (`fotos.daInspecao`), nao so as citadas nas respostas.
+  // acervo desta inspecao, e o envio manda TODAS as fotos do acervo, nao so as
+  // citadas nas respostas.
   //
   // O resultado eram duas coisas erradas ao mesmo tempo: o relatorio mostrava
   // fotos de um julgamento que a pessoa desfez, e a CONTAGEM que o motor usa
@@ -940,6 +951,9 @@ export function executarChecklist({ tarefa, modelo, aoConcluir, aoSair }) {
             proxima_preventiva: proximaPreventiva,
             iniciada_em: inicio,
             resumo: juizo,
+            // O acervo viaja junto: quem envia precisa dos bytes, e sem
+            // deposito no aparelho nao ha onde ir busca-los depois.
+            fotos: [...acervo.values()],
           }),
         }),
       ]),

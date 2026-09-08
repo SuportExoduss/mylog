@@ -95,9 +95,17 @@ local: um token esquecido no aparelho continua valendo até expirar.
 GET /api/app/inicio
 ```
 
-Devolve **tudo que o aplicativo precisa para funcionar offline pelo resto do
-dia**. Chame ao abrir e ao puxar para atualizar; guarde a resposta inteira
-localmente (Room, DataStore, o que preferir).
+Devolve **tudo que o aplicativo precisa para montar a tela**: quem é a pessoa,
+o que ela tem para fazer, e os modelos de checklist já liberados para o cargo
+dela. Chame ao abrir e ao puxar para atualizar.
+
+> **Não guarde esta resposta no aparelho.** Ela tem nome, cargo, placas e as
+> tarefas de uma pessoa só, e o aparelho do pátio passa de mão em mão. O MyLog
+> já teve um cache disso, e ele custou dois furos: depois do logout, uma
+> abertura sem sinal devolvia a tela inteira sem pedir senha; e a rede caindo
+> logo após o login entregava a tela de quem usou o aparelho antes para quem
+> acabou de entrar. Ver
+> [D58](DECISOES.md#d58--o-offline-sai-inteiro-e-o-que-ele-protegia-fica).
 
 ```json
 {
@@ -252,16 +260,19 @@ POST /api/inspecoes
 }
 ```
 
-### Os dois instantes são obrigatórios num app offline
+### Os dois instantes são obrigatórios
 
 `iniciada_em` e `finalizada_em` dizem quando o checklist **aconteceu**. Se o app
-não mandar, o servidor usa a hora em que **recebeu** — e num envio offline isso é
-a hora em que o aparelho pegou sinal.
+não mandar, o servidor usa a hora em que **recebeu** — que é a hora em que o
+envio deu certo, não a hora do pátio.
 
-O estrago não é cosmético. Quem preenche às 07h50 no galpão e só tem rede às 14h
-aparece como **atrasado** num modelo com prazo até 08h30; e quem termina às 23h50
-e sincroniza à meia-noite e dez cai no dia seguinte, some do dia certo e vira
-**falta** no relatório de quem não fez.
+O estrago não é cosmético. Quem termina às 07h50 no galpão, perde o sinal e só
+consegue enviar às 08h40 aparece como **atrasado** num modelo com prazo até
+08h30; e quem termina às 23h50 e só envia à meia-noite e dez cai no dia
+seguinte, some do dia certo e vira **falta** no relatório de quem não fez.
+
+Por isso `finalizada_em` é carimbado **uma vez**, quando a pessoa termina, e a
+nova tentativa repete o mesmo carimbo.
 
 **Mande os dois, sempre**, no relógio do aparelho, em ISO-8601 com fuso.
 
@@ -279,7 +290,7 @@ celular atrasa, adianta e pode ser mexido:
 Fora da janela **a inspeção não é recusada** — ela aconteceu no mundo. Só a hora
 informada é descartada.
 
-### `cliente_uuid` — a peça que faz o offline funcionar
+### `cliente_uuid` — a peça que torna a nova tentativa segura
 
 Gere **um por checklist, no aparelho, antes de começar**. Reenviar o mesmo
 `cliente_uuid` devolve a inspeção existente com `repetida: true`, em vez de
@@ -289,8 +300,9 @@ duplicar:
 { "inspecao": { "...": "..." }, "repetida": true }
 ```
 
-Isso é o que permite a fila offline reenviar sem medo. A resposta pode ter se
-perdido no caminho; a inspeção, não.
+Isso é o que permite tentar de novo sem medo — e sem fila importa mais, não
+menos: a nova tentativa agora é de quem está com o aparelho na mão, e humano
+toca duas vezes. A resposta pode ter se perdido no caminho; a inspeção, não.
 
 ### `antes` e `depois` vêm sempre como objeto
 
@@ -399,7 +411,7 @@ POST /api/inspecoes/:id/evidencias
 > mandar o rótulo errado é defeito de cliente, não motivo para perder a foto que
 > o motorista já tirou. O `tipo_mime` do corpo entra só na mensagem de erro.
 
-Antes de reenviar a fila, consulte o que já chegou:
+Antes de tentar de novo, consulte o que já chegou:
 
 ```
 GET /api/inspecoes/:id/evidencias
@@ -519,7 +531,7 @@ Checklist de outra pessoa na mesma empresa dá **403**; de outra empresa dá
 | 409 | `conflito` | Estado mudou no servidor → recarregar e mostrar `mensagem` |
 | 429 | `muitas_tentativas` | Freio de tentativas. A `mensagem` diz em quantos minutos volta — **não** tente de novo em seguida |
 
-### O que a fila offline pode descartar, e o que ela nunca pode
+### O que a nova tentativa pode descartar, e o que nunca pode
 
 A regra que parece óbvia e está errada: **"4xx é recusa por regra, não adianta
 repetir"**. A razão está certa; a conta de quais respostas são recusa por regra,
@@ -533,37 +545,35 @@ não.
 | `400` `403` `404` `409` `413` `422` | não | O servidor recusou por regra: repetir dá o mesmo resultado |
 | `5xx` | **sim** | Problema do servidor, não do pedido |
 
-**Uma foto recusada em definitivo também não some em silêncio.** Ela sai do
-aparelho — insistir daria o mesmo resultado — mas o motivo fica no item da fila,
-com a pergunta a que ela pertencia. A inspeção continua `enviada`, porque ela
-está no servidor; o que falta é a evidência, e é justamente isso que alguém vai
-procurar meses depois, num sinistro.
+**Uma foto recusada em definitivo não some em silêncio.** Ela não volta para
+nova tentativa — insistir daria o mesmo resultado — mas o motivo volta, com a
+pergunta a que ela pertencia, e aparece na tela do fim. A inspeção está gravada;
+o que falta é a evidência, e é justamente isso que alguém vai procurar meses
+depois, num sinistro.
 
-**O item nunca some em silêncio.** Numa recusa definitiva ele fica na fila,
-marcado, com a mensagem do servidor à vista — quem executou precisa saber que
-aquele checklist não entrou, e por quê.
-
-**E uma foto nunca é apagada do aparelho por um `401`.** Esse é o caso que
-custa caro: a sessão do PWA dura 12 horas, então quem termina o dia no pátio e
-sincroniza na manhã seguinte cai exatamente nele. A inspeção já está no
-servidor; apagar a foto deixaria a prova dela sem existir em lugar nenhum.
+**E uma foto nunca é descartada por um `401`.** A sessão dura 12 horas, e quem
+começa o dia cedo pode terminar do outro lado do vencimento. A inspeção já está
+no servidor; descartar a foto deixaria a prova dela sem existir em lugar nenhum.
+Um `401` no envio de foto é caminho de credencial: entrar de novo, não insistir
+na rede.
 
 As mensagens são em português e escritas para o usuário final. Mostrá-las é
 melhor do que traduzir para "erro ao salvar".
 
 **Toda resposta traz `x-requisicao-id`.** Numa falha inesperada (500) o mesmo
-número vem dentro da mensagem e no campo `requisicao_id`. Guarde-o junto do item
-na fila e mostre-o na tela de erro: é o que liga a queixa de quem está no pátio à
-linha certa do log do servidor.
+número vem dentro da mensagem e no campo `requisicao_id`. Mostre-o na tela de
+erro: é o que liga a queixa de quem está no pátio à linha certa do log do
+servidor.
 
 **409 no envio de checklist** quase sempre significa que a solicitação mudou de
-estado enquanto o aparelho estava offline. Não descarte a inspeção da fila sem
-mostrar o que aconteceu.
+estado enquanto o checklist estava sendo preenchido — a Frota registrou a
+devolução pelo painel, por exemplo. Não descarte a inspeção sem mostrar o que
+aconteceu: a pessoa acabou de fazer o trabalho.
 
 **429 é erro de frequência, não de conteúdo.** Aparece no login e na troca de
-senha. A fila offline deve tratá-lo como erro temporário — espera crescente,
-nunca reenvio imediato —, e a tela deve mostrar a mensagem em vez de repetir o
-pedido, porque cada repetição só empurra o prazo para frente.
+senha. Trate-o como erro temporário — a `mensagem` diz quanto esperar — e mostre
+a mensagem em vez de repetir o pedido, porque cada repetição só empurra o prazo
+para frente.
 
 ---
 
@@ -572,8 +582,8 @@ pedido, porque cada repetição só empurra o prazo para frente.
 Toda rota é filtrada pela empresa da sessão. Um id de outra empresa devolve
 `404`, nunca `403` — negar confirmaria que o registro existe.
 
-O app não precisa fazer nada a respeito. Só não guarde ids entre logins de
-usuários diferentes.
+O app não precisa fazer nada a respeito — e, não guardando nada entre logins,
+não tem como errar nisso.
 
 ---
 
@@ -581,17 +591,32 @@ usuários diferentes.
 
 Em ordem de importância:
 
+> **O Android nasce sem offline**, pela mesma
+> [D58](DECISOES.md#d58--o-offline-sai-inteiro-e-o-que-ele-protegia-fica) que o
+> tirou da Web: sem fila, sem Room, sem cache do contexto. O MyLog exige
+> internet. O que a remoção **não** dispensa está nos itens 3 e 4 abaixo — são
+> eles que fazem a diferença entre "sem rede" e "trabalho perdido".
+
 1. **Login + troca de senha obrigatória.**
-2. **`GET /api/app/inicio` guardado localmente**, com data do download. A tela
-   deve dizer quando está mostrando cópia — dado de frota velho é pior que dado
-   ausente.
-3. **Execução do checklist offline**, com `cliente_uuid` gerado antes de
-   começar.
-4. **Fila de envio**: inspeção primeiro, fotos depois, com retentativa. Só
-   descarte da fila o que o servidor confirmou.
-5. **Câmera que não trava o fluxo.** Se ela não abrir, não responder ou for
-   cancelada, tem que haver caminho para frente. Foi o defeito nº 1 no PWA.
-6. **Tela "meus checklists"** (§9), com o que ainda está na fila marcado como
-   *não enviado*. É ela que responde à dúvida que gera duplicata.
+2. **`GET /api/app/inicio` a cada abertura**, sem guardar a resposta. Ela tem
+   nome, cargo, placas e tarefas de uma pessoa só, e o aparelho do pátio passa
+   de mão em mão.
+3. **Falhar não pode perder o trabalho.** O `Finalizar` é uma chamada de rede e
+   ela vai falhar no pátio. A tela de falha fica com o checklist inteiro em
+   memória e oferece nova tentativa; sessão vencida é caminho diferente —
+   entrar de novo, não insistir na rede. Descartar tem que existir (tela sem
+   saída é pior), mas cobrando confirmação e dizendo que o checklist se perde.
+4. **`cliente_uuid` gerado antes de começar**, e `cliente_id` em cada foto.
+   Inspeção primeiro, fotos depois, uma a uma: a foto que falha não derruba o
+   checklist. Foto com erro passageiro volta para nova tentativa; foto recusada
+   em definitivo volta **com o motivo**, à vista de quem executou.
+5. **`finalizada_em` carimbado uma vez**, quando a pessoa termina. A nova
+   tentativa repete o mesmo carimbo — quem terminou às 09h40 não terminou às
+   10h05.
+6. **Câmera que não trava o fluxo.** Se ela não abrir, não responder ou for
+   cancelada, tem que haver caminho para frente. Foi o defeito nº 1 no cliente
+   Web.
+7. **Tela "meus checklists"** (§9). É ela que responde à dúvida que gera
+   duplicata: *já mandei este?*
 
 O que **não** precisa: painel, relatórios, cadastros. Isso é web.

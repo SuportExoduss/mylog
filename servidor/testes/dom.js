@@ -174,10 +174,19 @@ class No {
   get innerHTML() { return this._html || '' }
   set innerHTML(v) { this._html = String(v) }
 
+  // `append` e `replaceChildren` do navegador NAO ignoram `null`: convertem em
+  // texto. `raiz.replaceChildren(a, null, b)` escreve a palavra "null" na tela,
+  // entre os dois.
+  //
+  // Este DOM ignorava, e a mentira era do tipo que fabrica confianca: a tela
+  // inicial do aplicativo mostrou "null" no navegador de verdade, em todas as
+  // telas, com a suite inteira verde. Quem filtra nulo e' o `elemento()`, e so
+  // ele — quem chama `append` cru tem que filtrar por conta.
   append(...nos) {
     for (const no of nos) {
-      if (no === null || no === undefined || no === false) continue
-      const filho = typeof no === 'string' ? new Texto(no) : no
+      const filho = (no instanceof No || no instanceof Texto)
+        ? no
+        : new Texto(String(no))
       filho.parentNode?.removeChild(filho)
       filho.parentNode = this
       this.filhos.push(filho)
@@ -191,6 +200,17 @@ class No {
   }
 
   remove() { this.parentNode?.removeChild(this) }
+
+  // Insere logo depois deste no'. E' como a tira de conexao volta a aparecer
+  // quando a rede cai, sem redesenhar a tela por baixo de quem responde.
+  after(...nos) {
+    const pai = this.parentNode
+    if (!pai) return
+    const onde = pai.filhos.indexOf(this)
+    const novos = nos.filter((n) => n !== null && n !== undefined)
+    for (const n of novos) { n.parentNode?.removeChild(n); n.parentNode = pai }
+    pai.filhos.splice(onde + 1, 0, ...novos)
+  }
 
   // Troca este no' por outro, no mesmo lugar. E' como a tira de conexao se
   // atualiza sem redesenhar a tela inteira.

@@ -678,6 +678,9 @@ com a correção ingênua, a de confiar cegamente no que o aparelho manda.
 
 ## D44 — A fila reenvia sozinha, com espera crescente
 
+> **Revista pela [D58](#d58--o-offline-sai-inteiro-e-o-que-ele-protegia-fica).** A fila offline saiu. A espera crescente foi embora com ela — sem fila não há o que reenviar sozinho, e a nova tentativa é um toque de quem está com o aparelho na mão. O que ficou desta decisão é a distinção que ela obrigou a escrever: erro passageiro não é recusa.
+
+
 **Contexto.** O envio só era disparado por evento: voltar a ficar online, voltar
 para a aba, abrir o app, ou tocar no botão. No pátio, com 4G oscilando, o
 aparelho continua **"online"** — tem sinal, só não passa dado —, então o evento
@@ -726,6 +729,9 @@ embutido quanto **atributo `on*`** — que é a forma mais fácil de escrever sc
 inline sem perceber que é script inline.
 
 ## D46 — O PWA entra em regime de manutenção
+
+> **Revista pela [D58](#d58--o-offline-sai-inteiro-e-o-que-ele-protegia-fica).** O regime de manutenção acabou em remoção: o service worker e o modo offline saíram do aplicativo Web. O `manifest.json` continua, pelo ícone e pelo tema; instalável como aplicativo, não é mais.
+
 
 **Decisão do dono do projeto, 06/09/2026.** O aplicativo de campo Android será
 escrito **do zero, original**, em Android Studio. Nada do PWA vira código nele.
@@ -1049,6 +1055,9 @@ que qualquer pessoa escreveria primeiro.
 
 ## D55 — Consertar um lado pode fechar a saída do outro
 
+> **Revista pela [D58](#d58--o-offline-sai-inteiro-e-o-que-ele-protegia-fica).** O beco descrito aqui era do `sair()` com fila pendente. Sem fila não há beco, e a recusa que o criava não existe mais. O princípio que a decisão registrou — um conserto pode fechar a saída do outro lado — foi o que apontou a ratoeira da tela de devolução, depois.
+
+
 A [D54](#d54--nem-todo-4xx-é-definitivo-e-tratar-como-se-fosse-apaga-evidência)
 parou de tratar `401` como recusa definitiva. Certo, e insuficiente: o conserto
 abriu um beco que antes não existia.
@@ -1083,6 +1092,9 @@ que passou a ser possível — e a resposta era um beco.
 ---
 
 ## D56 — O escopo do service worker é a pasta dele, e a casca não cabia nela
+
+> **Revista pela [D58](#d58--o-offline-sai-inteiro-e-o-que-ele-protegia-fica).** Não há mais service worker. A decisão fica pelo que ela ensina sobre escopo e sobre defeitos que só aparecem no pátio — e porque o aplicativo ainda precisa **cancelar** o service worker que instalou nos aparelhos enquanto esta decisão valeu.
+
 
 O aplicativo de campo **não abria offline**, e o motivo estava numa regra de
 plataforma que não aparece em nenhum lugar do código.
@@ -1135,3 +1147,71 @@ que só resta fechar.
 cabeçalhos de segurança, que saem em *toda* resposta — inclusive num 500. Um
 arquivo da casca quebrado passava batido: os cabeçalhos certos, e a página
 inexistente.
+
+---
+
+## D58 — O offline sai inteiro, e o que ele protegia fica
+
+**Decisão do dono do projeto, 08/09/2026.** O MyLog precisa de internet para
+operar. A fila offline, o depósito local (IndexedDB) e o service worker saem do
+aplicativo Web, e o **Android nativo nasce com o mesmo contrato** — não haverá
+fila lá.
+
+**Contexto.** A pergunta foi direta: se a internet é necessária de qualquer
+jeito para subir os checklists, a fila vale a pena? Duas coisas se chamavam
+"offline" no MyLog, e só uma delas depende dessa resposta.
+
+| | O que era | O que a remoção custa |
+|---|---|---|
+| **Fila de envio** | O checklist terminava no aparelho e subia sozinho depois | O `Finalizar` vira uma chamada de rede. Falhou o sinal naquele segundo, e o checklist só existe enquanto a tela estiver aberta |
+| **Abertura offline** | Service worker e contexto em cache: abrir o app e ver as tarefas sem sinal | O app exige internet para abrir |
+
+A fila nunca evitou a internet — ela evitava que a pessoa precisasse de sinal
+**no instante em que aperta Finalizar**. Essa é a diferença, e ela foi
+apresentada antes da decisão. A decisão foi tomada com ela na mesa.
+
+**O que vai junto.** ~~`sincronia.js`~~, ~~`armazem.js`~~ e ~~`sw.js`~~ saíram. Com eles
+saíram o relógio de retentativa, a tela de fila, o aviso de "sessão expirou, a
+fila está parada", o contexto guardado no aparelho e o aviso de "mostrando o
+que foi baixado". `envio.js` ocupa o lugar dos três, com um terço do tamanho e
+nenhum estado que sobreviva à tela.
+
+**O que NÃO vai junto** — e é o que importa desta decisão:
+
+1. **Falhar não pode perder o trabalho.** Quem respondeu quarenta perguntas com
+   foto não refaz. `enviarInspecao` nunca estoura: devolve o motivo, e a tela
+   de falha fica com a inspeção inteira na mão, oferecendo nova tentativa. O
+   descarte existe — tela sem saída é pior, e já custou caro na devolução — mas
+   pede confirmação e diz, com todas as letras, que o checklist será perdido.
+
+2. **Evidência não some em silêncio** ([D54](#d54--nem-todo-4xx-é-definitivo-e-tratar-como-se-fosse-apaga-evidência)).
+   Foto que falha por erro passageiro volta para nova tentativa; foto recusada
+   em definitivo volta com o motivo, e ele aparece na tela do fim.
+
+3. **Reenviar é seguro.** `cliente_uuid` na inspeção e `cliente_id` na
+   evidência continuam: o servidor devolve o registro que já existe em vez de
+   duplicar, mesmo quando a resposta da primeira tentativa se perdeu no
+   caminho. Sem fila isso é mais importante, não menos — a nova tentativa agora
+   é humana, e humano toca duas vezes.
+
+4. **A hora é a do pátio** ([D43](#d43--a-hora-do-checklist-é-a-do-pátio-não-a-da-sincronização)).
+   `finalizada_em` é carimbado uma vez, quando a pessoa termina. Tentar de novo
+   às 10h05 não pode dizer que o checklist das 09h40 foi feito às 10h05.
+
+**A tira de conexão mudou de trabalho.** Ela contava o que ainda não tinha
+subido; agora avisa **antes**, quando não há rede, para ninguém começar quarenta
+perguntas e descobrir no fim que não dá para enviar.
+
+**A despedida do service worker.** Tirar ~~`sw.js`~~ do repositório não tira o
+service worker dos aparelhos: um service worker instalado continua vivo,
+servindo a versão que guardou em cache, e nenhuma publicação nova alcança
+aquele aparelho. Quem tinha o MyLog instalado ficaria preso ao aplicativo
+antigo para sempre. Por isso o `app.js` cancela o registro e apaga os caches na
+abertura, e isso precisa **ficar por algumas versões**: tirar cedo demais não dá
+erro nenhum — só abandona os aparelhos que não abriram o aplicativo no meio
+tempo, que são exatamente os que mais precisam disso.
+
+**Uma decisão dessas volta sozinha.** Alguém precisa guardar "só um rascunho" e
+alcança o `localStorage`; alguém quer que o app abra mais rápido e registra um
+service worker. Uma varredura em `dominio.teste.js` recusa depósito local no
+aplicativo de campo. Ela não impede a volta — impede a volta distraída.

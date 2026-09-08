@@ -502,48 +502,66 @@ test('transacao: com outro escritor na frente, falha ANTES de decidir qualquer c
   }
 })
 
-// ------------------------------- a casca do service worker cobre o app inteiro
+// ------------------------------------------- o offline saiu, e tem que ficar fora
 
-// `cache.addAll` e' atomico: UM arquivo faltando derruba a instalacao inteira,
-// e o app deixa de abrir sem sinal. O erro nao aparece em desenvolvimento, onde
-// sempre ha rede — aparece no patio, no dia em que nao ha.
+// A fila offline, o IndexedDB e o service worker sairam por decisao de produto
+// (D58): o MyLog precisa de internet para operar, e o Android nativo nasce com
+// o mesmo contrato.
 //
-// Acrescentar um `import` no aplicativo e esquecer a casca e' o jeito mais
-// facil de causar isso, e nenhum teste veria. Este ve.
-test('offline: todo arquivo que o app carrega esta na casca do service worker', () => {
+// Uma decisao dessas volta sozinha. Alguem precisa guardar "so um rascunho" e
+// alcanca o `localStorage`; alguem quer que o app abra mais rapido e registra
+// um service worker. Cada um desses e' uma escolha de arquitetura disfarcada
+// de conveniencia, e a primeira coisa que ela traz de volta e' o problema que
+// custou dois furos de seguranca: dado de uma pessoa no aparelho da proxima.
+//
+// Este teste nao impede a volta — impede a volta DISTRAIDA. Quem precisar
+// mesmo reescreve esta lista, e ai e' uma decisao.
+test('offline: nenhum deposito local voltou de fininho para o aplicativo', () => {
   const raiz = path.join(import.meta.dirname, '..', '..')
-  const ler = (p) => fs.readFileSync(path.join(raiz, p), 'utf8')
+  const pasta = path.join(raiz, 'app', 'js')
 
-  const sw = ler('app/sw.js')
-  const listaCasca = sw.split('const CASCA = [')[1].split(']')[0]
-  const casca = new Set([...listaCasca.matchAll(/'(\/[^']+)'/g)].map((m) => m[1]))
-  assert.ok(casca.size >= 8, `a varredura precisa achar a casca; achou ${casca.size}`)
+  const proibidos = [
+    [/\bindexedDB\b/, 'IndexedDB'],
+    [/\blocalStorage\b/, 'localStorage'],
+    [/\bsessionStorage\b/, 'sessionStorage'],
+    [/serviceWorker\.register\b/, 'registro de service worker'],
+    [/\bcaches\.open\b/, 'cache do service worker'],
+  ]
 
-  // O que o HTML puxa direto.
-  const html = ler('app/index.html')
-  const precisa = new Set([...html.matchAll(/(?:src|href)="(\/[^"]+)"/g)].map((m) => m[1]))
-
-  // E a cadeia de imports a partir do modulo de entrada.
-  const vistos = new Set()
-  const pilha = ['app/js/app.js']
-  while (pilha.length) {
-    const arquivo = pilha.pop()
-    if (vistos.has(arquivo)) continue
-    vistos.add(arquivo)
-    for (const m of ler(arquivo).matchAll(/from '([^']+)'/g)) {
-      const alvo = path.posix.normalize(
-        path.posix.join(path.posix.dirname(arquivo), m[1]))
-      if (fs.existsSync(path.join(raiz, alvo))) pilha.push(alvo)
+  const achados = []
+  for (const nome of fs.readdirSync(pasta)) {
+    if (!nome.endsWith('.js')) continue
+    const codigo = fs.readFileSync(path.join(pasta, nome), 'utf8')
+      .split('\n').filter((l) => !l.trim().startsWith('//')).join('\n')
+    for (const [padrao, oque] of proibidos) {
+      if (padrao.test(codigo)) achados.push(`${nome}: ${oque}`)
     }
   }
-  for (const v of vistos) precisa.add(`/${v}`)
 
-  assert.ok(precisa.has('/compartilhado/template.js'),
-    'a varredura precisa alcancar o motor compartilhado pela cadeia de imports')
+  assert.deepEqual(achados, [],
+    `deposito local de volta no aplicativo de campo:\n${achados.join('\n')}`)
+})
 
-  const faltando = [...precisa].filter((p) => !casca.has(p)).sort()
-  assert.deepEqual(faltando, [],
-    `fora da casca do service worker: ${faltando.join(', ')}`)
+// A despedida do service worker tem que continuar la.
+//
+// Um service worker instalado nao morre quando o arquivo dele some do
+// repositorio: ele segue vivo no aparelho servindo a versao que guardou, e
+// nenhuma publicacao nova alcanca aquele aparelho. Quem tinha o MyLog
+// instalado ficaria preso no aplicativo antigo — com fila, com IndexedDB, sem
+// nenhuma correcao seguinte — para sempre.
+//
+// `unregister` e' o unico jeito de tirar um do ar.
+test('offline: o aplicativo cancela o service worker que ja estiver instalado', () => {
+  const raiz = path.join(import.meta.dirname, '..', '..')
+  const app = fs.readFileSync(path.join(raiz, 'app', 'js', 'app.js'), 'utf8')
+  const codigo = app.split('\n').filter((l) => !l.trim().startsWith('//')).join('\n')
+
+  assert.match(codigo, /getRegistrations/,
+    'o app precisa procurar os service workers instalados')
+  assert.match(codigo, /\.unregister\(\)/,
+    'e cancelar cada um: sem isso o aparelho fica preso na versao antiga')
+  assert.match(codigo, /caches\.delete/,
+    'e apagar o cache que ele deixou, senao os arquivos velhos continuam la')
 })
 
 test('implantacao: recusar subir sem segredo diz COMO resolver', () => {
@@ -617,7 +635,7 @@ test('contrato: os dois corpos que o aplicativo envia sao lidos por inteiro', ()
 
   const trechos = [
     ['envio do checklist', recortar('## 5. Enviar um checklist', '### Resposta')],
-    ['envio da foto', recortar('## 6. Fotos', 'Antes de reenviar')],
+    ['envio da foto', recortar('## 6. Fotos', 'Antes de tentar de novo')],
   ]
 
   const lidos = new Set([...FONTE_ROTAS.matchAll(/corpo\.(\w+)/g)].map((m) => m[1]))
@@ -982,7 +1000,7 @@ test('atomicidade: rota com duas escritas usa transacao', () => {
 // resposta, do outro lado da conversa: ali a RESPOSTA, aqui o PEDIDO.
 test('contrato: o aplicativo manda exatamente os campos que a rota de checklist le', () => {
   const raiz = path.join(import.meta.dirname, '..', '..')
-  const app = fs.readFileSync(path.join(raiz, 'app', 'js', 'sincronia.js'), 'utf8')
+  const app = fs.readFileSync(path.join(raiz, 'app', 'js', 'envio.js'), 'utf8')
   const rota = fs.readFileSync(path.join(raiz, 'servidor', 'src', 'rotas', 'inspecoes.js'), 'utf8')
 
   // O corpo do POST no aplicativo.
@@ -991,9 +1009,14 @@ test('contrato: o aplicativo manda exatamente os campos que a rota de checklist 
   const abre = app.indexOf('body: JSON.stringify({', iApp)
   const fecha = app.indexOf('}),', abre)
   assert.ok(abre > 0 && fecha > abre, 'nao achei o corpo do envio')
+  // Indentacao livre de proposito: prender a varredura a um numero de espacos
+  // faz ela devolver conjunto vazio no dia em que o bloco muda de lugar, e um
+  // conjunto vazio compara igual a outro conjunto vazio — o teste passaria sem
+  // ter olhado nada. E' o que aconteceu quando o envio mudou de arquivo; quem
+  // pegou foi o piso de tamanho logo abaixo, e ele fica.
   const manda = new Set(
     app.slice(abre, fecha).split('\n')
-      .map((l) => l.match(/^\s{6}([a-z_]+):/)?.[1])
+      .map((l) => l.match(/^\s+([a-z_]+):/)?.[1])
       .filter(Boolean),
   )
 
@@ -1019,18 +1042,17 @@ test('contrato: o aplicativo manda exatamente os campos que a rota de checklist 
 
 // Apagar foto passa por UM lugar so.
 //
-// Apagar do IndexedDB e' metade do trabalho: o endereco de blob criado para
+// Tirar do acervo e' metade do trabalho: o endereco de blob criado para
 // mostrar a foto na tela continua vivo enquanto ninguem o revoga, e com ele os
 // bytes da imagem ficam presos na memoria ate a pagina fechar.
 //
-// O helper que faz as duas coisas existia — e se chamava `fotos_remover`, num
-// arquivo inteiro em camelCase. Dos tres lugares que apagam foto, so um o
-// usava; os outros dois chamavam `fotos.remover` direto e vazavam. E eram
-// justamente os dois que a pessoa repete: "tirar novamente" e o corte de fotos
-// acima do limite.
+// O helper que faz as duas coisas ja existiu sem ser usado: dos tres lugares
+// que apagam foto, so um passava por ele; os outros dois mexiam no deposito
+// direto e vazavam. E eram justamente os dois que a pessoa repete: "tirar
+// novamente" e o corte de fotos acima do limite.
 //
 // Este teste nao mede memoria — mede o que da para medir de forma estavel: que
-// ninguem chama o deposito cru pelas costas do helper.
+// ninguem mexe no acervo pelas costas do helper.
 test('aplicativo: apagar foto passa sempre pelo mesmo lugar', () => {
   const raiz = path.join(import.meta.dirname, '..', '..')
   const checklist = fs.readFileSync(path.join(raiz, 'app', 'js', 'checklist.js'), 'utf8')
@@ -1041,16 +1063,16 @@ test('aplicativo: apagar foto passa sempre pelo mesmo lugar', () => {
     .filter((linha) => !linha.trim().startsWith('//'))
     .join('\n')
 
-  const cruas = [...codigo.matchAll(/\bfotos\.remover\(/g)]
+  const cruas = [...codigo.matchAll(/\bacervo\.delete\(/g)]
   assert.equal(cruas.length, 1,
-    `so o proprio helper pode chamar o deposito cru; achei ${cruas.length} chamadas`)
+    `so o proprio helper pode mexer no acervo; achei ${cruas.length} chamadas`)
 
   // E a chamada que sobra tem que estar DENTRO do helper.
   const iHelper = codigo.indexOf('async function descartarFoto(')
   assert.ok(iHelper > 0, 'o helper de descarte sumiu ou mudou de nome')
   const fimHelper = codigo.indexOf('\n  }', iHelper)
   const corpoHelper = codigo.slice(iHelper, fimHelper)
-  assert.match(corpoHelper, /fotos\.remover\(/,
+  assert.match(corpoHelper, /acervo\.delete\(/,
     'a unica chamada crua precisa ser a de dentro do helper')
   assert.match(corpoHelper, /revokeObjectURL/,
     'e o helper existe justamente para revogar o endereco junto')
@@ -1142,9 +1164,17 @@ test('documentos: o LEIA-ME aponta os cinco, e nenhum deles falta', () => {
 // ROADMAP substituiu por Solicitacao de veiculo. Tres decisoes descrevendo um
 // sistema que ninguem podia mais ler no codigo — e nada apontava isso.
 //
-// A EXCECAO e' deliberada: um bloco que comeca com "Nao vale mais" ou "Revista
-// pela" existe justamente para nomear o que foi embora. Cobrar existencia ali
-// seria proibir o registro de ter memoria.
+// Sao DUAS excecoes, e as duas sao deliberadas.
+//
+// A primeira: um bloco que comeca com "Nao vale mais" ou "Revista pela" existe
+// justamente para nomear o que foi embora. Cobrar existencia ali seria proibir
+// o registro de ter memoria.
+//
+// A segunda: a decisao que REMOVE um arquivo precisa nomear o arquivo que ela
+// removeu — e ela nao esta revogada, esta valendo. Sem esta excecao, o registro
+// so poderia descrever remocao por perifrase, ou o teste seria desligado. O
+// nome vai tachado, `~~assim~~`, que e' a mesma informacao para quem le a
+// pagina renderizada: este arquivo nao existe mais.
 test('documentos: nenhum documento cita arquivo que nao existe', () => {
   const raiz = path.join(import.meta.dirname, '..', '..')
 
@@ -1165,7 +1195,8 @@ test('documentos: nenhum documento cita arquivo que nao existe', () => {
     // nota no topo dela avisa.
     const blocos = texto.split(/^## /m)
       .filter((b) => !/^[^\n]*\n+>[^]{0,400}?(Não vale mais|Revista pela)/.test(b))
-    for (const bloco of blocos) {
+    for (const bruto of blocos) {
+      const bloco = bruto.replace(/~~[^~]*~~/g, '')
       for (const m of bloco.matchAll(/`([A-Za-z0-9_./-]+\.(?:js|sql|css|html|md))`/g)) {
         citados.push([doc, m[1]])
       }
