@@ -18,6 +18,26 @@ biblioteca de terceiros.
 
 ## D2 — SQLite no desenvolvimento, PostgreSQL na producao
 
+> **Revista em 08/09/2026.** O destino deixou de ser PostgreSQL e passou a ser
+> **Cloud Firestore** ([ARQUITETURA 6](ARQUITETURA.md)). Com isso, a frase
+> "a troca deve tocar um arquivo" deixou de valer — e a diferenca nao e' de
+> grau.
+>
+> Ela estava certa para PostgreSQL: `banco.js` expoe `consultar`,
+> `consultarUm`, `executar` e `transacao`, e trocar o motor por tras dessas
+> quatro funcoes seria um arquivo. Mas essas funcoes recebem **SQL cru**, e o
+> SQL vive nas rotas: sao **203 comandos espalhados por 21 arquivos**, 186
+> deles em `src/rotas/`. Nao ha camada de acesso a dados para trocar — ha
+> quatro primitivas e SQL em todo lugar.
+>
+> Contra o Firestore isso vira reescrita, e nao porta: 101 JOIN, 11 GROUP BY,
+> 24 COUNT, e a integridade apoiada em 11 indices UNIQUE e 41 FOREIGN KEY que
+> o Firestore nao tem. A idempotencia do reenvio e a numeracao por empresa
+> dependem justamente disso.
+>
+> A escolha de manter o esquema portavel continua boa e continua valendo — ela
+> so nao alcanca uma troca de modelo de dados.
+
 **Escolha:** o esquema e' escrito em SQL portavel — ids texto, sem AUTOINCREMENT,
 timestamps ISO-8601 em UTC, sem tipo exotico. Todo acesso ao banco passa por
 `src/nucleo/banco.js`.

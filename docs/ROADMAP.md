@@ -136,7 +136,7 @@ Frota cadastra cargo  →  Frota cadastra usuário com senha inicial
 | Aplicativo de campo | Execução de checklist | Web, **exige internet** (D58), câmera, assinatura. O Android será nativo, escrito do zero. |
 | Web | Supervisão e configuração | Painel responsivo, foco em leitura rápida e ação prioritária. |
 | API/Backend | Regras e segurança | Centraliza autenticação, autorização, estados, auditoria. |
-| Banco | Dados estruturados | PostgreSQL em produção; SQLite em desenvolvimento, com esquema portável. |
+| Banco | Dados estruturados | **Cloud Firestore** em produção; SQLite em desenvolvimento. A troca de PostgreSQL para Firestore está registrada em [ARQUITETURA 6](ARQUITETURA.md) — e ela **não é um detalhe de implantação**: o Firestore não tem JOIN, índice único nem chave estrangeira, e é disso que dependem a idempotência e a numeração por empresa. |
 | Object Storage | Arquivos | Fotos e documentos; cada objeto com referência e vínculo à entidade. |
 | Worker/Jobs | Processos assíncronos | Relatórios, processamento de imagem, lembretes de preventiva. |
 | PDF/Relatórios | Saída documental | Relatório operacional, executivo e dossiê de evidências. |
@@ -1880,7 +1880,7 @@ servidor, e não há dependência a instalar.
 | Frontend web | Vanilla JS com design system próprio, sem framework |
 | Aplicativo de campo | Web, exige internet (D58); Android nativo, do zero |
 | Backend | Node sem dependências externas; API stateless com regras centralizadas |
-| Banco | PostgreSQL em produção; SQLite portável em desenvolvimento |
+| Banco | Cloud Firestore em produção; SQLite em desenvolvimento (ARQUITETURA 6) |
 | Auth | Token opaco revogável; o banco guarda apenas o HMAC |
 | Storage | S3-compatible; Cloudflare R2 como opção |
 | PDF | Geração assíncrona; impressão do próprio painel como caminho inicial |
