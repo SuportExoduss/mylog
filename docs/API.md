@@ -207,15 +207,22 @@ condutor fixo: a lista traz os carros do galpão para a pessoa escolher.
 `foto_exibicao` é uma URL **relativa ao servidor**, servida em `/imagens/...`.
 Exige a mesma sessão das outras rotas: mande o `Authorization` também nela.
 
-**Baixe e guarde no aparelho, junto com o contexto — não quando a pergunta
-abrir.** A pergunta abre no pátio, que é onde não há sinal: buscar a imagem
-naquele instante é buscá-la exatamente quando ela não vem. O nome do arquivo é
-sorteado e a versão publicada é imutável (D50), então a cópia guardada nunca
-fica errada.
+**Carregue na hora, sem guardar no aparelho**
+([D58](DECISOES.md#d58--o-offline-sai-inteiro-e-o-que-ele-protegia-fica)). Esta
+instrução já foi a oposta — *baixe e guarde junto com o contexto* — porque o
+checklist precisava abrir sem sinal. Não precisa mais: o MyLog exige internet, e
+a pergunta só chega à tela de quem está com o servidor ao alcance.
 
-**Num aparelho compartilhado, guarde por usuário.** Duas pessoas de empresas
-diferentes no mesmo tablet não podem enxergar a cópia uma da outra: o servidor
-barra o acesso cruzado, mas um cache local sem dono não barra nada.
+O que **não** mudou: se a imagem não vier, a tela segue em frente. O exemplo
+mostra *como* fotografar a peça (roadmap 11.3) — é ajuda, não requisito, e uma
+imagem que falha nunca pode travar o checklist.
+
+> **Num aparelho compartilhado, nada do contexto pode sobreviver à sessão.** Duas
+> pessoas de empresas diferentes usam o mesmo tablet, e o MyLog já pagou duas
+> vezes por esquecer isso: o contexto guardado devolvia a tela da pessoa
+> anterior sem pedir senha, e a marca da empresa ficava na tela de login depois
+> que a sessão vencia. Sem depósito local o primeiro caso não existe; o segundo
+> é regra da tela, e vale igual no nativo.
 
 ### O julgamento é do servidor
 
