@@ -2029,36 +2029,24 @@ Pontos que ainda dependem de decisão da operação:
 9. **O filtro de período "igual ao do Fibra nos relatórios de O.S."** — desenhei
    como *de… até…* mais navegação por mês e atalhos (11.9). Se a tela do Fibra
    tem algo além disso, um print resolve.
-10. **Por quanto tempo as fotos de um checklist RECUSADO ficam no aparelho.**
+10. ~~**Por quanto tempo as fotos de um checklist RECUSADO ficam no
+    aparelho.**~~ **Resolvida pela [D58](DECISOES.md#d58--o-offline-sai-inteiro-e-o-que-ele-protegia-fica),
+    e nao por decisao da operacao.**
 
-    Quando o servidor recusa uma inspeção por regra — solicitação que mudou de
-    estado, checklist que não existe mais —, o item fica na fila marcado como
-    `recusada`, com o motivo à vista. Isso é deliberado: nada some em silêncio,
-    e o motorista precisa saber que aquele checklist não entrou.
+    A pergunta existia porque havia fila: um checklist recusado ficava
+    guardado, marcado, com as fotos junto — e elas so saiam do aparelho quando
+    a inspecao era aceita. Ficavam para sempre, sem ninguem ter decidido isso.
 
-    Mas as **fotos** dele também ficam, e ficam **para sempre**: só saem do
-    aparelho quando a inspeção é aceita. `limparEnviadasAntigas` toca apenas nas
-    enviadas.
+    Sem deposito local a pergunta nao tem sujeito. A foto vive enquanto a tela
+    de execucao estiver aberta: ou sobe logo apos a inspecao, ou volta para
+    nova tentativa ali mesmo. Fechada a tela, nao ha nada no aparelho para
+    reter nem para apagar.
 
-    A tensão era real dos dois lados. A D15 nomeava a cota de fotos como o
-    risco concentrado do offline — cada foto retida aproximava o navegador de
-    despejar o armazenamento e levar junto as fotos que *ainda não tinham
-    subido*. Sem depósito local (D58) esse lado da tensão desapareceu: a foto
-    sobe logo após a inspeção ou volta para nova tentativa na mesma tela. E, do
-    outro
-    lado, essas fotos são a única prova de que a pessoa fez o serviço que o
-    sistema diz não ter acontecido.
-
-    Três saídas possíveis, e a escolha é da operação:
-
-    - **manter para sempre** — o que acontece hoje, sem ter sido decidido;
-    - **apagar junto com as enviadas antigas** (7 dias), depois que a recusa já
-      foi vista;
-    - **deixar o motorista apagar**, com um botão que diz o que ele está
-      descartando.
-
-    Não implementei nenhuma: apagar evidência sem decisão explícita é
-    exatamente o defeito que a [D54](DECISOES.md) acabou de corrigir.
+    **O que a pergunta protegia continua valendo, noutro lugar:** o motorista
+    tem que saber que aquele checklist nao entrou. Sem fila isso deixou de ser
+    um item marcado numa lista e virou a tela de falha — que fica com o
+    checklist inteiro na mao e nao sai sem confirmacao explicita — e o aviso de
+    foto recusada, que volta com o motivo a vista.
 
 ### Respondidos em 04/09/2026
 
