@@ -827,3 +827,30 @@ test('relatorio: a marca de uma empresa nao vaza para a folha de outra', async (
   assert.doesNotMatch(html, /Transportes Aurora/,
     'a empresa B nao pode ver a marca da empresa A')
 })
+
+test('relatorio: marca clara nao deixa o botao de imprimir ilegivel', async () => {
+  // O botao usava `color:#fff` fixo sobre `background:var(--marca)`. A
+  // validacao de contraste garante `marca-contraste` contra `marca` — e nao
+  // BRANCO contra `marca`. Uma empresa pode escolher uma marca clara, com
+  // tinta escura, passar na validacao, e receber um botao branco sobre verde
+  // claro: ilegivel, sem nada acusar.
+  const frota = await entrar('frota.a@rel.local')
+
+  const r = await chamar('PUT', '/api/marca', {
+    token: frota,
+    corpo: {
+      // Verde claro com contraste escuro: passa nos tres pares do tema claro.
+      tokens_claro: { marca: '#0f7a3d', 'marca-contraste': '#ffffff' },
+    },
+  })
+  assert.equal(r.status, 200, `precisa publicar: ${JSON.stringify(r.dados)}`)
+
+  const html = await (await bruto('/relatorio/frota', frota)).text()
+
+  assert.doesNotMatch(html, /background:var\(--marca\); color:#fff/,
+    'branco fixo sobre a marca nao pode voltar')
+  assert.match(html, /color:var\(--marca-contraste\)/,
+    'a cor do texto vem do token conferido')
+  assert.match(html, /--marca-contraste:#ffffff/,
+    'e o token da empresa e mandado junto com a cor da marca')
+})

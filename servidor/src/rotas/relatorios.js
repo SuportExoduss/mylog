@@ -70,6 +70,7 @@ const rotular = (mapa, valor) => mapa[valor] || valor || '—'
 // arquivo externo que pode nao carregar na hora da impressao.
 const ESTILO = `
   :root { --tinta:#1a222c; --fraco:#5b6b7c; --linha:#d8dee8; --marca:#35539f;
+          --marca-contraste:#ffffff;
           --ok:#1a7a45; --media:#8a6100; --alta:#9c4a15; --critica:#a3222a; }
   /* A cor da marca da empresa entra por cima desta, quando ha uma. As cores de
      ESTADO nao entram nunca: verde, amarelo e vermelho dizem o que a folha
@@ -122,7 +123,13 @@ const ESTILO = `
   .relato { margin:6px 0 0; font-style:italic; color:var(--tinta) }
   .comparativo figure { margin:0 }
   .imprimir { margin-bottom:16px }
-  .imprimir button { padding:8px 16px; background:var(--marca); color:#fff; border:none;
+  /* Cor do texto pelo token --marca-contraste, e nao branco fixo: e' ele que
+     tem o contraste CONFERIDO contra a marca, a 4.5:1, antes de publicar. Uma
+     empresa pode escolher uma marca clara e passar na validacao — a tinta dela
+     seria escura — e ai o branco fixo deixaria este botao ilegivel, sem nada
+     acusar. Crase nenhuma neste comentario: ele vive dentro de um template
+     literal, e uma crase aqui encerra a folha de estilo inteira. */
+  .imprimir button { padding:8px 16px; background:var(--marca); color:var(--marca-contraste); border:none;
                      border-radius:6px; font:inherit; font-weight:600; cursor:pointer }
   @media print {
     body { padding:0 }
@@ -161,7 +168,7 @@ function pagina({ titulo, corpo, empresa, gerador, marca }) {
 <html lang="pt-BR"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${e(titulo)}</title><style>${ESTILO}</style>
-${corDaMarca ? `<style>:root{--marca:${e(corDaMarca)}}</style>` : ''}
+${corDaMarca ? `<style>:root{--marca:${e(corDaMarca)};--marca-contraste:${e(marca.tokens.claro['marca-contraste'])}}</style>` : ''}
 <script src="/js/imprimir.js" defer></script></head>
 <body>
 <div class="imprimir"><button type="button" data-imprimir>Imprimir ou salvar em PDF</button></div>
